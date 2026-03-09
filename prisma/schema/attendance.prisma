@@ -1,0 +1,13 @@
+model Attendance {
+  id          String           @id @default(uuid())
+  sessionId   String
+  memberId    String
+  status      AttendanceStatus @default(ABSENT)
+  note        String?
+  markedAt    DateTime         @default(now())
+ 
+  session     Session          @relation(fields: [sessionId], references: [id])
+ 
+  @@unique([sessionId, memberId])
+}
+ 

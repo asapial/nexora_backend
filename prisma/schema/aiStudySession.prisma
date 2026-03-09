@@ -1,0 +1,11 @@
+model AiStudySession {
+  id          String    @id @default(uuid())
+  userId      String
+  resourceId  String
+  messages    Json      // [{ role, content, timestamp }]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+ 
+  resource    Resource  @relation(fields: [resourceId], references: [id])
+}
+ 

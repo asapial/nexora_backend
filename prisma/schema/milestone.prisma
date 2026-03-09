@@ -1,0 +1,35 @@
+model Milestone {
+  id          String    @id @default(uuid())
+  clusterId   String
+  name        String
+  criteria    Json      // { type: "tasks_submitted" | "sessions_attended", threshold: number }
+  badgeIcon   String?
+  createdAt   DateTime  @default(now())
+ 
+  badges      UserBadge[]
+}
+ 
+model UserBadge {
+  id          String    @id @default(uuid())
+  userId      String
+  milestoneId String
+  awardedAt   DateTime  @default(now())
+ 
+  user        User      @relation(fields: [userId], references: [id])
+  milestone   Milestone @relation(fields: [milestoneId], references: [id])
+ 
+  @@unique([userId, milestoneId])
+}
+ 
+model Certificate {
+  id            String    @id @default(uuid())
+  userId        String
+  courseId      String?
+  clusterId     String?
+  title         String
+  pdfUrl        String?
+  verifyCode    String    @unique @default(uuid())
+  issuedAt      DateTime  @default(now())
+ 
+  user          User      @relation(fields: [userId], references: [id])
+}
