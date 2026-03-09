@@ -36,7 +36,7 @@ app.use(
 );
 
 // Better Auth API Route
-app.all('/api/auth/*', toNodeHandler(auth));
+app.all('/api/auth/', toNodeHandler(auth));
 
 // Health Check Route
 app.get("/", (_req, res) => {
