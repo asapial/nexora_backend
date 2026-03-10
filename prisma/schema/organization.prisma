@@ -1,13 +1,12 @@
-
 model Organization {
-  id          String    @id @default(uuid())
-  name        String
-  slug        String    @unique
-  logoUrl     String?
-  brandColor  String?
-  adminId     String
-  createdAt   DateTime  @default(now())
- 
-  users       User[]
-  clusters    Cluster[]
+  id         String   @id @default(uuid())
+  name       String
+  slug       String   @unique
+  logoUrl    String?
+  brandColor String?
+  adminId    String
+  createdAt  DateTime @default(now())
+
+  users    User[]
+  clusters Cluster[]
 }

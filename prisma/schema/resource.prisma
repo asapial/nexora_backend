@@ -1,5 +1,5 @@
 model Resource {
-  id          String      @id @default(uuid())
+  id          String     @id @default(uuid())
   uploaderId  String
   clusterId   String?
   categoryId  String?
@@ -7,72 +7,72 @@ model Resource {
   description String?
   fileUrl     String
   fileType    String
-  visibility  Visibility  @default(PUBLIC)
+  visibility  Visibility @default(PUBLIC)
   tags        String[]
   authors     String[]
   year        Int?
-  isFeatured  Boolean     @default(false)
-  viewCount   Int         @default(0)
-//   embedding   Unsupported("vector(1536)")?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
- 
-  uploader    User        @relation(fields: [uploaderId], references: [id])
-  cluster     Cluster?    @relation(fields: [clusterId], references: [id])
-  category    ResourceCategory? @relation(fields: [categoryId], references: [id])
+  isFeatured  Boolean    @default(false)
+  viewCount   Int        @default(0)
+  //   embedding   Unsupported("vector(1536)")?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  uploader    User                 @relation(fields: [uploaderId], references: [id])
+  cluster     Cluster?             @relation(fields: [clusterId], references: [id])
+  category    ResourceCategory?    @relation(fields: [categoryId], references: [id])
   comments    ResourceComment[]
   annotations ResourceAnnotation[]
   quizzes     ResourceQuiz[]
   bookmarks   ReadingListItem[]
   aiSessions  AiStudySession[]
 }
- 
+
 model ResourceCategory {
-  id          String     @id @default(uuid())
-  name        String
-  teacherId   String?
-  clusterId   String?
-  isGlobal    Boolean    @default(false)
-  isFeatured  Boolean    @default(false)
-  createdAt   DateTime   @default(now())
- 
-  resources   Resource[]
+  id         String   @id @default(uuid())
+  name       String
+  teacherId  String?
+  clusterId  String?
+  isGlobal   Boolean  @default(false)
+  isFeatured Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  resources Resource[]
 }
- 
+
 model ResourceComment {
-  id          String    @id @default(uuid())
-  resourceId  String
-  authorId    String
-  parentId    String?
-  body        String
-  isPinned    Boolean   @default(false)
-  createdAt   DateTime  @default(now())
- 
-  resource    Resource  @relation(fields: [resourceId], references: [id])
-  parent      ResourceComment? @relation("CommentThread", fields: [parentId], references: [id])
-  replies     ResourceComment[] @relation("CommentThread")
+  id         String   @id @default(uuid())
+  resourceId String
+  authorId   String
+  parentId   String?
+  body       String
+  isPinned   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  resource Resource          @relation(fields: [resourceId], references: [id])
+  parent   ResourceComment?  @relation("CommentThread", fields: [parentId], references: [id])
+  replies  ResourceComment[] @relation("CommentThread")
 }
- 
+
 model ResourceAnnotation {
-  id          String    @id @default(uuid())
-  resourceId  String
-  userId      String
-  highlight   String?
-  note        String?
-  page        Int?
-  isShared    Boolean   @default(false)
-  createdAt   DateTime  @default(now())
- 
-  resource    Resource  @relation(fields: [resourceId], references: [id])
-  user        User      @relation(fields: [userId], references: [id])
+  id         String   @id @default(uuid())
+  resourceId String
+  userId     String
+  highlight  String?
+  note       String?
+  page       Int?
+  isShared   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  resource Resource @relation(fields: [resourceId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
 }
- 
+
 model ResourceQuiz {
-  id          String    @id @default(uuid())
-  resourceId  String
-  questions   Json      // [{ question, options[], correctIndex, explanation }]
-  passMark    Int
-  createdAt   DateTime  @default(now())
- 
-  resource    Resource  @relation(fields: [resourceId], references: [id])
+  id         String   @id @default(uuid())
+  resourceId String
+  questions  Json // [{ question, options[], correctIndex, explanation }]
+  passMark   Int
+  createdAt  DateTime @default(now())
+
+  resource Resource @relation(fields: [resourceId], references: [id])
 }

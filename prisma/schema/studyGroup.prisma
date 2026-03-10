@@ -1,22 +1,24 @@
 model StudyGroup {
-  id          String    @id @default(uuid())
-  clusterId   String
-  name        String
-  maxMembers  Int       @default(5)
-  createdAt   DateTime  @default(now())
- 
-  cluster     Cluster   @relation(fields: [clusterId], references: [id])
-  members     StudyGroupMember[]
+  id         String   @id @default(uuid())
+  clusterId  String
+  name       String
+  maxMembers Int      @default(5)
+  createdAt  DateTime @default(now())
+
+  cluster Cluster            @relation(fields: [clusterId], references: [id])
+  members StudyGroupMember[]
 }
- 
+
 model StudyGroupMember {
-  id          String    @id @default(uuid())
-  groupId     String
-  userId      String
-  joinedAt    DateTime  @default(now())
- 
-  group       StudyGroup @relation(fields: [groupId], references: [id])
-  user        User       @relation(fields: [userId], references: [id])
- 
+  id       String   @id @default(uuid())
+  groupId  String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  group            StudyGroup      @relation(fields: [groupId], references: [id])
+  user             User            @relation(fields: [userId], references: [id])
+  studentProfile   StudentProfile? @relation(fields: [studentProfileId], references: [id])
+  studentProfileId String?
+
   @@unique([groupId, userId])
 }

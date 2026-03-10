@@ -1,26 +1,26 @@
 model Announcement {
-  id           String               @id @default(uuid())
-  authorId     String
-  title        String
-  body         String
-  urgency      AnnouncementUrgency  @default(INFO)
+  id            String              @id @default(uuid())
+  authorId      String
+  title         String
+  body          String
+  urgency       AnnouncementUrgency @default(INFO)
   attachmentUrl String?
-  scheduledAt  DateTime?
-  publishedAt  DateTime?
-  isGlobal     Boolean              @default(false)
-  targetRole   Role?
-  createdAt    DateTime             @default(now())
- 
-  author       User                 @relation(fields: [authorId], references: [id])
-  clusters     AnnouncementCluster[]
+  scheduledAt   DateTime?
+  publishedAt   DateTime?
+  isGlobal      Boolean             @default(false)
+  targetRole    Role?
+  createdAt     DateTime            @default(now())
+
+  author   User                  @relation(fields: [authorId], references: [id])
+  clusters AnnouncementCluster[]
 }
- 
+
 model AnnouncementCluster {
   announcementId String
   clusterId      String
- 
-  announcement   Announcement @relation(fields: [announcementId], references: [id])
-  cluster        Cluster      @relation(fields: [clusterId], references: [id])
- 
+
+  announcement Announcement @relation(fields: [announcementId], references: [id])
+  cluster      Cluster      @relation(fields: [clusterId], references: [id])
+
   @@id([announcementId, clusterId])
 }

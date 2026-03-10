@@ -3,6 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./lib/auth";
+import { authRouter } from "./modules/auth/auth.router";
 
 const app: Application = express();
 
@@ -11,7 +12,7 @@ app.use(cookieParser());
 app.use(express.json());
 
 // CORS Setup
-const allowedOrigins = ["http://localhost:3000"].filter(Boolean);
+const allowedOrigins = ["http://localhost:4000"].filter(Boolean);
 
 app.use(
   cors({
@@ -36,7 +37,9 @@ app.use(
 );
 
 // Better Auth API Route
-app.all('/api/auth/', toNodeHandler(auth));
+// app.all('/api/auth/', toNodeHandler(auth));
+
+app.use("/auth",authRouter);
 
 // Health Check Route
 app.get("/", (_req, res) => {

@@ -1,22 +1,24 @@
 model ReadingList {
-  id          String    @id @default(uuid())
-  userId      String
-  name        String
-  isPublic    Boolean   @default(false)
-  shareSlug   String?   @unique
-  createdAt   DateTime  @default(now())
- 
-  user        User      @relation(fields: [userId], references: [id])
-  items       ReadingListItem[]
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  isPublic  Boolean  @default(false)
+  shareSlug String?  @unique
+  createdAt DateTime @default(now())
+
+  user             User              @relation(fields: [userId], references: [id])
+  items            ReadingListItem[]
+  studentProfile   StudentProfile?   @relation(fields: [studentProfileId], references: [id])
+  studentProfileId String?
 }
- 
+
 model ReadingListItem {
-  id            String    @id @default(uuid())
+  id            String   @id @default(uuid())
   readingListId String
   resourceId    String
-  order         Int       @default(0)
-  addedAt       DateTime  @default(now())
- 
-  readingList   ReadingList @relation(fields: [readingListId], references: [id])
-  resource      Resource    @relation(fields: [resourceId], references: [id])
+  order         Int      @default(0)
+  addedAt       DateTime @default(now())
+
+  readingList ReadingList @relation(fields: [readingListId], references: [id])
+  resource    Resource    @relation(fields: [resourceId], references: [id])
 }

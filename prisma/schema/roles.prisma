@@ -3,19 +3,19 @@ enum Role {
   TEACHER
   STUDENT
 }
- 
+
 enum MemberSubtype {
   RUNNING
   EMERGING
   ALUMNI
 }
- 
+
 enum TaskStatus {
   PENDING
   SUBMITTED
   REVIEWED
 }
- 
+
 enum TaskScore {
   EXCELLENT
   GOOD
@@ -23,42 +23,48 @@ enum TaskScore {
   NEEDS_WORK
   POOR
 }
- 
+
 enum Visibility {
   PUBLIC
   CLUSTER
   PRIVATE
 }
- 
+
 enum AnnouncementUrgency {
   INFO
   IMPORTANT
   CRITICAL
 }
- 
+
 enum AttendanceStatus {
   PRESENT
   ABSENT
   EXCUSED
 }
- 
+
 enum ClusterHealth {
   HEALTHY
   AT_RISK
   INACTIVE
 }
- 
+
 enum TicketStatus {
   OPEN
   IN_PROGRESS
   RESOLVED
   CLOSED
 }
- 
+
 enum WebhookEvent {
   MEMBER_ADDED
   TASK_REVIEWED
   SESSION_CREATED
   PAYMENT_COMPLETED
   CLUSTER_DELETED
+}
+
+enum PlanTier {
+  FREE
+  PRO
+  ENTERPRISE
 }

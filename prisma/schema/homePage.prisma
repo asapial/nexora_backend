@@ -1,8 +1,8 @@
 model HomepageSection {
-  id          String    @id @default(uuid())
-  key         String    @unique // hero, navbar, stats, features, etc.
-  content     Json
-  isVisible   Boolean   @default(true)
-  order       Int       @default(0)
-  updatedAt   DateTime  @updatedAt
+  id        String   @id @default(uuid())
+  key       String   @unique // hero, navbar, stats, features, etc.
+  content   Json
+  isVisible Boolean  @default(true)
+  order     Int      @default(0)
+  updatedAt DateTime @updatedAt
 }

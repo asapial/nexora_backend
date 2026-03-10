@@ -1,4 +1,3 @@
-
 model User {
   id            String    @id
   name          String
@@ -10,72 +9,54 @@ model User {
   sessions      Session[]
   accounts      Account[]
 
-  role              Role           @default(STUDENT)
-  isActive          Boolean        @default(true)
-  oneTimePassword   String?
-  oneTimeExpiry     DateTime?
-  lastLoginAt       DateTime?
-  organizationId    String?
+  role            Role      @default(STUDENT)
+  isActive        Boolean   @default(true)
+  oneTimePassword String?
+  oneTimeExpiry   DateTime?
+  lastLoginAt     DateTime?
+  organizationId  String?
 
- 
-  organization      Organization?  @relation(fields: [organizationId], references: [id])
-  teacherClusters   Cluster[]      @relation("ClusterTeacher")
-  memberships       ClusterMember[]
-  coTeacherOf       CoTeacher[]
-  tasks             Task[]
-  submissions       TaskSubmission[]
-  resources         Resource[]
-  announcements     Announcement[]
-  notifications     Notification[]
-  enrollments       CourseEnrollment[]
-  badges            UserBadge[]
-  certificates      Certificate[]
-  supportTickets    SupportTicket[]
-  auditLogs         AuditLog[]
-  readingLists      ReadingList[]
-  annotations       ResourceAnnotation[]
-  goals             MemberGoal[]
-  studyGroups       StudyGroupMember[]
-  impersonatedLogs  AuditLog[]     @relation("ImpersonatorLog")
- 
-  @@index([email, role])
+  organization         Organization?        @relation(fields: [organizationId], references: [id])
+  teacherClusters      Cluster[]            @relation("ClusterTeacher")
+  memberships          ClusterMember[]
+  coTeacherOf          CoTeacher[]
+  tasks                Task[]
+  submissions          TaskSubmission[]
+  resources            Resource[]
+  announcements        Announcement[]
+  notifications        Notification[]
+  enrollments          CourseEnrollment[]
+  badges               UserBadge[]
+  certificates         Certificate[]
+  supportTickets       SupportTicket[]
+  auditLogs            AuditLog[]
+  readingLists         ReadingList[]
+  annotations          ResourceAnnotation[]
+  goals                MemberGoal[]
+  studyGroups          StudyGroupMember[]
+  // createdStudySessions StudySession[]       @relation("SessionCreator")
+  impersonatedLogs     AuditLog[]           @relation("ImpersonatorLog")
+
+  teacherProfile TeacherProfile?
+  studentProfile StudentProfile?
+  planTier       PlanTier        @default(FREE)
 
   @@unique([email])
+  @@index([email, role])
   @@map("user")
 }
 
 model Session {
-  id        String   @id
-  expiresAt DateTime
-  token     String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  ipAddress String?
-  userAgent String?
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  clusterId       String
-  createdById     String
-  title           String
-  description     String?
-  scheduledAt     DateTime
-  location        String?
-  taskDeadline    DateTime?
-  templateId      String?
-  recordingUrl    String?
-  recordingNotes  String?
-
- 
-  cluster         Cluster    @relation(fields: [clusterId], references: [id])
-  template        TaskTemplate? @relation(fields: [templateId], references: [id])
-  tasks           Task[]
-  attendance      Attendance[]
-  feedback        SessionFeedback[]
-  agenda          SessionAgenda[]
- 
-  @@index([clusterId, scheduledAt])
-
+  id               String          @id
+  expiresAt        DateTime
+  token            String
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  ipAddress        String?
+  userAgent        String?
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teacherProfileId String?
 
   @@unique([token])
   @@index([userId])
