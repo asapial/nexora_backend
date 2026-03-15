@@ -15,6 +15,8 @@ model User {
   oneTimeExpiry   DateTime?
   lastLoginAt     DateTime?
   organizationId  String?
+  needPasswordChange Boolean @default(false)
+  isDeleted Boolean? 
 
   organization         Organization?        @relation(fields: [organizationId], references: [id])
   teacherClusters      Cluster[]            @relation("ClusterTeacher")

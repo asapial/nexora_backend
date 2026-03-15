@@ -52,13 +52,13 @@ const registerService = async (data: IRegisterData) => {
             refreshToken
         }
     } catch (error) {
-        await prisma.user.delete({
+        await prisma.user.deleteMany({
             where: {
                 id: result.user.id
             }
         })
 
-        throw new AppError(status.INTERNAL_SERVER_ERROR,"Student profile creation failed")
+        throw new AppError(status.INTERNAL_SERVER_ERROR, "Student profile creation failed")
 
     }
 
@@ -180,8 +180,19 @@ const changePasswordService = async (newPassword: string, oldPassword: string, s
         })
     })
 
+    if (session.user.needPasswordChange) {
+        await prisma.user.update({
+            where: {
+                id: session.user.id,
+            },
+            data: {
+                needPasswordChange: false,
+            }
+        })
+    }
 
-        const accessToken = tokenUtils.createAccessToken({
+
+    const accessToken = tokenUtils.createAccessToken({
         userId: result.user.id,
         role: result.user.role,
         name: result.user.name,
@@ -210,9 +221,9 @@ const changePasswordService = async (newPassword: string, oldPassword: string, s
 }
 
 
-const logoutService= async (sessionToken : string)=>{
+const logoutService = async (sessionToken: string) => {
 
-    const result= await auth.api.signOut({
+    const result = await auth.api.signOut({
         headers: new Headers({
             Authorization: `Bearer ${sessionToken}`
         })
@@ -221,9 +232,139 @@ const logoutService= async (sessionToken : string)=>{
     return result;
 }
 
+const verifyEmail = async (email: string, otp: string) => {
+
+    const result = await auth.api.verifyEmailOTP({
+        body: {
+            email,
+            otp,
+        }
+    })
+
+    if (result.status && !result.user.emailVerified) {
+        await prisma.user.update({
+            where: {
+                email,
+            },
+            data: {
+                emailVerified: true,
+            }
+        })
+    }
+}
+
+const forgetPassword = async (email: string) => {
+    const isUserExist = await prisma.user.findUnique({
+        where: {
+            email,
+        }
+    })
+
+    if (!isUserExist) {
+        throw new AppError(status.NOT_FOUND, "User not found");
+    }
+
+    if (!isUserExist.emailVerified) {
+        throw new AppError(status.BAD_REQUEST, "Email not verified");
+    }
+
+    if (isUserExist.isDeleted) {
+        throw new AppError(status.NOT_FOUND, "User not found");
+    }
+
+    await auth.api.requestPasswordResetEmailOTP({
+        body: {
+            email,
+        }
+    })
+}
+
+const resetPassword = async (email: string, otp: string, newPassword: string) => {
+    const isUserExist = await prisma.user.findUnique({
+        where: {
+            email,
+        }
+    })
+
+    if (!isUserExist) {
+        throw new AppError(status.NOT_FOUND, "User not found");
+    }
+
+    if (!isUserExist.emailVerified) {
+        throw new AppError(status.BAD_REQUEST, "Email not verified");
+    }
+
+    if (isUserExist.isDeleted) {
+        throw new AppError(status.NOT_FOUND, "User not found");
+    }
+
+    await auth.api.resetPasswordEmailOTP({
+        body: {
+            email,
+            otp,
+            password: newPassword,
+        }
+    })
+
+    if (isUserExist.needPasswordChange) {
+        await prisma.user.update({
+            where: {
+                id: isUserExist.id,
+            },
+            data: {
+                needPasswordChange: false,
+            }
+        })
+    }
+
+    await prisma.session.deleteMany({
+        where: {
+            userId: isUserExist.id,
+        }
+    })
+}
+
+
+const googleLoginSuccess= async (session: Record<string, any>)=>{
+    const isStudentExists= await prisma.studentProfile.findUnique({
+        where:{
+            userId:session.user.id
+        }
+    })
+
+    if(!isStudentExists){
+        await prisma.studentProfile.create({
+            data:{
+                userId:session.user.userId
+            }
+        })
+    }
+
+        const accessToken = tokenUtils.createAccessToken({
+        userId: session.user.id,
+        role: session.user.role,
+        name: session.user.name,
+    });
+
+    const refreshToken = tokenUtils.createRefreshToken({
+        userId: session.user.id,
+        role: session.user.role,
+        name: session.user.name,
+    });
+
+    return {
+        accessToken,
+        refreshToken,
+    }
+}
+
 export const authService = {
     registerService,
     loginService,
     changePasswordService,
-    logoutService
+    logoutService,
+    verifyEmail,
+    forgetPassword,
+    resetPassword,
+    googleLoginSuccess
 }

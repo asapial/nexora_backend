@@ -4,9 +4,16 @@ import cookieParser from "cookie-parser";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./lib/auth";
 import { authRouter } from "./modules/auth/auth.router";
+import path from "path";
+import { clusterRouter } from "./modules/cluster/cluster.route";
+import { resourceRouter } from "./modules/resource/resource.route";
 
 const app: Application = express();
 
+app.set("view engine", "ejs");
+app.set("views",path.resolve(process.cwd(), `src/templates`) )
+
+app.use("/api/auth", toNodeHandler(auth));
 // Middleware
 app.use(cookieParser());
 app.use(express.json());
@@ -40,6 +47,8 @@ app.use(
 // app.all('/api/auth/', toNodeHandler(auth));
 
 app.use("/auth",authRouter);
+app.use("/cluster",clusterRouter);
+app.use("/resource",resourceRouter);
 
 // Health Check Route
 app.get("/", (_req, res) => {

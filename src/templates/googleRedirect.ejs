@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Connecting with Google — Nexora</title>
+  <style>
+    /* ── RESET & BASE ─────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #f4f6fb;
+      --card:      #ffffff;
+      --navy:      #1B2B4B;
+      --blue:      #2563eb;
+      --blue-lt:   #eff6ff;
+      --purple:    #7c3aed;
+      --text-1:    #111827;
+      --text-2:    #6b7280;
+      --text-3:    #9ca3af;
+      --border:    #e5e7eb;
+      --red:       #ef4444;
+      --red-bg:    #fef2f2;
+      --red-bdr:   #fecaca;
+      --shadow:    0 8px 40px rgba(37,99,235,0.10), 0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    html, body {
+      height: 100%;
+      background-color: var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                   'Helvetica Neue', Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── LAYOUT ───────────────────────────────────────── */
+    .page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(37,99,235,0.10) 0%, transparent 70%),
+        #f4f6fb;
+    }
+
+    /* ── CARD ─────────────────────────────────────────── */
+    .card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--card);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    /* top shimmer bar */
+    .card-bar {
+      height: 3px;
+      background: linear-gradient(90deg, var(--blue) 0%, var(--purple) 100%);
+    }
+
+    .card-body {
+      padding: 48px 44px 44px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    /* ── LOGO ─────────────────────────────────────────── */
+    .logo {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      color: var(--navy);
+      text-decoration: none;
+      margin-bottom: 36px;
+      display: block;
+    }
+
+    .logo span { color: var(--blue); }
+
+    /* ── ICON STACK ───────────────────────────────────── */
+    .icon-stack {
+      position: relative;
+      width: 80px;
+      height: 80px;
+      margin-bottom: 28px;
+    }
+
+    /* outer ring — pulses */
+    .icon-stack::before {
+      content: '';
+      position: absolute;
+      inset: -8px;
+      border-radius: 50%;
+      border: 2px solid rgba(37,99,235,0.15);
+      animation: ring-pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes ring-pulse {
+      0%, 100% { transform: scale(1);   opacity: 1; }
+      50%       { transform: scale(1.08); opacity: 0.4; }
+    }
+
+    .icon-circle {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #dbeafe 0%, #ede9fe 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Google 'G' SVG */
+    .icon-circle svg { width: 38px; height: 38px; }
+
+    /* ── HEADING ──────────────────────────────────────── */
+    .card-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-1);
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .card-sub {
+      font-size: 14px;
+      color: var(--text-2);
+      line-height: 1.7;
+      max-width: 300px;
+      margin: 0 auto 36px;
+    }
+
+    /* ── PROGRESS BAR ─────────────────────────────────── */
+    .progress-wrap {
+      width: 100%;
+      height: 4px;
+      background-color: #e5e7eb;
+      border-radius: 999px;
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--blue), var(--purple));
+      border-radius: 999px;
+      animation: progress-fill 2.4s cubic-bezier(0.4,0,0.2,1) forwards;
+    }
+
+    @keyframes progress-fill {
+      0%   { width: 0%; }
+      60%  { width: 75%; }
+      85%  { width: 88%; }
+      100% { width: 95%; }
+    }
+
+    /* ── STATUS TEXT ──────────────────────────────────── */
+    .status-text {
+      font-size: 12.5px;
+      color: var(--text-3);
+      letter-spacing: 0.02em;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    /* typing dots */
+    .dot {
+      width: 4px; height: 4px;
+      background-color: var(--blue);
+      border-radius: 50%;
+      opacity: 0.5;
+      animation: dot-blink 1.2s ease-in-out infinite;
+    }
+
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes dot-blink {
+      0%, 80%, 100% { transform: scale(1);   opacity: 0.4; }
+      40%            { transform: scale(1.4); opacity: 1;   }
+    }
+
+    /* ── SECURE BADGE ─────────────────────────────────── */
+    .secure-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 28px;
+      padding: 6px 14px;
+      background-color: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 999px;
+      font-size: 11.5px;
+      color: #15803d;
+      font-weight: 500;
+    }
+
+    .secure-badge svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+    /* ── ERROR STATE ──────────────────────────────────── */
+    .error-card {
+      display: none;
+      width: 100%;
+      max-width: 440px;
+      background: var(--card);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      border: 1px solid var(--red-bdr);
+    }
+
+    .error-bar {
+      height: 3px;
+      background: linear-gradient(90deg, var(--red) 0%, #f97316 100%);
+    }
+
+    .error-body {
+      padding: 48px 44px 44px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .error-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: var(--red-bg);
+      border: 1px solid var(--red-bdr);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin-bottom: 22px;
+    }
+
+    .error-title {
+      font-size: 19px;
+      font-weight: 700;
+      color: var(--text-1);
+      margin-bottom: 10px;
+    }
+
+    .error-msg {
+      font-size: 14px;
+      color: var(--text-2);
+      line-height: 1.7;
+      margin-bottom: 28px;
+      max-width: 320px;
+    }
+
+    .error-detail {
+      font-size: 12px;
+      font-family: 'Courier New', monospace;
+      color: var(--red);
+      background: var(--red-bg);
+      border: 1px solid var(--red-bdr);
+      border-radius: 8px;
+      padding: 10px 14px;
+      width: 100%;
+      text-align: left;
+      margin-bottom: 28px;
+      word-break: break-all;
+      display: none;
+    }
+
+    .retry-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 28px;
+      background: linear-gradient(135deg, var(--blue) 0%, var(--purple) 100%);
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.2s, transform 0.15s;
+      box-shadow: 0 4px 14px rgba(37,99,235,0.3);
+    }
+
+    .retry-btn:hover  { opacity: 0.9; transform: translateY(-1px); }
+    .retry-btn:active { opacity: 1;   transform: translateY(0); }
+
+    /* ── FOOTER ───────────────────────────────────────── */
+    .page-footer {
+      margin-top: 24px;
+      font-size: 12px;
+      color: var(--text-3);
+      text-align: center;
+    }
+
+    /* ── RESPONSIVE ───────────────────────────────────── */
+    @media (max-width: 480px) {
+      .card-body, .error-body { padding: 36px 28px 32px; }
+      .card-title  { font-size: 18px; }
+      .logo        { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page">
+
+    <!-- ── LOADING CARD ─────────────────────────────── -->
+    <div class="card" id="loadingCard">
+      <div class="card-bar"></div>
+      <div class="card-body">
+
+        <a class="logo" href="#">Nex<span>o</span>ra</a>
+
+        <div class="icon-stack">
+          <div class="icon-circle">
+            <!-- Google G SVG -->
+            <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+              <path fill="none" d="M0 0h48v48H0z"/>
+            </svg>
+          </div>
+        </div>
+
+        <h1 class="card-title">Connecting with Google</h1>
+        <p class="card-sub">
+          Please wait while we securely redirect you to
+          Google to complete the sign-in process.
+        </p>
+
+        <div class="progress-wrap">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div class="status-text" id="statusText">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span id="statusMsg">Initiating secure connection</span>
+        </div>
+
+        <div class="secure-badge">
+          <!-- shield check icon -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <polyline points="9 12 11 14 15 10"/>
+          </svg>
+          Secured with OAuth 2.0
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── ERROR CARD ────────────────────────────────── -->
+    <div class="error-card" id="errorCard">
+      <div class="error-bar"></div>
+      <div class="error-body">
+
+        <a class="logo" href="#">Nex<span>o</span>ra</a>
+
+        <div class="error-icon">&#128683;</div>
+
+        <h1 class="error-title">Redirect Failed</h1>
+        <p class="error-msg" id="errorMsg">
+          Something went wrong while connecting to Google.
+          Please try again — your account has not been affected.
+        </p>
+
+        <div class="error-detail" id="errorDetail"></div>
+
+        <button class="retry-btn" onclick="startAuth()">
+          <!-- refresh icon -->
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+          Try Again
+        </button>
+
+      </div>
+    </div>
+
+    <p class="page-footer">
+      &copy; <%= new Date().getFullYear() %> Nexora. All rights reserved.
+    </p>
+
+  </div>
+
+  <script>
+    const MESSAGES = [
+      'Initiating secure connection',
+      'Contacting Google servers',
+      'Preparing redirect',
+      'Almost there',
+    ];
+
+    let msgIndex = 0;
+    let msgInterval;
+
+    function cycleMessages() {
+      msgInterval = setInterval(() => {
+        msgIndex = (msgIndex + 1) % MESSAGES.length;
+        const el = document.getElementById('statusMsg');
+        if (el) el.textContent = MESSAGES[msgIndex];
+      }, 900);
+    }
+
+    function showError(message, detail) {
+      clearInterval(msgInterval);
+      document.getElementById('loadingCard').style.display = 'none';
+      const errorCard   = document.getElementById('errorCard');
+      const errorMsg    = document.getElementById('errorMsg');
+      const errorDetail = document.getElementById('errorDetail');
+
+      errorCard.style.display = 'block';
+      if (message) errorMsg.textContent = message;
+
+      if (detail) {
+        errorDetail.style.display = 'block';
+        errorDetail.textContent   = detail;
+      }
+    }
+
+    async function startAuth() {
+      // reset UI if retrying
+      document.getElementById('errorCard').style.display   = 'none';
+      document.getElementById('loadingCard').style.display = 'block';
+      document.getElementById('statusMsg').textContent     = MESSAGES[0];
+      msgIndex = 0;
+      cycleMessages();
+
+      try {
+        const response = await fetch("<%= betterAuthUrl %>/api/auth/sign-in/social", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            provider:    "google",
+            callbackURL: "<%= callbackURL %>",
+          }),
+        });
+
+        const data = await response.json();
+
+        if (data.url) {
+          document.getElementById('statusMsg').textContent = 'Redirecting now';
+          // slight delay so user sees the final status
+          setTimeout(() => { window.location.href = data.url; }, 300);
+        } else {
+          showError(
+            'Google sign-in is temporarily unavailable. Please try again in a moment.',
+            data.error || data.message || null,
+          );
+        }
+      } catch (err) {
+        showError(
+          'A network error occurred while connecting to Google. Please check your connection and try again.',
+          err.message || null,
+        );
+      }
+    }
+
+    // kick off immediately
+    cycleMessages();
+    startAuth();
+  </script>
+
+</body>
+</html>
