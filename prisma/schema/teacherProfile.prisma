@@ -1,0 +1,35 @@
+model TeacherProfile {
+    id String @id @default(cuid())
+
+    // ── Relationship to User ──────────────────────────────
+
+    userId String @unique
+    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    // ── Professional identity ─────────────────────────────
+    designation String?
+    department  String?
+    institution String?
+    bio         String?
+    website     String?
+    linkedinUrl String?
+
+    isVerified   Boolean   @default(false)
+    verifiedAt   DateTime?
+    rejectedAt   DateTime?
+    rejectReason String?
+
+    // ── Timestamps ────────────────────────────────────────
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    // ── Owned resources ───────────────────────────────────
+
+    clusters      Cluster[]
+    coTeacherOf   CoTeacher[]
+    sessions      StudySession[]  @relation("SessionCreator")
+    //   paperCategories PaperCategory[]   
+    taskTemplates TaskTemplate[]
+
+    @@map("teacher_profile")
+}
