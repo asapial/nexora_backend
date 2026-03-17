@@ -3,15 +3,23 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./lib/auth";
+import { authRouter } from "./modules/auth/auth.router";
+import path from "path";
+import { clusterRouter } from "./modules/cluster/cluster.route";
+import { resourceRouter } from "./modules/resource/resource.route";
 
 const app: Application = express();
 
+app.set("view engine", "ejs");
+app.set("views",path.resolve(process.cwd(), `src/templates`) )
+
+app.use("/api/auth", toNodeHandler(auth));
 // Middleware
 app.use(cookieParser());
 app.use(express.json());
 
 // CORS Setup
-const allowedOrigins = ["http://localhost:3000"].filter(Boolean);
+const allowedOrigins = ["http://localhost:4000"].filter(Boolean);
 
 app.use(
   cors({
@@ -36,7 +44,11 @@ app.use(
 );
 
 // Better Auth API Route
-app.all('/api/auth/', toNodeHandler(auth));
+// app.all('/api/auth/', toNodeHandler(auth));
+
+app.use("/auth",authRouter);
+app.use("/cluster",clusterRouter);
+app.use("/resource",resourceRouter);
 
 // Health Check Route
 app.get("/", (_req, res) => {

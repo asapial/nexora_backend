@@ -1,0 +1,23 @@
+model StudySessionFeedback {
+  id             String   @id @default(uuid())
+  studySessionId String
+  memberId       String
+  rating         Int // 1-5
+  comment        String?
+  submittedAt    DateTime @default(now())
+
+  StudySession StudySession @relation(fields: [studySessionId], references: [id])
+
+  @@unique([studySessionId, memberId])
+}
+
+model StudySessionAgenda {
+  id             String  @id @default(uuid())
+  studySessionId String
+  startTime      String
+  topic          String
+  presenter      String?
+  order          Int     @default(0)
+
+  StudySession StudySession @relation(fields: [studySessionId], references: [id])
+}

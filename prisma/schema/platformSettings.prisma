@@ -1,0 +1,81 @@
+model PlatformSettings {
+  id              String   @id @default("singleton")
+  name            String   @default("Nexora")
+  tagline         String?
+  logoUrl         String?
+  faviconUrl      String?
+  accentColor     String   @default("#6C63FF")
+  emailSenderName String   @default("Nexora")
+  emailReplyTo    String?
+  updatedAt       DateTime @updatedAt
+}
+
+// ─── FEATURE FLAGS ───────────────────────────────────────────
+
+model FeatureFlag {
+  id             String   @id @default(uuid())
+  key            String   @unique
+  isEnabled      Boolean  @default(false)
+  rolloutPercent Int      @default(0)
+  targetRole     Role?
+  description    String?
+  updatedAt      DateTime @updatedAt
+}
+
+model Webhook {
+  id        String         @id @default(uuid())
+  url       String
+  secret    String
+  events    WebhookEvent[]
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+
+  logs WebhookLog[]
+}
+
+model WebhookLog {
+  id          String    @id @default(uuid())
+  webhookId   String
+  event       String
+  payload     Json
+  statusCode  Int?
+  attempt     Int       @default(1)
+  deliveredAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id])
+}
+
+// ─── AUDIT LOG ───────────────────────────────────────────────
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  actorId        String
+  impersonatorId String?
+  action         String
+  resource       String?
+  resourceId     String?
+  metadata       Json?
+  ip             String?
+  createdAt      DateTime @default(now())
+
+  actor        User  @relation(fields: [actorId], references: [id])
+  impersonator User? @relation("ImpersonatorLog", fields: [impersonatorId], references: [id])
+
+  @@index([actorId, createdAt])
+}
+
+// ─── PAYMENT ─────────────────────────────────────────────────
+
+model Payment {
+  id              String    @id @default(uuid())
+  userId          String
+  courseId        String?
+  stripeSessionId String    @unique
+  amount          Float
+  currency        String    @default("usd")
+  status          String
+  refundedAt      DateTime?
+  createdAt       DateTime  @default(now())
+}
