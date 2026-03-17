@@ -25,7 +25,7 @@ model TeacherProfile {
 
     // ── Owned resources ───────────────────────────────────
 
-    clusters      Cluster[]
+
     coTeacherOf   CoTeacher[]
     sessions      StudySession[]  @relation("SessionCreator")
     //   paperCategories PaperCategory[]   

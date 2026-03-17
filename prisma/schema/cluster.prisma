@@ -20,8 +20,7 @@ model Cluster {
   announcements    AnnouncementCluster[]
   resources        Resource[]
   studyGroups      StudyGroup[]
-  teacherProfile   TeacherProfile?       @relation(fields: [teacherProfileId], references: [id])
-  teacherProfileId String?
+
 
   @@index([teacherId, isActive])
 }
