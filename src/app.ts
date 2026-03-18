@@ -7,6 +7,7 @@ import { authRouter } from "./modules/auth/auth.router";
 import path from "path";
 import { clusterRouter } from "./modules/cluster/cluster.route";
 import { resourceRouter } from "./modules/resource/resource.route";
+import { studySessionRouter } from "./modules/studySession/studySession.route";
 
 const app: Application = express();
 
@@ -49,6 +50,7 @@ app.use(
 app.use("/auth",authRouter);
 app.use("/cluster",clusterRouter);
 app.use("/resource",resourceRouter);
+app.use("/sessions", studySessionRouter);
 
 // Health Check Route
 app.get("/", (_req, res) => {

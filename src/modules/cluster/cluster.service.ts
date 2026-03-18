@@ -67,34 +67,72 @@ const addedClusterMemberByEmail = async (
 
     const existingUser = await prisma.user.findUnique({
       where: { email },
-      select: { id: true },
+      select: { id: true, name: true },
     });
 
     let studentUserId: string;
 
     if (existingUser) {
-      let studentProfile = await prisma.studentProfile.findUnique({
+      // ── User already registered — upsert StudentProfile (may not exist yet) ──
+      const studentProfile = await prisma.studentProfile.upsert({
         where: { userId: existingUser.id },
-        include: { user: true },
+        create: { userId: existingUser.id },
+        update: {},
+        select: { userId: true },
       });
-      studentUserId = studentProfile!.user.id;
+
+      studentUserId = studentProfile.userId;
+
+      // Check membership first — no email if they're already in
+      const existingMembership = await prisma.clusterMember.findUnique({
+        where: { clusterId_userId: { clusterId, userId: studentUserId } },
+      });
+
+      if (existingMembership) {
+        result.alreadyMember.push(email);
+        continue;
+      }
+
+      // Not yet a member — add and notify with welcome-back email
+      await prisma.clusterMember.create({
+        data: { clusterId, userId: studentUserId },
+      });
+
+      await sendEmail({
+        to: email,
+        subject: `You've been added to ${cluster.name} on Nexora`,
+        templateName: "clusterWelcomeBack",
+        templateData: {
+          name: existingUser.name || email.split("@")[0],
+          email,
+          clusterName: cluster.name,
+          loginUrl: `${envVars.FRONTEND_URL}/login`,
+        },
+      });
+
+      result.added.push(email);
+
     } else {
+      // ── Brand new user — create account + profile + send credentials ──────
       const plainPassword = generatePassword(12);
 
       const newUser = await auth.api.signUpEmail({
         body: {
           name: email.split("@")[0] as string,
-          email: email,
+          email,
           password: plainPassword,
         },
       });
 
-      const studentProfile = await prisma.studentProfile.create({
+      await prisma.studentProfile.create({
         data: { userId: newUser.user.id },
-        include: { user: true },
       });
 
-      studentUserId = studentProfile!.user.id;
+      studentUserId = newUser.user.id;
+
+      await prisma.clusterMember.create({
+        data: { clusterId, userId: studentUserId },
+      });
 
       await sendEmail({
         to: email,
@@ -109,23 +147,6 @@ const addedClusterMemberByEmail = async (
       });
 
       result.invited.push(email);
-    }
-
-    const existingMembership = await prisma.clusterMember.findUnique({
-      where: { clusterId_userId: { clusterId, userId: studentUserId } },
-    });
-
-    if (existingMembership) {
-      result.alreadyMember.push(email);
-      continue;
-    }
-
-    await prisma.clusterMember.create({
-      data: { clusterId, userId: studentUserId },
-    });
-
-    if (!result.invited.includes(email)) {
-      result.added.push(email);
     }
   }
 

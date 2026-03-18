@@ -128,6 +128,19 @@ const verifyEmail = catchAsync(
     }
 )
 
+const resendVerificationEmail = catchAsync(
+    async (req: Request, res: Response) => {
+        const { email } = req.body;
+        await authService.resendVerificationEmail(email);
+
+        sendResponse(res, {
+            status: status.OK,
+            success: true,
+            message: "A fresh verification code has been sent to your email. It expires in 5 minutes.",
+        });
+    }
+)
+
 const forgetPassword = catchAsync(
     async (req: Request, res: Response) => {
         const { email } = req.body;
@@ -218,6 +231,7 @@ export const authController = {
     changePasswordController,
     logoutController,
     verifyEmail,
+    resendVerificationEmail,
     forgetPassword,
     resetPassword,
     googleLogin,

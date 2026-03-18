@@ -137,10 +137,10 @@ const getMyData = async (userId: string, email: string) => {
                     linkedinUrl: true
                 },
                 include: {
-                    clusters: true,
                     coTeacherOf: true,
                     sessions: true,
-                    taskTemplates: true
+                    taskTemplates: true,
+                    
                 }
             },
         }
@@ -253,6 +253,34 @@ const verifyEmail = async (email: string, otp: string) => {
     }
 }
 
+const resendVerificationEmail = async (email: string) => {
+    // Verify the user actually exists
+    const user = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, emailVerified: true, isDeleted: true },
+    });
+
+    if (!user) {
+        throw new AppError(status.NOT_FOUND, "No account found with this email address.");
+    }
+
+    if (user.isDeleted) {
+        throw new AppError(status.NOT_FOUND, "No account found with this email address.");
+    }
+
+    if (user.emailVerified) {
+        throw new AppError(
+            status.BAD_REQUEST,
+            "This email is already verified. No need to resend a verification code."
+        );
+    }
+
+    // Use BetterAuth's emailOTP plugin to generate + send a fresh OTP
+    await auth.api.sendVerificationEmail({
+        body: { email },
+    });
+};
+
 const forgetPassword = async (email: string) => {
     const isUserExist = await prisma.user.findUnique({
         where: {
@@ -364,6 +392,7 @@ export const authService = {
     changePasswordService,
     logoutService,
     verifyEmail,
+    resendVerificationEmail,
     forgetPassword,
     resetPassword,
     googleLoginSuccess

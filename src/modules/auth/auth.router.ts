@@ -10,6 +10,7 @@ router.post("/login",authController.loginController);
 router.post("/changePassword",authController.changePasswordController);
 router.post("/logout",authController.logoutController)
 router.post("/verify-email", authController.verifyEmail)
+router.post("/resend-verification-email", authController.resendVerificationEmail)
 router.post("/forgetPassword", authController.forgetPassword)
 router.post("/resetPassword", authController.resetPassword)
 
