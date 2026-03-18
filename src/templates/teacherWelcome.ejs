@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Welcome to Nexora</title>
+  </head>
+  <body style="margin: 0; padding: 0; background-color: #f4f4f5; font-family: Arial, sans-serif;">
+
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f5; padding: 40px 0;">
+      <tr>
+        <td align="center">
+
+          <!-- Card -->
+          <table width="520" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
+
+            <!-- Header -->
+            <tr>
+              <td style="background-color: #1E1B4B; padding: 32px 40px; text-align: center;">
+                <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">
+                  🌿 Nexora
+                </h1>
+                <p style="margin: 8px 0 0; color: #a5b4fc; font-size: 13px;">
+                  Where Knowledge Meets Mentorship
+                </p>
+              </td>
+            </tr>
+
+            <!-- Body -->
+            <tr>
+              <td style="padding: 36px 40px 0;">
+
+                <h2 style="margin: 0 0 16px; color: #1E1B4B; font-size: 20px; font-weight: 700;">
+                  Welcome aboard, Professor! 🎓
+                </h2>
+
+                <p style="margin: 0 0 12px; color: #374151; font-size: 15px; line-height: 1.6;">
+                  You have been officially registered as a Teacher on
+                  <strong style="color: #3730A3;">Nexora</strong>.
+                </p>
+
+                <% if (typeof password !== "undefined" && password) { %>
+                <p style="margin: 0 0 20px; color: #374151; font-size: 15px; line-height: 1.6;">
+                  Here are your login credentials to get started:
+                </p>
+
+                <!-- Credentials Box -->
+                <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #F5F3FF; border: 1px solid #DDD6FE; border-radius: 8px; margin-bottom: 24px;">
+                  <tr>
+                    <td style="padding: 20px 24px;">
+
+                      <!-- Email row -->
+                      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 12px;">
+                        <tr>
+                          <td width="36" valign="top" style="padding-top: 2px;">
+                            <span style="font-size: 16px;">📧</span>
+                          </td>
+                          <td>
+                            <p style="margin: 0; color: #6B7280; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Email</p>
+                            <p style="margin: 4px 0 0; color: #1E1B4B; font-size: 15px; font-weight: 600;">
+                              <%= email %>
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- Divider -->
+                      <hr style="border: none; border-top: 1px solid #DDD6FE; margin: 12px 0;" />
+
+                      <!-- Password row -->
+                      <table width="100%" cellpadding="0" cellspacing="0">
+                        <tr>
+                          <td width="36" valign="top" style="padding-top: 2px;">
+                            <span style="font-size: 16px;">🔑</span>
+                          </td>
+                          <td>
+                            <p style="margin: 0; color: #6B7280; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Temporary Password</p>
+                            <p style="margin: 6px 0 0;">
+                              <code style="background-color: #EDE9FE; color: #4C1D95; padding: 4px 10px; border-radius: 6px; font-size: 15px; font-family: 'Courier New', monospace; letter-spacing: 1px; font-weight: 700;">
+                                <%= password %>
+                              </code>
+                            </p>
+                          </td>
+                        </tr>
+                      </table>
+
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Warning -->
+                <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #FFF1F2; border: 1px solid #FECDD3; border-radius: 8px; margin-bottom: 28px;">
+                  <tr>
+                    <td style="padding: 14px 18px;">
+                      <p style="margin: 0; color: #BE123C; font-size: 14px; line-height: 1.5;">
+                        ⚠️&nbsp; <strong>Important:</strong> You must change your password on first login.
+                        Your temporary password will expire after 7 days.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+                <% } else { %>
+                <p style="margin: 0 0 20px; color: #374151; font-size: 15px; line-height: 1.6;">
+                  Since you already have an account on Nexora, you can simply log in with your existing credentials. Your account role has been upgraded to Teacher.
+                </p>
+                <% } %>
+
+                <!-- CTA Button -->
+                <table cellpadding="0" cellspacing="0" style="margin-bottom: 36px;">
+                  <tr>
+                    <td style="background-color: #3730A3; border-radius: 8px;">
+                      <a href="<%= loginUrl %>"
+                         style="display: inline-block; padding: 12px 28px; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 700; letter-spacing: 0.3px;">
+                        Login to Nexora &rarr;
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="background-color: #F9FAFB; border-top: 1px solid #E5E7EB; padding: 24px 40px;">
+                <p style="margin: 0; color: #9CA3AF; font-size: 12px; line-height: 1.6; text-align: center;">
+                  This email was sent because an administrator added you as a teacher on Nexora.<br />
+                  If this was unexpected, you can safely contact support.
+                </p>
+                <p style="margin: 12px 0 0; color: #C4B5FD; font-size: 12px; text-align: center;">
+                  🌿 Nexora &mdash; Where Knowledge Meets Mentorship
+                </p>
+              </td>
+            </tr>
+
+          </table>
+          <!-- /Card -->
+
+        </td>
+      </tr>
+    </table>
+
+  </body>
+</html>

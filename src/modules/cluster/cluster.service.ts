@@ -295,7 +295,7 @@ const getClusterHealth = async (clusterId: string): Promise<ClusterHealthBreakdo
             },
           },
           attendance: {
-            select: { memberId: true, status: true },
+            select: { studentProfileId: true, status: true },
           },
         },
       },

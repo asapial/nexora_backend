@@ -44,6 +44,10 @@ app.use(
   })
 );
 
+import { studentRouter } from "./modules/student/student.route";
+import { teacherRouter } from "./modules/teacher/teacher.route";
+import { adminRouter } from "./modules/admin/admin.route";
+
 // Better Auth API Route
 // app.all('/api/auth/', toNodeHandler(auth));
 
@@ -51,6 +55,9 @@ app.use("/auth",authRouter);
 app.use("/cluster",clusterRouter);
 app.use("/resource",resourceRouter);
 app.use("/sessions", studySessionRouter);
+app.use("/student", studentRouter);
+app.use("/teacher", teacherRouter);
+app.use("/admin", adminRouter);
 
 // Health Check Route
 app.get("/", (_req, res) => {
