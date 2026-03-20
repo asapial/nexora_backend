@@ -74,6 +74,12 @@ const loginService = async (data: ILoginData) => {
         throw new AppError(status.FORBIDDEN, "User is not active");
     }
 
+    const student = await prisma.studentProfile.findFirst({
+        where:{
+            userId:result.user.id
+        }
+    });
+
     const accessToken = tokenUtils.createAccessToken({
         userId: result.user.id,
         role: result.user.role,
@@ -363,7 +369,7 @@ const googleLoginSuccess= async (session: Record<string, any>)=>{
     if(!isStudentExists){
         await prisma.studentProfile.create({
             data:{
-                userId:session.user.userId
+                userId:session.user.id
             }
         })
     }

@@ -4,6 +4,7 @@ import { envVars } from "../config/env";
 import { cookieUtils } from "./cookie";
 import { Response } from "express";
 
+const isProd = envVars.NODE_ENV === "production";
 
 const createAccessToken = (payload: JwtPayload) => {
 
@@ -34,33 +35,30 @@ const createRefreshToken = (payload: JwtPayload) => {
 const setAccessTokenCookie = (res: Response, token: string) => {
     cookieUtils.setCookie(res, 'accessToken', token, {
         httpOnly: true,
-        secure: true,
-        sameSite: "none",
+        secure: isProd,
+        sameSite: isProd ? "none" : "lax",
         path: '/',
-        //1 day
-        maxAge: 60 * 60 * 24 * 1000,
+        maxAge: 60 * 60 * 24 * 1000, // 1 day
     });
 }
 
 const setRefreshTokenCookie = (res: Response, token: string) => {
     cookieUtils.setCookie(res, 'refreshToken', token, {
         httpOnly: true,
-        secure: true,
-        sameSite: "none",
+        secure: isProd,
+        sameSite: isProd ? "none" : "lax",
         path: '/',
-        //7d
-        maxAge: 60 * 60 * 24 * 1000 * 7,
+        maxAge: 60 * 60 * 24 * 7 * 1000, // 7 days
     });
 }
 
 const setBetterAuthSessionCookie = (res: Response, token: string) => {
     cookieUtils.setCookie(res, "better-auth.session_token", token, {
         httpOnly: true,
-        secure: true,
-        sameSite: "none",
+        secure: isProd,
+        sameSite: isProd ? "none" : "lax",
         path: '/',
-        //1 day
-        maxAge: 60 * 60 * 24 * 1000,
+        maxAge: 60 * 60 * 24 * 1000, // 1 day
     });
 }
 

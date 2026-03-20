@@ -14,22 +14,26 @@ const app: Application = express();
 app.set("view engine", "ejs");
 app.set("views",path.resolve(process.cwd(), `src/templates`) )
 
-app.use("/api/auth", toNodeHandler(auth));
-// Middleware
-app.use(cookieParser());
-app.use(express.json());
+import { studentRouter } from "./modules/student/student.route";
+import { teacherRouter } from "./modules/teacher/teacher.route";
+import { adminRouter } from "./modules/admin/admin.route";
+import { globalErrorHandler } from "./middleware/globalErrorHandler";
 
-// CORS Setup
-const allowedOrigins = ["http://localhost:4000"].filter(Boolean);
+// ── 1. CORS ─────────────────────────────────────────────────────────────────
+// MUST come first — BetterAuth, cookies, body-parser, and all routes rely on it.
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:4000",
+].filter(Boolean);
 
 app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      
+
       const isAllowed =
         allowedOrigins.includes(origin) ||
-        /^https:\/\/.*\.vercel\.app$/.test(origin); // Allow Vercel deployments
+        /^https:\/\/.*\.vercel\.app$/.test(origin);
 
       if (isAllowed) {
         callback(null, true);
@@ -44,22 +48,41 @@ app.use(
   })
 );
 
-import { studentRouter } from "./modules/student/student.route";
-import { teacherRouter } from "./modules/teacher/teacher.route";
-import { adminRouter } from "./modules/admin/admin.route";
+// ── 2. Cookie parser (needed by BetterAuth and custom routes) ────────────────
+app.use(cookieParser());
 
-// Better Auth API Route
-// app.all('/api/auth/', toNodeHandler(auth));
+// ── 3. BetterAuth internal routes ───────────────────────────────────────────
+// Must come BEFORE express.json() — BetterAuth reads the raw body itself.
+// We use a plain middleware (no path pattern) because Express 5 / path-to-regexp v8+
+// rejects unnamed wildcards like `/api/auth/sign-in*`. Checking req.path manually
+// avoids the pattern parser entirely and works with all Express versions.
+const betterAuthHandler = toNodeHandler(auth);
+app.use((req, res, next) => {
+  const p = req.path;
+  const isBetterAuthRoute =
+    p.startsWith("/api/auth/sign-in/") ||
+    p.startsWith("/api/auth/sign-up/") ||
+    p.startsWith("/api/auth/callback/") ||
+    p === "/api/auth/get-session";
+  if (isBetterAuthRoute) {
+    return betterAuthHandler(req, res);
+  }
+  next();
+});
 
-app.use("/auth",authRouter);
-app.use("/cluster",clusterRouter);
-app.use("/resource",resourceRouter);
+// ── 4. Body parser ──────────────────────────────────────────────────────────
+app.use(express.json());
+
+// ── 5. Custom routes ────────────────────────────────────────────────────────
+app.use("/api/auth", authRouter);
+app.use("/cluster", clusterRouter);
+app.use("/resource", resourceRouter);
 app.use("/sessions", studySessionRouter);
 app.use("/student", studentRouter);
 app.use("/teacher", teacherRouter);
 app.use("/admin", adminRouter);
 
-// Health Check Route
+// ── Health Check ────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => {
   res.status(200).json({
     success: true,
@@ -71,5 +94,7 @@ app.get("/", (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+app.use(globalErrorHandler);
 
 export default app;
