@@ -77,12 +77,12 @@ app.use(express.json());
 
 // ── 5. Custom routes ────────────────────────────────────────────────────────
 app.use("/api/auth", authRouter);
-app.use("/cluster", clusterRouter);
-app.use("/resource", resourceRouter);
-app.use("/sessions", studySessionRouter);
-app.use("/student", studentRouter);
-app.use("/teacher", teacherRouter);
-app.use("/admin", adminRouter);
+app.use("/api/cluster", clusterRouter);
+app.use("/api/resource", resourceRouter);
+app.use("/api/sessions", studySessionRouter);
+app.use("/api/student", studentRouter);
+app.use("/api/teacher", teacherRouter);
+app.use("/api/admin", adminRouter);
 
 // ── Health Check ────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => {

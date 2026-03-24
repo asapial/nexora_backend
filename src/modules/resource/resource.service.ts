@@ -8,7 +8,13 @@ const uploadResource=async (resourcePayload:any)=>{
 
      return result;
 
+}
 
+const allResources=async ()=>{
+
+   const result= await prisma.resource.findMany();
+
+     return result;
 
 }
 
@@ -16,5 +22,6 @@ const uploadResource=async (resourcePayload:any)=>{
 
 
 export const resourceService={
-uploadResource
+uploadResource,
+allResources
 }

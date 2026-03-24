@@ -15,7 +15,7 @@ const router = Router();
 //    Cluster CRUD
 
 router.get("/", checkAuth("TEACHER","ADMIN"), clusterController.getCluster);
-router.post("/", clusterController.createCluster);
+router.post("/create",checkAuth("TEACHER","ADMIN"), clusterController.createCluster);
 router.get("/:id", checkAuth(), clusterController.getClusterById);
 router.patch(
   "/:id",

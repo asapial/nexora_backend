@@ -50,6 +50,7 @@ const createTeacher = async (emails: string[]) => {
         subject: `Welcome to Nexora - Teacher Account Created`,
         templateName: "teacherWelcome",
         templateData: {
+          name: email.split("@")[0] as string,
           email,
           password: plainPassword,
           loginUrl: `${envVars.FRONTEND_URL}/login`,

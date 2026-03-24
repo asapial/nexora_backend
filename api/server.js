@@ -1244,11 +1244,117 @@ function generatePassword(length = 12) {
 
 // src/modules/cluster/cluster.service.ts
 import status6 from "http-status";
-var createCluster = async (clusterPayload) => {
-  const createCluster3 = await prisma.cluster.create({
-    data: clusterPayload
+var createCluster = async (clusterPayload, teacherId) => {
+  const { name, slug, description, batchTag, emails = [] } = clusterPayload;
+  const result = {
+    added: [],
+    invited: [],
+    alreadyMember: []
+  };
+  const existingSlug = await prisma.cluster.findUnique({
+    where: { slug }
   });
-  return createCluster3;
+  if (existingSlug) {
+    throw new AppError_default(status6.CONFLICT, "This slug is already taken \u2014 choose a different one");
+  }
+  const { cluster } = await prisma.$transaction(async (tx) => {
+    const cluster2 = await tx.cluster.create({
+      data: {
+        name,
+        slug,
+        teacherId,
+        ...description && { description },
+        ...batchTag && { batchTag }
+      }
+    });
+    await tx.clusterMember.create({
+      data: {
+        clusterId: cluster2.id,
+        userId: teacherId
+      }
+    });
+    return { cluster: cluster2 };
+  });
+  for (const rawEmail of emails) {
+    const email = rawEmail.trim().toLowerCase();
+    if (!email) continue;
+    try {
+      const existingUser = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, name: true }
+      });
+      let studentUserId;
+      if (existingUser) {
+        const studentProfile = await prisma.studentProfile.upsert({
+          where: { userId: existingUser.id },
+          create: { userId: existingUser.id },
+          update: {},
+          select: { userId: true }
+        });
+        studentUserId = studentProfile.userId;
+        const existingMembership = await prisma.clusterMember.findUnique({
+          where: {
+            clusterId_userId: { clusterId: cluster.id, userId: studentUserId }
+          }
+        });
+        if (existingMembership) {
+          result.alreadyMember.push(email);
+          continue;
+        }
+        await prisma.clusterMember.create({
+          data: { clusterId: cluster.id, userId: studentUserId }
+        });
+        await sendEmail({
+          to: email,
+          subject: `You've been added to ${cluster.name} on Nexora`,
+          templateName: "clusterWelcomeBack",
+          templateData: {
+            name: existingUser.name || email.split("@")[0],
+            email,
+            clusterName: cluster.name,
+            loginUrl: `${envVars.FRONTEND_URL}/login`
+          }
+        });
+        result.added.push(email);
+      } else {
+        const plainPassword = generatePassword(12);
+        const newUser = await auth.api.signUpEmail({
+          body: {
+            name: email.split("@")[0],
+            email,
+            password: plainPassword
+          }
+        });
+        await prisma.$transaction(async (tx) => {
+          await tx.studentProfile.create({
+            data: { userId: newUser.user.id }
+          });
+          await tx.clusterMember.create({
+            data: { clusterId: cluster.id, userId: newUser.user.id }
+          });
+        });
+        studentUserId = newUser.user.id;
+        await sendEmail({
+          to: email,
+          subject: `You've been added to ${cluster.name} on Nexora`,
+          templateName: "sendCredentialEmail",
+          templateData: {
+            email,
+            password: plainPassword,
+            clusterName: cluster.name,
+            loginUrl: `${envVars.FRONTEND_URL}/login`
+          }
+        });
+        result.invited.push(email);
+      }
+    } catch (err) {
+      console.error(`Failed to process email ${email}:`, err);
+    }
+  }
+  return {
+    cluster,
+    members: result
+  };
 };
 var getCluster = async (teacherId, userRole) => {
   if (userRole === Role.TEACHER) {
@@ -1606,7 +1712,8 @@ import status7 from "http-status";
 var createCluster2 = catchAsync(
   async (req, res, next) => {
     const data = req.body;
-    const result = await clusterService.createCluster(data);
+    const teacherId = req.user.userId;
+    const result = await clusterService.createCluster(data, teacherId);
     sendResponse(res, {
       status: status7.CREATED,
       success: true,
@@ -1840,7 +1947,7 @@ var addCoTeacherSchema = z.object({
 // src/modules/cluster/cluster.route.ts
 var router2 = Router2();
 router2.get("/", checkAuth("TEACHER", "ADMIN"), clusterController.getCluster);
-router2.post("/", clusterController.createCluster);
+router2.post("/create", checkAuth("TEACHER", "ADMIN"), clusterController.createCluster);
 router2.get("/:id", checkAuth(), clusterController.getClusterById);
 router2.patch(
   "/:id",
@@ -1890,8 +1997,13 @@ var uploadResource = async (resourcePayload) => {
   });
   return result;
 };
+var allResources = async () => {
+  const result = await prisma.resource.findMany();
+  return result;
+};
 var resourceService = {
-  uploadResource
+  uploadResource,
+  allResources
 };
 
 // src/modules/resource/resource.controller.ts
@@ -1908,8 +2020,20 @@ var uploadResource2 = catchAsync(
     });
   }
 );
+var allResources2 = catchAsync(
+  async (req, res, next) => {
+    const result = await resourceService.allResources();
+    sendResponse(res, {
+      status: status8.OK,
+      success: true,
+      message: "Resource featched successfully",
+      data: result
+    });
+  }
+);
 var resourceController = {
-  uploadResource: uploadResource2
+  uploadResource: uploadResource2,
+  allResources: allResources2
 };
 
 // src/config/multer.config.ts
@@ -1990,6 +2114,7 @@ router3.post(
   validateRequest(createResourceSchema),
   resourceController.uploadResource
 );
+router3.get("/", resourceController.allResources);
 var resourceRouter = router3;
 
 // src/modules/studySession/studySession.route.ts
@@ -3145,6 +3270,7 @@ var createTeacher = async (emails) => {
         subject: `Welcome to Nexora - Teacher Account Created`,
         templateName: "teacherWelcome",
         templateData: {
+          name: email.split("@")[0],
           email,
           password: plainPassword,
           loginUrl: `${envVars.FRONTEND_URL}/login`
@@ -3321,12 +3447,12 @@ app.use((req, res, next) => {
 });
 app.use(express.json());
 app.use("/api/auth", authRouter);
-app.use("/cluster", clusterRouter);
-app.use("/resource", resourceRouter);
-app.use("/sessions", studySessionRouter);
-app.use("/student", studentRouter);
-app.use("/teacher", teacherRouter);
-app.use("/admin", adminRouter);
+app.use("/api/cluster", clusterRouter);
+app.use("/api/resource", resourceRouter);
+app.use("/api/sessions", studySessionRouter);
+app.use("/api/student", studentRouter);
+app.use("/api/teacher", teacherRouter);
+app.use("/api/admin", adminRouter);
 app.get("/", (_req, res) => {
   res.status(200).json({
     success: true,

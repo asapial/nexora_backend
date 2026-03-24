@@ -11,12 +11,155 @@ import status from "http-status";
 
 
 
-const createCluster = async (clusterPayload: iCreateCluster) => {
-  const createCluster = await prisma.cluster.create({
-    data: clusterPayload,
+const createCluster = async (clusterPayload: iCreateCluster, teacherId: string) => {
+
+  const { name, slug, description, batchTag, emails = [] } = clusterPayload;
+
+  const result: AddMembersResult = {
+    added: [],
+    invited: [],
+    alreadyMember: [],
+  };
+
+  const existingSlug = await prisma.cluster.findUnique({
+    where: { slug },
   });
-  return createCluster;
+
+  if (existingSlug) {
+    throw new AppError(status.CONFLICT, "This slug is already taken — choose a different one");
+  }
+
+  // ── Step 1: Transaction — cluster + teacher member create ──────────────
+  const { cluster } = await prisma.$transaction(async (tx) => {
+
+    const cluster = await tx.cluster.create({
+      data: {
+        name,
+        slug,
+        teacherId,
+        ...(description && { description }),
+        ...(batchTag && { batchTag }),
+
+      },
+    });
+
+
+    await tx.clusterMember.create({
+      data: {
+        clusterId: cluster.id,
+        userId: teacherId
+      },
+    });
+
+    return { cluster };
+  });
+
+  // ── Step 2: emails process — transaction এর বাইরে ─────────────────────
+
+  for (const rawEmail of emails) {
+    const email = rawEmail.trim().toLowerCase();
+    if (!email) continue;
+
+    try {
+      const existingUser = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, name: true },
+      });
+
+      let studentUserId: string;
+
+      if (existingUser) {
+        // ── Existing user ──────────────────────────────────────────────
+        const studentProfile = await prisma.studentProfile.upsert({
+          where: { userId: existingUser.id },
+          create: { userId: existingUser.id },
+          update: {},
+          select: { userId: true },
+        });
+
+        studentUserId = studentProfile.userId;
+
+        const existingMembership = await prisma.clusterMember.findUnique({
+          where: {
+            clusterId_userId: { clusterId: cluster.id, userId: studentUserId },
+          },
+        });
+
+        if (existingMembership) {
+          result.alreadyMember.push(email);
+          continue;
+        }
+
+        await prisma.clusterMember.create({
+          data: { clusterId: cluster.id, userId: studentUserId },
+        });
+
+        await sendEmail({
+          to: email,
+          subject: `You've been added to ${cluster.name} on Nexora`,
+          templateName: "clusterWelcomeBack",
+          templateData: {
+            name: existingUser.name || email.split("@")[0],
+            email,
+            clusterName: cluster.name,
+            loginUrl: `${envVars.FRONTEND_URL}/login`,
+          },
+        });
+
+        result.added.push(email);
+
+      } else {
+        // ── New user ───────────────────────────────────────────────────
+        const plainPassword = generatePassword(12);
+
+        const newUser = await auth.api.signUpEmail({
+          body: {
+            name: email.split("@")[0]!,
+            email,
+            password: plainPassword,
+          },
+        });
+
+
+        await prisma.$transaction(async (tx) => {
+          await tx.studentProfile.create({
+            data: { userId: newUser.user.id },
+          });
+
+          await tx.clusterMember.create({
+            data: { clusterId: cluster.id, userId: newUser.user.id },
+          });
+        });
+
+        studentUserId = newUser.user.id;
+
+        await sendEmail({
+          to: email,
+          subject: `You've been added to ${cluster.name} on Nexora`,
+          templateName: "sendCredentialEmail",
+          templateData: {
+            email,
+            password: plainPassword,
+            clusterName: cluster.name,
+            loginUrl: `${envVars.FRONTEND_URL}/login`,
+          },
+        });
+
+        result.invited.push(email);
+      }
+
+    } catch (err) {
+
+      console.error(`Failed to process email ${email}:`, err);
+    }
+  }
+
+  return {
+    cluster,
+    members: result,
+  };
 };
+
 
 const getCluster = async (teacherId: string, userRole: string) => {
   if (userRole === Role.TEACHER) {
@@ -349,15 +492,15 @@ const getClusterHealth = async (clusterId: string): Promise<ClusterHealthBreakdo
     recentSessions.length >= 2
       ? 100
       : recentSessions.length === 1
-      ? 50
-      : 0;
+        ? 50
+        : 0;
 
   // ── Composite score ──────────────────────────────────────────────────────
   const score = Math.round(
     taskSubmissionRate * 0.35 +
-      attendanceRate * 0.35 +
-      homeworkCompletionRate * 0.15 +
-      recentActivityScore * 0.15
+    attendanceRate * 0.35 +
+    homeworkCompletionRate * 0.15 +
+    recentActivityScore * 0.15
   );
 
   const colour: "green" | "amber" | "red" =

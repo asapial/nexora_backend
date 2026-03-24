@@ -29,9 +29,26 @@ const uploadResource = catchAsync(
     }
 )
 
+const allResources = catchAsync(
+    async (req: Request, res: Response, next: NextFunction) => {
+
+
+
+        const result = await resourceService.allResources()
+
+        sendResponse(res, {
+            status: status.OK,
+            success: true,
+            message: "Resource featched successfully",
+            data: result
+        })
+    }
+)
+
 
 
 
 export const resourceController = {
-    uploadResource
+    uploadResource,
+    allResources
 }

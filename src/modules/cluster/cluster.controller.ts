@@ -10,7 +10,8 @@ import { MemberSubtype } from "../../generated/prisma/client";
 const createCluster = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const data = req.body;
-    const result = await clusterService.createCluster(data);
+    const teacherId=req.user.userId;
+    const result = await clusterService.createCluster(data, teacherId as string);
     sendResponse(res, {
       status: status.CREATED,
       success: true,
