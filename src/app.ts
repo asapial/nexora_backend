@@ -12,7 +12,7 @@ import { studySessionRouter } from "./modules/studySession/studySession.route";
 const app: Application = express();
 
 app.set("view engine", "ejs");
-app.set("views",path.resolve(process.cwd(), `src/templates`) )
+app.set("views", path.resolve(process.cwd(), `src/templates`))
 
 import { studentRouter } from "./modules/student/student.route";
 import { teacherRouter } from "./modules/teacher/teacher.route";
@@ -59,12 +59,14 @@ app.use(cookieParser());
 const betterAuthHandler = toNodeHandler(auth);
 app.use((req, res, next) => {
   const p = req.path;
+  console.log(p)
   const isBetterAuthRoute =
     p.startsWith("/api/auth/sign-in/") ||
     p.startsWith("/api/auth/sign-up/") ||
     p.startsWith("/api/auth/callback/") ||
     p === "/api/auth/get-session";
   if (isBetterAuthRoute) {
+
     return betterAuthHandler(req, res);
   }
   next();

@@ -1,0 +1,63 @@
+
+
+model AdminProfile {
+    id String @id @default(cuid())
+
+    userId String @unique
+    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    // ── Personal information ──────────────────────────────
+    phone       String?
+    bio         String?
+    nationality String?
+    avatarUrl   String?
+
+    // ── Professional identity ─────────────────────────────
+    designation  String?
+    department   String?
+    organization String?
+    linkedinUrl  String?
+    website      String?
+
+    // ── Permissions & Access ──────────────────────────────
+    isSuperAdmin     Boolean            @default(false)
+    permissions      AdminPermission[]  // ✅ Enum based — type-safe
+    managedModules   String[]           // e.g. ["clusters", "sessions"]
+
+    // ── Security ──────────────────────────────────────────
+    twoFactorEnabled Boolean   @default(false)
+    ipWhitelist      String[]  // e.g. ["192.168.1.1", "10.0.0.1"]
+    lastActiveAt     DateTime?
+    lastLoginIp      String?
+
+    // ── Internal ──────────────────────────────────────────
+    notes String?    // internal notes about this admin
+
+    // ── Timestamps ────────────────────────────────────────
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    // ── Relations ─────────────────────────────────────────
+    activityLogs AdminActivityLog[]
+
+    @@map("admin_profile")
+}
+
+// ── Admin Activity Log ────────────────────────────────────
+model AdminActivityLog {
+    id           String       @id @default(cuid())
+
+    adminId      String
+    admin        AdminProfile @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+    action       String       // e.g. "DELETED_USER", "UPDATED_CLUSTER"
+    targetModel  String?      // e.g. "User", "Cluster"
+    targetId     String?      // id of the affected record
+    description  String?      // human-readable description
+    ipAddress    String?
+    metadata     Json?        // extra data if needed
+
+    createdAt    DateTime     @default(now())
+
+    @@map("admin_activity_log")
+}

@@ -35,8 +35,6 @@ const registerController = catchAsync(
     }
 )
 
-
-
 const loginController = catchAsync(
     async (req: Request, res: Response, next: NextFunction) => {
 
@@ -57,6 +55,23 @@ const loginController = catchAsync(
     }
 )
 
+const getMyDataController = catchAsync(
+    async (req: Request, res: Response, next: NextFunction) => {
+
+        const userId=req.user.userId;
+        const userEmail=req.user.email;
+        console.log(userId, userEmail)
+
+        const result = await authService.getMyData(userId as string, userEmail as string);
+
+        sendResponse(res, {
+            status: status.OK,
+            success: true,
+            message: "User featched successfully",
+            data: result
+        })
+    }
+)
 
 const changePasswordController = catchAsync(
     async (req: Request, res: Response, next: NextFunction) => {
@@ -154,18 +169,30 @@ const forgetPassword = catchAsync(
     }
 )
 
-const resetPassword = catchAsync(
-    async (req: Request, res: Response) => {
-        const { email, otp, newPassword } = req.body;
-        await authService.resetPassword(email, otp, newPassword);
 
-        sendResponse(res, {
-            status: status.OK,
-            success: true,
-            message: "Password reset successfully",
-        });
-    }
-)
+const verifyResetOtp = catchAsync(async (req: Request, res: Response) => {
+    const { email, otp } = req.body;
+    await authService.verifyResetOtp(email, otp);
+
+    sendResponse(res, {
+        status: status.OK,
+        success: true,
+        message: "OTP verified successfully",
+    });
+});
+
+
+const resetPassword = catchAsync(async (req: Request, res: Response) => {
+    const { email, otp, newPassword } = req.body;
+    await authService.resetPassword(email, otp, newPassword);
+
+    sendResponse(res, {
+        status: status.OK,
+        success: true,
+        message: "Password reset successfully",
+    });
+});
+
 
 const googleLogin = catchAsync((req: Request, res: Response) => {
     const redirectPath = req.query.redirect || "/dashboard";
@@ -226,11 +253,38 @@ const handleOAuthError = catchAsync((req: Request, res: Response) => {
     res.redirect(`${envVars.FRONTEND_URL}/auth/login?error=${error}`);
 })
 
+const updateProfileController = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const userId = req.user.userId;
+    const role   = req.user.role;    
+    const patch = req.body;            
+ 
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+      return sendResponse(res, {
+        status:  status.BAD_REQUEST,
+        success: false,
+        message: "Request body must be a plain object",
+      });
+    }
+ 
+    const result = await authService.updateProfileService(userId, role, patch);
+ 
+    sendResponse(res, {
+      status:  status.OK,
+      success: true,
+      message: "Profile updated successfully",
+      data:    result,
+    });
+  }
+);
+ 
+
 
 
 export const authController = {
     registerController,
     loginController,
+    getMyDataController,
     changePasswordController,
     logoutController,
     verifyEmail,
@@ -239,5 +293,7 @@ export const authController = {
     resetPassword,
     googleLogin,
     googleLoginSuccess,
-    handleOAuthError
+    handleOAuthError,
+    verifyResetOtp,
+    updateProfileController
 }

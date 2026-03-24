@@ -41,6 +41,7 @@ model User {
 
   teacherProfile TeacherProfile?
   studentProfile StudentProfile?
+   adminProfile   AdminProfile? 
   planTier       PlanTier        @default(FREE)
 
   @@unique([email])

@@ -68,3 +68,24 @@ enum PlanTier {
   PRO
   ENTERPRISE
 }
+
+// ── Admin Permission Enum ─────────────────────────────────
+enum AdminPermission {
+    // User management
+    MANAGE_STUDENTS
+    MANAGE_TEACHERS
+    MANAGE_ADMINS
+
+    // Content management
+    MANAGE_CLUSTERS
+    MANAGE_SESSIONS
+    MANAGE_RESOURCES
+    MANAGE_TASKS
+    MANAGE_CERTIFICATES
+
+    // System
+    VIEW_ANALYTICS
+    VIEW_AUDIT_LOGS
+    MANAGE_SETTINGS
+    MANAGE_ANNOUNCEMENTS
+}
