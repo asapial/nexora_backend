@@ -5,12 +5,12 @@ export const createSessionSchema = z.object({
   clusterId: z.string().min(1, "clusterId must not be empty"),
   title: z.string().min(3, "Title must be at least 3 characters").max(200),
   description: z.string().max(2000).optional(),
-  date: z
+  scheduledAt: z
     .string()
     .min(1, "date (scheduledAt) is required")
     .datetime({ message: "date must be a valid ISO 8601 datetime string" }),
   location: z.string().max(200).optional(),
-  deadline: z
+  taskDeadline: z
     .string()
     .datetime({ message: "deadline must be a valid ISO 8601 datetime string" })
     .optional(),
@@ -22,6 +22,7 @@ export const updateSessionSchema = z
   .object({
     title: z.string().min(3).max(200).optional(),
     description: z.string().max(2000).optional(),
+    status:z.enum(["upcoming", "completed", "cancel"]),
     date: z
       .string()
       .datetime({ message: "date must be a valid ISO 8601 datetime string" })

@@ -63,6 +63,9 @@ export const auth = betterAuth({
         required:false
       }
     },
+    deleteUser:{
+      enabled:true
+    }
   },
 
   session: {

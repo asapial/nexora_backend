@@ -60,7 +60,7 @@ const getMyDataController = catchAsync(
 
         const userId=req.user.userId;
         const userEmail=req.user.email;
-        console.log(userId, userEmail)
+        console.log("getMyDataController",userId, userEmail)
 
         const result = await authService.getMyData(userId as string, userEmail as string);
 

@@ -51,7 +51,7 @@ model WebhookLog {
 
 model AuditLog {
   id             String   @id @default(uuid())
-  actorId        String
+  actorId        String?
   impersonatorId String?
   action         String
   resource       String?
@@ -60,8 +60,8 @@ model AuditLog {
   ip             String?
   createdAt      DateTime @default(now())
 
-  actor        User  @relation(fields: [actorId], references: [id])
-  impersonator User? @relation("ImpersonatorLog", fields: [impersonatorId], references: [id])
+  actor        User?  @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  impersonator User? @relation("ImpersonatorLog", fields: [impersonatorId], references: [id], onDelete: SetNull)
 
   @@index([actorId, createdAt])
 }

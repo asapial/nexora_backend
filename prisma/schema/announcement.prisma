@@ -1,6 +1,6 @@
 model Announcement {
   id            String              @id @default(uuid())
-  authorId      String
+  authorId      String?
   title         String
   body          String
   urgency       AnnouncementUrgency @default(INFO)
@@ -11,7 +11,7 @@ model Announcement {
   targetRole    Role?
   createdAt     DateTime            @default(now())
 
-  author   User                  @relation(fields: [authorId], references: [id])
+  author   User?                 @relation(fields: [authorId], references: [id], onDelete: SetNull)
   clusters AnnouncementCluster[]
 }
 

@@ -50,6 +50,9 @@ const listSessions = async (
     include: {
       tasks: { select: { id: true, status: true } },
       attendance: { select: { status: true } },
+      cluster:true,
+      agenda:true,
+
     },
   });
 
@@ -64,14 +67,24 @@ const listSessions = async (
     ).length;
     return {
       id: s.id,
+      status:s.status,
+      agenda:s.agenda,
+      clusterId: s.clusterId,
+      clusterName:s.cluster.name,
+      clusterBatchTag:s.cluster.batchTag,
       title: s.title,
       description: s.description,
       scheduledAt: s.scheduledAt,
+      durationMins:s.durationMins,
       location: s.location,
       taskDeadline: s.taskDeadline,
-      clusterId: s.clusterId,
       submissionRate: totalTasks > 0 ? Math.round((submitted / totalTasks) * 1000) / 10 : null,
       attendanceRate: totalAtt > 0 ? Math.round((present / totalAtt) * 1000) / 10 : null,
+      taskSubmittedCount:0,
+      attendanceCount:0,
+      memberCount:0
+
+
     };
   });
 };
@@ -135,9 +148,11 @@ const createSession = async (userId: string, payload: ICreateSession) => {
         createdById: teacherProfileId,
         title: payload.title,
         description: payload.description ?? null,
-        scheduledAt: new Date(payload.date),
+        scheduledAt: new Date(payload.scheduledAt),    
         location: payload.location ?? null,
-        taskDeadline: payload.deadline ? new Date(payload.deadline) : null,
+        taskDeadline: payload.taskDeadline               
+          ? new Date(payload.taskDeadline)
+          : null,
         templateId: payload.templateId ?? null,
       },
     });
@@ -154,7 +169,7 @@ const createSession = async (userId: string, payload: ICreateSession) => {
           title: template ? template.title : newSession.title,
           description: template?.description ?? null,
           deadline: newSession.taskDeadline,
-          templateId: payload.templateId ?? null,
+          // templateId: payload.templateId ?? null,
         })),
       });
 
@@ -257,6 +272,8 @@ const updateSession = async (
 ) => {
   const existing = await assertSessionTeacher(sessionId, userId);
 
+  console.log("Update session data :", payload);
+
   const ONE_HOUR_MS = 60 * 60 * 1000;
   const dateChanged =
     payload.date &&
@@ -274,6 +291,7 @@ const updateSession = async (
   if (payload.location !== undefined) updateData.location = payload.location;
   if (payload.deadline !== undefined) updateData.taskDeadline = new Date(payload.deadline);
   if (payload.templateId !== undefined) updateData.templateId = payload.templateId;
+  if (payload.status !== undefined) updateData.status = payload.status;
 
   const updated = await prisma.studySession.update({
     where: {

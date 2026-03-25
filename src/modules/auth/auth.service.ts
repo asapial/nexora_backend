@@ -144,6 +144,8 @@ const getMyData = async (userId: string, email: string) => {
         }
     })
 
+    console.log("Data form auth services :",isUserExists)
+
     if (!isUserExists) {
         throw new AppError(status.NOT_FOUND, "User not found");
     }
@@ -263,6 +265,8 @@ const resendVerificationEmail = async (email: string) => {
         where: { email },
         select: { id: true, emailVerified: true, isDeleted: true },
     });
+
+    console.log("resendVerificationEmail :",user);
 
     if (!user) {
         throw new AppError(status.NOT_FOUND, "No account found with this email address.");

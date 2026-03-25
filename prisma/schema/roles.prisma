@@ -89,3 +89,10 @@ enum AdminPermission {
     MANAGE_SETTINGS
     MANAGE_ANNOUNCEMENTS
 }
+
+enum StudySessionStatus {
+  upcoming
+  ongoing
+  completed
+  cancelled
+}

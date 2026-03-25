@@ -6,11 +6,13 @@ model StudySession {
   title          String
   description    String?
   scheduledAt    DateTime
+  durationMins Int?
   location       String?
   taskDeadline   DateTime?
   templateId     String?
   recordingUrl   String?
   recordingNotes String?
+  status        StudySessionStatus @default(upcoming)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

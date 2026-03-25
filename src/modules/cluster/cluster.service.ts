@@ -163,9 +163,30 @@ const createCluster = async (clusterPayload: iCreateCluster, teacherId: string) 
 
 const getCluster = async (teacherId: string, userRole: string) => {
   if (userRole === Role.TEACHER) {
-    return await prisma.cluster.findMany({ where: { teacherId } });
+    return await prisma.cluster.findMany(
+      { 
+        where: { 
+          teacherId 
+        },
+      include:{
+        _count:{
+          select:{
+            members:true
+          }
+        }
+      }
+      }
+    );
   } else if (userRole === Role.ADMIN) {
-    return await prisma.cluster.findMany();
+    return await prisma.cluster.findMany(      { 
+      include:{
+        _count:{
+          select:{
+            members:true
+          }
+        }
+      }
+      });
   }
 };
 
@@ -175,9 +196,54 @@ const getClusterById = async (
   id: string
 ) => {
   if (userRole === Role.TEACHER) {
-    return await prisma.cluster.findMany({ where: { teacherId, id } });
+    return await prisma.cluster.findFirst(
+      {
+        where: {
+          teacherId,
+          id
+        },
+        include: {
+          members: {
+            select: {
+              clusterId: true,
+              userId: true,
+              subtype: true,
+              joinedAt: true,
+              user: {
+                select: {
+                  email: true
+                }
+              }
+
+            }
+          }
+        }
+      }
+    );
   } else if (userRole === Role.ADMIN) {
-    return await prisma.cluster.findMany({ where: { id } });
+    return await prisma.cluster.findMany(
+      {
+        where: {
+          id
+        },
+        include: {
+          members: {
+            select: {
+              clusterId: true,
+              userId: true,
+              subtype: true,
+              joinedAt: true,
+              user: {
+                select: {
+                  email: true
+                }
+              }
+
+            }
+          }
+        }
+      }
+    );
   }
 };
 
@@ -353,50 +419,41 @@ const removeMember = async (clusterId: string, userId: string) => {
   return { removed: true, userId, clusterId };
 };
 
-const resendMemberCredentials = async (clusterId: string, userId: string) => {
-  // Verify cluster exists
+const resendMemberCredentials = async (
+  clusterId: string,
+  userId: string,
+  sessionToken: string
+) => {
   const cluster = await prisma.cluster.findUnique({
     where: { id: clusterId },
     select: { id: true, name: true },
   });
-  if (!cluster) {
-    throw new AppError(status.NOT_FOUND, "Cluster not found.");
-  }
+  if (!cluster) throw new AppError(status.NOT_FOUND, "Cluster not found.");
 
-  // Verify membership exists
   const membership = await prisma.clusterMember.findUnique({
     where: { clusterId_userId: { clusterId, userId } },
   });
-  if (!membership) {
-    throw new AppError(
-      status.NOT_FOUND,
-      "This user is not a member of the cluster."
-    );
-  }
+  if (!membership)
+    throw new AppError(status.NOT_FOUND, "This user is not a member of the cluster.");
 
-  // Fetch user to get their email
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, email: true, name: true },
   });
-  if (!user) {
-    throw new AppError(status.NOT_FOUND, "User account not found.");
-  }
+  if (!user) throw new AppError(status.NOT_FOUND, "User account not found.");
 
-  // Generate fresh temporary password and update account
   const newPassword = generatePassword(12);
 
-  // Update via BetterAuth admin API
-  await auth.api.changePassword({
+  // ✅ Use setUserPassword — no currentPassword check, targets the member not the caller
+  await auth.api.setPassword({
     body: {
       newPassword,
-      currentPassword: newPassword, // We call it through the admin path below
-      revokeOtherSessions: false,
     },
-    headers: { "x-user-id": user.id },
+    headers: new Headers({
+      Authorization: `Bearer ${sessionToken}`,
+    }),
   });
 
-  // Mark that user needs to change password on next login
   await prisma.user.update({
     where: { id: userId },
     data: { needPasswordChange: true },

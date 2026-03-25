@@ -25,7 +25,7 @@ router.get(
 
 // POST /sessions   — teacher only
 router.post(
-  "/",
+  "/create",
   checkAuth(Role.TEACHER),
   validateRequest(createSessionSchema),
   studySessionController.createSession

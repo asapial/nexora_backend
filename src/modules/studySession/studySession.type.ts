@@ -1,13 +1,12 @@
-export interface ICreateSession {
+interface ICreateSession {
   clusterId: string;
   title: string;
   description?: string;
-  date: string; // ISO datetime
+  scheduledAt: string;      // ✅ not `date`
   location?: string;
-  deadline?: string;
+  taskDeadline?: string;    // ✅ not `deadline`
   templateId?: string;
 }
-
 export interface IUpdateSession {
   title?: string;
   description?: string;
@@ -15,6 +14,7 @@ export interface IUpdateSession {
   location?: string;
   deadline?: string;
   templateId?: string;
+  status?:string;
 }
 
 export interface IAttendanceRecord {

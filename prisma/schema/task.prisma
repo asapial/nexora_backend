@@ -1,7 +1,7 @@
 model Task {
   id             String     @id @default(uuid())
   studySessionId String
-  memberId       String
+  memberId       String?
   title          String
   description    String?
   status         TaskStatus @default(PENDING)
@@ -16,7 +16,7 @@ model Task {
   updatedAt      DateTime   @updatedAt
 
   StudySession     StudySession    @relation(fields: [studySessionId], references: [id])
-  member           User            @relation(fields: [memberId], references: [id])
+  member           User?           @relation(fields: [memberId], references: [id], onDelete: SetNull)
   submission       TaskSubmission?
   rubric           GradingRubric?  @relation(fields: [rubricId], references: [id])
   drafts           TaskDraft[]
@@ -31,13 +31,13 @@ model Task {
 model TaskSubmission {
   id          String   @id @default(uuid())
   taskId      String   @unique
-  userId      String
+  userId      String?
   body        String
   fileUrl     String?
   submittedAt DateTime @default(now())
 
   task Task @relation(fields: [taskId], references: [id])
-  user User @relation(fields: [userId], references: [id])
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 }
 
 model TaskDraft {

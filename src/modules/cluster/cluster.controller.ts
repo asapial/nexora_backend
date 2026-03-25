@@ -143,10 +143,12 @@ const resendMemberCredentials = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const clusterId = req.params.id as string;
     const userId = req.params.userId as string;
+        const betterAuthSessionToken = req.cookies["better-auth.session_token"];
 
     const result = await clusterService.resendMemberCredentials(
       clusterId,
-      userId
+      userId,
+      betterAuthSessionToken
     );
 
     sendResponse(res, {
