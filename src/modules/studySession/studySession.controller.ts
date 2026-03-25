@@ -117,6 +117,8 @@ const saveAgenda = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user.userId;
   const { blocks } = req.body;
 
+  console.log("saveAgenda :",blocks);
+
   const result = await studySessionService.saveAgenda(sessionId, userId, blocks);
 
   sendResponse(res, {

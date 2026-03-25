@@ -18,6 +18,11 @@ import { studentRouter } from "./modules/student/student.route";
 import { teacherRouter } from "./modules/teacher/teacher.route";
 import { adminRouter } from "./modules/admin/admin.route";
 import { globalErrorHandler } from "./middleware/globalErrorHandler";
+import { studentClusterRouter } from "./modules/studentDashboard/studentCluster/studentCluster.route";
+import { noticeRouter } from "./modules/studentDashboard/notice/notice.route";
+import { progressRouter } from "./modules/studentDashboard/progress/progress.route";
+import { studentTaskRouter } from "./modules/studentDashboard/task/task.route";
+import { homeworkRouter } from "./modules/studentDashboard/homework/homework.route";
 
 // ── 1. CORS ─────────────────────────────────────────────────────────────────
 // MUST come first — BetterAuth, cookies, body-parser, and all routes rely on it.
@@ -83,6 +88,13 @@ app.use("/api/sessions", studySessionRouter);
 app.use("/api/student", studentRouter);
 app.use("/api/teacher", teacherRouter);
 app.use("/api/admin", adminRouter);
+
+// ── Student Dashboard APIs ───────────────────────────────────────────────────
+app.use("/api/student/clusters", studentClusterRouter);
+app.use("/api/student/notices", noticeRouter);
+app.use("/api/student/progress", progressRouter);
+app.use("/api/student/tasks", studentTaskRouter);
+app.use("/api/student/homework", homeworkRouter);
 
 // ── Health Check ────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => {

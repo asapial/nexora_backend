@@ -2853,7 +2853,7 @@ var createSessionSchema = z3.object({
 var updateSessionSchema = z3.object({
   title: z3.string().min(3).max(200).optional(),
   description: z3.string().max(2e3).optional(),
-  status: z3.enum(["upcoming", "completed", "cancel"]),
+  status: z3.enum(["upcoming", "ongoing", "completed", "cancelled"]),
   date: z3.string().datetime({ message: "date must be a valid ISO 8601 datetime string" }).optional(),
   location: z3.string().max(200).optional(),
   deadline: z3.string().datetime({ message: "deadline must be a valid ISO 8601 datetime string" }).optional(),

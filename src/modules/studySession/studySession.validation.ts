@@ -22,16 +22,19 @@ export const updateSessionSchema = z
   .object({
     title: z.string().min(3).max(200).optional(),
     description: z.string().max(2000).optional(),
-    status:z.enum(["upcoming", "completed", "cancel"]),
+    status: z.enum(["upcoming", "ongoing", "completed", "cancelled"]).optional(),
     date: z
       .string()
       .datetime({ message: "date must be a valid ISO 8601 datetime string" })
       .optional(),
+    durationMins: z.number().optional(),
     location: z.string().max(200).optional(),
-    deadline: z
+    taskDeadline: z
       .string()
       .datetime({ message: "deadline must be a valid ISO 8601 datetime string" })
       .optional(),
+    recordingUrl: z.string().optional(),
+    recordingNotes: z.string().optional(),
     templateId: z.string().optional(),
   })
   .refine((d) => Object.keys(d).length > 0, {
@@ -54,7 +57,7 @@ export const submitAttendanceSchema = z.object({
 });
 
 /* ── Create / Update Agenda ───────────────────────────────────────────────── */
-const agendaBlockSchema = z.object({
+export const createAgendaSchema = z.object({
   startTime: z
     .string()
     .min(1, "startTime is required")
@@ -70,11 +73,11 @@ const agendaBlockSchema = z.object({
   presenter: z.string().max(150).optional(),
 });
 
-export const createAgendaSchema = z.object({
-  blocks: z
-    .array(agendaBlockSchema)
-    .min(1, "blocks array must have at least one item"),
-});
+// export const createAgendaSchema = z.object({
+//   blocks: z
+//     .array(agendaBlockSchema)
+//     .min(1, "blocks array must have at least one item"),
+// });
 
 /* ── Submit Feedback ──────────────────────────────────────────────────────── */
 export const submitFeedbackSchema = z.object({

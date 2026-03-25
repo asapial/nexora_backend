@@ -76,7 +76,7 @@ router.get(
 router.post(
   "/:id/agenda",
   checkAuth(Role.TEACHER),
-  validateRequest(createAgendaSchema),
+  // validateRequest(createAgendaSchema),
   studySessionController.saveAgenda
 );
 
