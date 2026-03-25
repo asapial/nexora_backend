@@ -40,6 +40,12 @@ model AdminProfile {
     // ── Relations ─────────────────────────────────────────
     activityLogs AdminActivityLog[]
 
+
+    // courses 
+    approvedCourses     Course[]         @relation("CourseApprover")
+approvedMissions    CourseMission[]  @relation("MissionApprover")
+reviewedPriceReqs   CoursePriceRequest[]
+
     @@map("admin_profile")
 }
 

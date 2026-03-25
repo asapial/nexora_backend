@@ -36,5 +36,11 @@ model TeacherProfile {
     sessions      StudySession[]  @relation("SessionCreator")
     taskTemplates TaskTemplate[]
 
+
+    // courses
+    courses             Course[]
+priceRequests       CoursePriceRequest[]
+revenueTransactions RevenueTransaction[]
+
     @@map("teacher_profile")
 }

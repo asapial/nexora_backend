@@ -96,3 +96,39 @@ enum StudySessionStatus {
   completed
   cancelled
 }
+
+
+enum CourseStatus {
+  DRAFT
+  PENDING_APPROVAL     // teacher submitted for admin review
+  PUBLISHED            // admin approved & active
+  CLOSED               // teacher closed — no new missions, no new enrollments
+  REJECTED             // admin rejected
+}
+
+enum MissionStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PUBLISHED
+  REJECTED
+}
+
+enum MissionContentType {
+  VIDEO
+  TEXT
+  PDF
+}
+
+enum PriceApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PaymentStatus {
+  FREE
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}

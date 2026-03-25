@@ -20,6 +20,9 @@ import { adminRouter } from "./modules/admin/admin.route";
 import { globalErrorHandler } from "./middleware/globalErrorHandler";
 import { studentClusterRouter } from "./modules/studentDashboard/studentCluster/studentCluster.route";
 import { noticeRouter } from "./modules/studentDashboard/notice/notice.route";
+import { teacherAnnouncementRouter } from "./modules/teacherDashboard/announcement/announcement.route";
+import { categoryRouter } from "./modules/teacherDashboard/category/category.route";
+import { teacherTaskRouter } from "./modules/teacherDashboard/teacherTask/teacherTask.route";
 import { progressRouter } from "./modules/studentDashboard/progress/progress.route";
 import { studentTaskRouter } from "./modules/studentDashboard/task/task.route";
 import { homeworkRouter } from "./modules/studentDashboard/homework/homework.route";
@@ -95,6 +98,11 @@ app.use("/api/student/notices", noticeRouter);
 app.use("/api/student/progress", progressRouter);
 app.use("/api/student/tasks", studentTaskRouter);
 app.use("/api/student/homework", homeworkRouter);
+
+// ── Teacher Dashboard APIs ───────────────────────────────────────────────────
+app.use("/api/teacher/announcements", teacherAnnouncementRouter);
+app.use("/api/teacher/categories", categoryRouter);
+app.use("/api/teacher/tasks", teacherTaskRouter);
 
 // ── Health Check ────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => {
