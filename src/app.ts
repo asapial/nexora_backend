@@ -8,12 +8,6 @@ import path from "path";
 import { clusterRouter } from "./modules/cluster/cluster.route";
 import { resourceRouter } from "./modules/resource/resource.route";
 import { studySessionRouter } from "./modules/studySession/studySession.route";
-
-const app: Application = express();
-
-app.set("view engine", "ejs");
-app.set("views", path.resolve(process.cwd(), `src/templates`))
-
 import { studentRouter } from "./modules/student/student.route";
 import { teacherRouter } from "./modules/teacher/teacher.route";
 import { adminRouter } from "./modules/admin/admin.route";
@@ -26,6 +20,15 @@ import { teacherTaskRouter } from "./modules/teacherDashboard/teacherTask/teache
 import { progressRouter } from "./modules/studentDashboard/progress/progress.route";
 import { studentTaskRouter } from "./modules/studentDashboard/task/task.route";
 import { homeworkRouter } from "./modules/studentDashboard/homework/homework.route";
+import { courseRouter } from "./modules/course/course.route";
+import { missionRouter } from "./modules/mission/mission.route";
+
+
+const app: Application = express();
+
+app.set("view engine", "ejs");
+app.set("views", path.resolve(process.cwd(), `src/templates`))
+
 
 // ── 1. CORS ─────────────────────────────────────────────────────────────────
 // MUST come first — BetterAuth, cookies, body-parser, and all routes rely on it.
@@ -67,7 +70,7 @@ app.use(cookieParser());
 const betterAuthHandler = toNodeHandler(auth);
 app.use((req, res, next) => {
   const p = req.path;
-  console.log(p)
+
   const isBetterAuthRoute =
     p.startsWith("/api/auth/sign-in/") ||
     p.startsWith("/api/auth/sign-up/") ||
@@ -91,6 +94,8 @@ app.use("/api/sessions", studySessionRouter);
 app.use("/api/student", studentRouter);
 app.use("/api/teacher", teacherRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/courses", courseRouter);
+app.use("/api/missions", missionRouter);
 
 // ── Student Dashboard APIs ───────────────────────────────────────────────────
 app.use("/api/student/clusters", studentClusterRouter);
@@ -103,6 +108,9 @@ app.use("/api/student/homework", homeworkRouter);
 app.use("/api/teacher/announcements", teacherAnnouncementRouter);
 app.use("/api/teacher/categories", categoryRouter);
 app.use("/api/teacher/tasks", teacherTaskRouter);
+
+
+
 
 // ── Health Check ────────────────────────────────────────────────────────────
 app.get("/", (_req, res) => {

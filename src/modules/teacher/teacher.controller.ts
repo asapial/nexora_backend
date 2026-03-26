@@ -67,8 +67,27 @@ const deleteTeacherProfile = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+
+// ─────────────────────────────────────────────────────────
+// EARNINGS
+// ─────────────────────────────────────────────────────────
+
+const getEarningsSummary = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+  const result = await teacherService.getEarningsSummary(userId);
+  sendResponse(res, { status: status.OK, success: true, message: "Earnings summary retrieved", data: result });
+});
+
+const getTransactions = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+  const result = await teacherService.getTransactions(userId, req.query as any);
+  sendResponse(res, { status: status.OK, success: true, message: "Transactions retrieved", data: result });
+});
+
 export const teacherController = {
   getTeacherProfile,
   updateTeacherProfile,
   deleteTeacherProfile,
+  getEarningsSummary,
+  getTransactions
 };

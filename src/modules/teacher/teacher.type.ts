@@ -12,3 +12,11 @@ export const updateTeacherProfileSchema = z.object({
 });
 
 export type updateTeacherProfileType = z.infer<typeof updateTeacherProfileSchema>;
+
+// ── Earnings ──────────────────────────────────────────────
+export interface EarningsQueryParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  courseId?: string;
+}

@@ -272,7 +272,7 @@ const updateSession = async (
 ) => {
   const existing = await assertSessionTeacher(sessionId, userId);
 
-  console.log("Update session data :", payload);
+  // console.log("Update session data :", payload);
 
   const ONE_HOUR_MS = 60 * 60 * 1000;
   const dateChanged =

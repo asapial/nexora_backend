@@ -29,7 +29,7 @@ export const checkAuth = (...authRoles: Role[]) => async (req: Request, res: Res
         // ── 1. Verify session token ───────────────────────────────────────────
         const sessionToken = cookieUtils.getCookie(req, "better-auth.session_token");
 
-        console.log("sessionToken",sessionToken)
+        // console.log("sessionToken",sessionToken)
 
         if (!sessionToken) {
             throw new AppError(status.UNAUTHORIZED, 'Unauthorized access! No session token provided.');
@@ -43,7 +43,7 @@ export const checkAuth = (...authRoles: Role[]) => async (req: Request, res: Res
             include: { user: true },
         });
         
-        console.log("sessionData",sessionExists)
+   
         // Session not found or expired → reject immediately
         if (!sessionExists || !sessionExists.user) {
             throw new AppError(status.UNAUTHORIZED, 'Unauthorized access! Session is invalid or has expired. Please log in again.');
@@ -67,7 +67,7 @@ export const checkAuth = (...authRoles: Role[]) => async (req: Request, res: Res
             res.setHeader('X-Session-Refresh', 'true');
             res.setHeader('X-Session-Expires-At', expiresAt.toISOString());
             res.setHeader('X-Time-Remaining', timeRemaining.toString());
-            console.log("Session Expiring Soon!!");
+            // console.log("Session Expiring Soon!!");
         }
 
         // Role-based access guard
