@@ -299,9 +299,9 @@ const forgetPassword = async (email: string) => {
         throw new AppError(status.NOT_FOUND, "User not found");
     }
 
-    if (!isUserExist.emailVerified) {
-        throw new AppError(status.BAD_REQUEST, "Email not verified");
-    }
+    // if (!isUserExist.emailVerified) {
+    //     throw new AppError(status.BAD_REQUEST, "Email not verified");
+    // }
 
     if (isUserExist.isDeleted) {
         throw new AppError(status.NOT_FOUND, "User not found");
@@ -321,9 +321,9 @@ const verifyResetOtp = async (email: string, otp: string) => {
     if (!isUserExist) {
         throw new AppError(status.NOT_FOUND, "User not found");
     }
-    if (!isUserExist.emailVerified) {
-        throw new AppError(status.BAD_REQUEST, "Email not verified");
-    }
+    // if (!isUserExist.emailVerified) {
+    //     throw new AppError(status.BAD_REQUEST, "Email not verified");
+    // }
     if (isUserExist.isDeleted) {
         throw new AppError(status.NOT_FOUND, "User not found");
     }
@@ -343,9 +343,9 @@ const resetPassword = async (email: string, otp: string, newPassword: string) =>
     if (!isUserExist) {
         throw new AppError(status.NOT_FOUND, "User not found");
     }
-    if (!isUserExist.emailVerified) {
-        throw new AppError(status.BAD_REQUEST, "Email not verified");
-    }
+    // if (!isUserExist.emailVerified) {
+    //     throw new AppError(status.BAD_REQUEST, "Email not verified");
+    // }
     if (isUserExist.isDeleted) {
         throw new AppError(status.NOT_FOUND, "User not found");
     }

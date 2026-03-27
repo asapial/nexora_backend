@@ -4,7 +4,7 @@ model Cluster {
   slug           String        @unique
   description    String?
   batchTag       String?
-  teacherId      String?
+  teacherId      String
   organizationId String?
   healthScore    Float         @default(100)
   healthStatus   ClusterHealth @default(HEALTHY)
@@ -12,15 +12,14 @@ model Cluster {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  teacher          User?                 @relation("ClusterTeacher", fields: [teacherId], references: [id], onDelete: SetNull)
-  organization     Organization?         @relation(fields: [organizationId], references: [id])
-  members          ClusterMember[]
-  coTeachers       CoTeacher[]
-  sessions         StudySession[]
-  announcements    AnnouncementCluster[]
-  resources        Resource[]
-  studyGroups      StudyGroup[]
-
+  teacher       TeacherProfile        @relation("ClusterTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  organization  Organization?         @relation(fields: [organizationId], references: [id])
+  members       ClusterMember[]
+  coTeachers    CoTeacher[]
+  sessions      StudySession[]
+  announcements AnnouncementCluster[]
+  resources     Resource[]
+  studyGroups   StudyGroup[]
 
   @@index([teacherId, isActive])
 }
@@ -33,7 +32,7 @@ model ClusterMember {
   joinedAt  DateTime      @default(now())
 
   cluster          Cluster         @relation(fields: [clusterId], references: [id])
-  user             User            @relation(fields: [userId], references: [id],onDelete: Cascade)
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   studentProfile   StudentProfile? @relation(fields: [studentProfileId], references: [id])
   studentProfileId String?
 

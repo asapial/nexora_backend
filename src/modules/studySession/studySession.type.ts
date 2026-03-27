@@ -1,4 +1,4 @@
-interface ICreateSession {
+export interface ICreateSession {
   clusterId: string;
   title: string;
   description?: string;

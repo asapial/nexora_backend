@@ -1,15 +1,38 @@
+import status from "http-status";
+import AppError from "../../../errorHelpers/AppError";
 import { prisma } from "../../../lib/prisma";
 
-const getMyCluster = async (userId: string) => {
+const getMyCluster = async (studentUserId: string) => {
+
+  const studentProfile = await prisma.studentProfile.findFirst({
+    where: {
+      userId: studentUserId
+    }
+  })
+
+  if (!studentProfile) {
+    throw new AppError(status.CONTINUE, "Student is not found");
+
+  }
+
+  const studentProfileId = studentProfile.id;
+
   const now = new Date();
 
   const memberships = await prisma.clusterMember.findMany({
-    where: { userId },
+    where: { userId: studentUserId },
     include: {
       cluster: {
         include: {
           teacher: {
-            select: { id: true, name: true, email: true },
+            include: {
+              user: {
+                select: {
+                  name: true,
+                  email: true
+                }
+              }
+            }
           },
           _count: {
             select: { members: true, sessions: true },
@@ -40,7 +63,7 @@ const getMyCluster = async (userId: string) => {
       healthStatus: cluster.healthStatus,
       isActive: cluster.isActive,
       teacher: cluster.teacher
-        ? { name: cluster.teacher.name, email: cluster.teacher.email }
+        ? { name: cluster.teacher.user.name, email: cluster.teacher.user.email }
         : null,
       memberCount: cluster._count.members,
       sessionCount: cluster._count.sessions,
@@ -61,7 +84,16 @@ const getClusterDetail = async (userId: string, clusterId: string) => {
   return prisma.cluster.findUnique({
     where: { id: clusterId },
     include: {
-      teacher: { select: { name: true, email: true } },
+      teacher: {
+        include: {
+          user: {
+            select: {
+              name: true,
+              email: true
+            }
+          }
+        }
+      },
       _count: { select: { members: true, sessions: true } },
       sessions: {
         orderBy: { scheduledAt: "desc" },

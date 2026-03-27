@@ -11,8 +11,7 @@ const getHomework = async (userId: string) => {
 
   return prisma.task.findMany({
     where: {
-      studentProfileId: studentProfile.id,
-      homework: { not: null },
+      studentProfileId: studentProfile.id
     },
     include: {
       StudySession: {

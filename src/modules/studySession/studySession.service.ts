@@ -19,12 +19,25 @@ const listSessions = async (
 ) => {
   const { clusterId, from, to } = query;
 
+     const teacherProfile= await prisma.teacherProfile.findFirst({
+    where:{
+      userId
+    }
+  })
+
+  if(!teacherProfile){
+    throw new AppError(status.CONTINUE,"Teacher is not found");
+
+  }
+
+  const teacherId=teacherProfile.id;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: any = {};
 
   if (userRole === Role.TEACHER) {
     const ownedIds = (
-      await prisma.cluster.findMany({ where: { teacherId: userId }, select: { id: true } })
+      await prisma.cluster.findMany({ where: { teacherId:teacherId }, select: { id: true } })
     ).map((c) => c.id);
     const coIds = (
       await prisma.coTeacher.findMany({ where: { userId }, select: { clusterId: true } })
@@ -105,7 +118,8 @@ const createSession = async (userId: string, payload: ICreateSession) => {
           subtype: "RUNNING"
         },
         select: {
-          userId: true
+          userId: true,
+          studentProfileId:true
         }
       },
     },
@@ -113,7 +127,7 @@ const createSession = async (userId: string, payload: ICreateSession) => {
 
   if (!cluster) throw new AppError(status.NOT_FOUND, "Cluster not found.");
 
-  const isOwner = cluster.teacherId === userId;
+  const isOwner = cluster.teacherId === teacherProfileId;
   const isCoTeacher = await prisma.coTeacher.findFirst({
     where: {
       clusterId: payload.clusterId,
@@ -162,10 +176,12 @@ const createSession = async (userId: string, payload: ICreateSession) => {
         ? await tx.taskTemplate.findUnique({ where: { id: payload.templateId } })
         : null;
 
+        console.log("Running members :",runningMembers);
+
       await tx.task.createMany({
         data: runningMembers.map((m) => ({
+          studentProfileId:m.studentProfileId,
           studySessionId: newSession.id,
-          memberId: m.userId,
           title: template ? template.title : newSession.title,
           description: template?.description ?? null,
           deadline: newSession.taskDeadline,
@@ -202,7 +218,6 @@ const getSessionById = async (
       tasks: {
         select: {
           id: true,
-          memberId: true,
           title: true,
           status: true,
           deadline: true,

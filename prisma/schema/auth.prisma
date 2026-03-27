@@ -19,11 +19,9 @@ model User {
   isDeleted Boolean? 
 
   organization         Organization?        @relation(fields: [organizationId], references: [id])
-  teacherClusters      Cluster[]            @relation("ClusterTeacher")
+
   memberships          ClusterMember[]
   coTeacherOf          CoTeacher[]
-  tasks                Task[]
-  submissions          TaskSubmission[]
   resources            Resource[]
   announcements        Announcement[]
   notifications        Notification[]

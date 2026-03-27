@@ -3,7 +3,22 @@ import AppError from "../../../errorHelpers/AppError";
 import status from "http-status";
 
 // ─── Get teacher's sessions with tasks ───────────────────────────────────────
-const getSessionsWithTasks = async (teacherId: string) => {
+const getSessionsWithTasks = async (teacherUserId: string) => {
+
+  const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: {
+      userId: teacherUserId
+    }
+  })
+
+  if (!teacherProfile) {
+    throw new AppError(status.CONTINUE, "Teacher is not found");
+
+  }
+
+  const teacherId = teacherProfile.id;
+
+  console.log("getSessionsWithTasks")
   return prisma.studySession.findMany({
     where: { cluster: { teacherId } },
     include: {
@@ -11,7 +26,6 @@ const getSessionsWithTasks = async (teacherId: string) => {
       tasks: {
         include: {
           submission: true,
-          member: { select: { name: true, email: true } },
           studentProfile: { include: { user: { select: { name: true, email: true } } } },
         },
         orderBy: { createdAt: "desc" },
@@ -23,40 +37,63 @@ const getSessionsWithTasks = async (teacherId: string) => {
 
 // ─── Assign task/homework to a session ───────────────────────────────────────
 const assignTaskToSession = async (
-  teacherId: string,
+  teacherUserId: string,
   sessionId: string,
   payload: {
     title: string;
     description?: string;
     homework?: string;
     deadline?: string;
-    memberId?: string;
   }
 ) => {
-  // Verify teacher owns the session via cluster
+  const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: { userId: teacherUserId },
+  });
+
+  if (!teacherProfile) {
+    throw new AppError(status.NOT_FOUND, "Teacher not found");
+  }
+
   const session = await prisma.studySession.findUnique({
     where: { id: sessionId },
-    include: { cluster: { select: { teacherId: true } } },
-  });
-  if (!session) throw new AppError(status.NOT_FOUND, "Session not found.");
-  if (session.cluster.teacherId !== teacherId)
-    throw new AppError(status.FORBIDDEN, "You do not own this session's cluster.");
-
-  return prisma.task.create({
-    data: {
-      studySessionId: sessionId,
-      title:          payload.title,
-      description:    payload.description ?? null,
-      homework:       payload.homework    ?? null,
-      deadline:       payload.deadline ? new Date(payload.deadline) : null,
-      memberId:       payload.memberId   ?? null,
-      status:         "PENDING",
-    },
     include: {
-      StudySession: { select: { id: true, title: true } },
-      member:       { select: { name: true, email: true } },
+      cluster: {
+        select: {
+          teacherId: true,
+          members: {
+            where: { subtype: "RUNNING" },
+            select: { studentProfileId: true },
+          },
+        },
+      },
     },
   });
+
+  if (!session) throw new AppError(status.NOT_FOUND, "Session not found");
+
+  if (session.cluster.teacherId !== teacherProfile.id) {
+    throw new AppError(status.FORBIDDEN, "Unauthorized");
+  }
+
+  const members = session.cluster.members;
+
+  if (!members.length) {
+    throw new AppError(status.NOT_FOUND, "No active members found");
+  }
+
+  await prisma.task.createMany({
+    data: members.map((m) => ({
+      studySessionId: sessionId,
+      title: payload.title,
+      description: payload.description ?? null,
+      homework: payload.homework ?? null,
+      deadline: payload.deadline ? new Date(payload.deadline) : null,
+      status: "PENDING",
+      studentProfileId: m.studentProfileId!,
+    })),
+  });
+
+  return { tasksCreated: members.length };
 };
 
 // ─── Review a task submission ─────────────────────────────────────────────────
@@ -81,7 +118,7 @@ const reviewSubmission = async (
   return prisma.task.update({
     where: { id: taskId },
     data: {
-      status:     "REVIEWED",
+      status: "REVIEWED",
       finalScore: payload.finalScore,
       reviewNote: payload.reviewNote ?? null,
     },
@@ -97,7 +134,7 @@ const getHomeworkManagement = async (teacherId: string) => {
       tasks: {
         include: {
           submission: { select: { id: true, submittedAt: true } },
-          _count:    { select: { drafts: true } },
+          _count: { select: { drafts: true } },
         },
       },
       _count: { select: { attendance: true } },

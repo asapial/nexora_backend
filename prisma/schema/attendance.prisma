@@ -9,6 +9,5 @@ model Attendance {
   session          StudySession    @relation(fields: [studySessionId], references: [id])
   studentProfile   StudentProfile? @relation(fields: [studentProfileId], references: [id])
 
-
   @@unique([studySessionId, studentProfileId])
 }

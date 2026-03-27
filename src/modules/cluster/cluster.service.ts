@@ -11,7 +11,7 @@ import status from "http-status";
 
 
 
-const createCluster = async (clusterPayload: iCreateCluster, teacherId: string) => {
+const createCluster = async (clusterPayload: iCreateCluster, teacherUserId: string) => {
 
   const { name, slug, description, batchTag, emails = [] } = clusterPayload;
 
@@ -29,6 +29,19 @@ const createCluster = async (clusterPayload: iCreateCluster, teacherId: string) 
     throw new AppError(status.CONFLICT, "This slug is already taken — choose a different one");
   }
 
+  const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: {
+      userId: teacherUserId
+    }
+  })
+
+  if (!teacherProfile) {
+    throw new AppError(status.CONTINUE, "Teacher is not found");
+
+  }
+
+  const teacherId = teacherProfile.id;
+
   // ── Step 1: Transaction — cluster + teacher member create ──────────────
   const { cluster } = await prisma.$transaction(async (tx) => {
 
@@ -44,12 +57,12 @@ const createCluster = async (clusterPayload: iCreateCluster, teacherId: string) 
     });
 
 
-    await tx.clusterMember.create({
-      data: {
-        clusterId: cluster.id,
-        userId: teacherId
-      },
-    });
+    // await tx.clusterMember.create({
+    //   data: {
+    //     clusterId: cluster.id,
+    //     userId: teacherId
+    //   },
+    // });
 
     return { cluster };
   });
@@ -74,7 +87,6 @@ const createCluster = async (clusterPayload: iCreateCluster, teacherId: string) 
           where: { userId: existingUser.id },
           create: { userId: existingUser.id },
           update: {},
-          select: { userId: true },
         });
 
         studentUserId = studentProfile.userId;
@@ -91,7 +103,7 @@ const createCluster = async (clusterPayload: iCreateCluster, teacherId: string) 
         }
 
         await prisma.clusterMember.create({
-          data: { clusterId: cluster.id, userId: studentUserId },
+          data: { clusterId: cluster.id, userId: studentUserId, studentProfileId: studentProfile.id },
         });
 
         await sendEmail({
@@ -122,12 +134,12 @@ const createCluster = async (clusterPayload: iCreateCluster, teacherId: string) 
 
 
         await prisma.$transaction(async (tx) => {
-          await tx.studentProfile.create({
+          const studentProfile = await tx.studentProfile.create({
             data: { userId: newUser.user.id },
           });
 
           await tx.clusterMember.create({
-            data: { clusterId: cluster.id, userId: newUser.user.id },
+            data: { clusterId: cluster.id, userId: newUser.user.id, studentProfileId: studentProfile.id },
           });
         });
 
@@ -161,42 +173,70 @@ const createCluster = async (clusterPayload: iCreateCluster, teacherId: string) 
 };
 
 
-const getCluster = async (teacherId: string, userRole: string) => {
+const getCluster = async (teacherUserId: string, userRole: string) => {
+
+  const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: {
+      userId: teacherUserId
+    }
+  })
+
+  if (!teacherProfile) {
+    throw new AppError(status.CONTINUE, "Teacher is not found");
+
+  }
+
+  const teacherId = teacherProfile.id;
+
   if (userRole === Role.TEACHER) {
     return await prisma.cluster.findMany(
-      { 
-        where: { 
-          teacherId 
+      {
+        where: {
+          teacherId
         },
-      include:{
-        _count:{
-          select:{
-            members:true
+        include: {
+          _count: {
+            select: {
+              members: true
+            }
           }
         }
-      }
       }
     );
   } else if (userRole === Role.ADMIN) {
-    return await prisma.cluster.findMany(      { 
-      include:{
-        _count:{
-          select:{
-            members:true
+    return await prisma.cluster.findMany({
+      include: {
+        _count: {
+          select: {
+            members: true
           }
         }
       }
-      });
+    });
   }
 };
 
 const getClusterById = async (
-  teacherId: string,
+  teacherUserId: string,
   userRole: string,
   id: string
 ) => {
+
+  const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: {
+      userId: teacherUserId
+    }
+  })
+
+  if (!teacherProfile) {
+    throw new AppError(status.CONTINUE, "Teacher is not found");
+
+  }
+
+  const teacherId = teacherProfile.id;
+
   if (userRole === Role.TEACHER) {
-    return await prisma.cluster.findFirst(
+    const clusterData = await prisma.cluster.findFirst(
       {
         where: {
           teacherId,
@@ -209,6 +249,7 @@ const getClusterById = async (
               userId: true,
               subtype: true,
               joinedAt: true,
+              studentProfileId: true,
               user: {
                 select: {
                   email: true
@@ -220,6 +261,9 @@ const getClusterById = async (
         }
       }
     );
+
+    console.log("cluster data :", clusterData);
+    return clusterData;
   } else if (userRole === Role.ADMIN) {
     return await prisma.cluster.findMany(
       {
@@ -287,10 +331,11 @@ const addedClusterMemberByEmail = async (
         where: { userId: existingUser.id },
         create: { userId: existingUser.id },
         update: {},
-        select: { userId: true },
+        // select: { userId: true },
       });
 
       studentUserId = studentProfile.userId;
+      const studentProfileId = studentProfile.id;
 
       // Check membership first — no email if they're already in
       const existingMembership = await prisma.clusterMember.findUnique({
@@ -304,7 +349,7 @@ const addedClusterMemberByEmail = async (
 
       // Not yet a member — add and notify with welcome-back email
       await prisma.clusterMember.create({
-        data: { clusterId, userId: studentUserId },
+        data: { clusterId, userId: studentUserId, studentProfileId: studentProfileId },
       });
 
       await sendEmail({
@@ -333,14 +378,14 @@ const addedClusterMemberByEmail = async (
         },
       });
 
-      await prisma.studentProfile.create({
+      const newStudent = await prisma.studentProfile.create({
         data: { userId: newUser.user.id },
       });
 
       studentUserId = newUser.user.id;
 
       await prisma.clusterMember.create({
-        data: { clusterId, userId: studentUserId },
+        data: { clusterId, userId: studentUserId, studentProfileId: newStudent.id },
       });
 
       await sendEmail({
