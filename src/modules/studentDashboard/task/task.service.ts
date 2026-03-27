@@ -33,6 +33,37 @@ const getMyTasks = async (userId: string) => {
   });
 };
 
+// ─── Get single task (by id) ──────────────────────────────────────────────────
+const getTaskById = async (userId: string, taskId: string) => {
+  const studentProfile = await prisma.studentProfile.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+  if (!studentProfile) throw new AppError(status.NOT_FOUND, "Student profile not found.");
+
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    include: {
+      submission: true,
+      StudySession: {
+        select: {
+          id: true,
+          title: true,
+          scheduledAt: true,
+          cluster: { select: { id: true, name: true } },
+        },
+      },
+    },
+  });
+
+  if (!task) throw new AppError(status.NOT_FOUND, "Task not found.");
+  if (task.studentProfileId !== studentProfile.id) {
+    throw new AppError(status.FORBIDDEN, "This task is not assigned to you.");
+  }
+
+  return task;
+};
+
 const submitTask = async (
   userId: string,
   taskId: string,
@@ -139,4 +170,4 @@ const editSubmission = async (
   });
 };
 
-export const taskService = { getMyTasks, submitTask, editSubmission };
+export const taskService = { getMyTasks, getTaskById, submitTask, editSubmission };

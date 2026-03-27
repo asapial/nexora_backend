@@ -6,6 +6,7 @@ import { Role } from "../../../generated/prisma/enums";
 const router = Router();
 
 router.get("/", checkAuth(Role.STUDENT), taskController.getMyTasks);
+router.get("/:taskId", checkAuth(Role.STUDENT), taskController.getTaskById);
 router.post("/:taskId/submit", checkAuth(Role.STUDENT), taskController.submitTask);
 router.patch("/:taskId/submit", checkAuth(Role.STUDENT), taskController.editSubmission);
 

@@ -37,6 +37,7 @@ model User {
   // createdStudySessions StudySession[]       @relation("SessionCreator")
   impersonatedLogs     AuditLog[]           @relation("ImpersonatorLog")
   announcementReads    AnnouncementRead[]
+   payments  Payment[]
 
   teacherProfile TeacherProfile?
   studentProfile StudentProfile?

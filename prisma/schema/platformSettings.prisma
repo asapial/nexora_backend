@@ -66,16 +66,16 @@ model AuditLog {
   @@index([actorId, createdAt])
 }
 
-// ─── PAYMENT ─────────────────────────────────────────────────
+// // ─── PAYMENT ─────────────────────────────────────────────────
 
-model Payment {
-  id              String    @id @default(uuid())
-  userId          String
-  courseId        String?
-  stripeSessionId String    @unique
-  amount          Float
-  currency        String    @default("usd")
-  status          String
-  refundedAt      DateTime?
-  createdAt       DateTime  @default(now())
-}
+// model Payment {
+//   id              String    @id @default(uuid())
+//   userId          String
+//   courseId        String?
+//   stripeSessionId String    @unique
+//   amount          Float
+//   currency        String    @default("usd")
+//   status          String
+//   refundedAt      DateTime?
+//   createdAt       DateTime  @default(now())
+// }

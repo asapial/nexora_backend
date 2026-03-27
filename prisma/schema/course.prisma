@@ -35,6 +35,8 @@ model Course {
   missions    CourseMission[]
   enrollments CourseEnrollment[]
   priceRequests CoursePriceRequest[]
+    payments  Payment[]
+
 
   @@index([status, isFeatured])
   @@map("course")
@@ -113,6 +115,7 @@ model CourseEnrollment {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   missionProgress StudentMissionProgress[]
+    payments  Payment[]
 
   @@unique([courseId, userId])
   @@index([courseId, paymentStatus])

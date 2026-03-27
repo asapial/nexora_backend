@@ -17,6 +17,20 @@ const getMyTasks = catchAsync(
   }
 );
 
+const getTaskById = catchAsync(
+  async (req: Request, res: Response, _next: NextFunction) => {
+    const userId = req.user.userId;
+    const { taskId } = req.params as { taskId: string };
+    const result = await taskService.getTaskById(userId, taskId);
+    sendResponse(res, {
+      status: status.OK,
+      success: true,
+      message: "Task fetched successfully",
+      data: result,
+    });
+  }
+);
+
 const submitTask = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user.userId;
@@ -47,4 +61,4 @@ const editSubmission = catchAsync(
   }
 );
 
-export const taskController = { getMyTasks, submitTask, editSubmission };
+export const taskController = { getMyTasks, getTaskById, submitTask, editSubmission };

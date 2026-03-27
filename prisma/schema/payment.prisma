@@ -1,0 +1,36 @@
+
+
+model Payment {
+  id              String        @id @default(uuid())
+  courseId        String
+  userId          String
+  enrollmentId    String?       @unique
+
+  // Stripe fields
+  stripePaymentIntentId  String  @unique
+  stripeClientSecret     String
+  amount                 Float   // in USD
+  currency               String  @default("usd")
+  status                 PaymentStatus @default(PENDING)
+
+  // Teacher revenue split (recorded at payment time)
+  teacherRevenuePercent  Float   @default(70)
+  teacherEarning         Float   @default(0)
+  platformEarning        Float   @default(0)
+
+  paidAt      DateTime?
+  failedAt    DateTime?
+  refundedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  course      Course            @relation(fields: [courseId], references: [id])
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enrollment  CourseEnrollment? @relation(fields: [enrollmentId], references: [id])
+
+  @@index([userId])
+  @@index([courseId])
+  @@index([stripePaymentIntentId])
+  @@map("payment")
+}
+
