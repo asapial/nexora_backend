@@ -2,6 +2,13 @@ import { prisma } from "../../../lib/prisma";
 import AppError from "../../../errorHelpers/AppError";
 import status from "http-status";
 
+interface SubmitPayload {
+  videoUrl?: string;
+  textBody?: string;
+  pdfUrl?: string;
+  fileSize?: number;
+}
+
 const getMyTasks = async (userId: string) => {
   const studentProfile = await prisma.studentProfile.findUnique({
     where: { userId },
@@ -29,8 +36,7 @@ const getMyTasks = async (userId: string) => {
 const submitTask = async (
   userId: string,
   taskId: string,
-  body: string,
-  fileUrl?: string
+  payload: SubmitPayload
 ) => {
   const studentProfile = await prisma.studentProfile.findUnique({
     where: { userId },
@@ -58,9 +64,22 @@ const submitTask = async (
     throw new AppError(status.BAD_REQUEST, "Submission deadline has passed.");
   }
 
+  // At least one field must be provided
+  if (!payload.videoUrl && !payload.textBody && !payload.pdfUrl) {
+    throw new AppError(status.BAD_REQUEST, "At least one of videoUrl, textBody, or pdfUrl is required.");
+  }
+
   const [submission] = await prisma.$transaction([
     prisma.taskSubmission.create({
-      data: { taskId, userId, body, fileUrl: fileUrl ?? null },
+      data: {
+        taskId,
+        studentProfileId: studentProfile.id,
+        body: payload.textBody ?? "",
+        videoUrl: payload.videoUrl ?? null,
+        textBody: payload.textBody ?? null,
+        pdfUrl: payload.pdfUrl ?? null,
+        fileSize: payload.fileSize ?? null,
+      },
     }),
     prisma.task.update({
       where: { id: taskId },
@@ -74,8 +93,7 @@ const submitTask = async (
 const editSubmission = async (
   userId: string,
   taskId: string,
-  body: string,
-  fileUrl?: string
+  payload: SubmitPayload
 ) => {
   const studentProfile = await prisma.studentProfile.findUnique({
     where: { userId },
@@ -111,7 +129,13 @@ const editSubmission = async (
 
   return prisma.taskSubmission.update({
     where: { taskId },
-    data: { body, ...(fileUrl && { fileUrl }) },
+    data: {
+      body: payload.textBody ?? task.submission.body ?? "",
+      videoUrl: payload.videoUrl !== undefined ? payload.videoUrl : task.submission.videoUrl,
+      textBody: payload.textBody !== undefined ? payload.textBody : task.submission.textBody,
+      pdfUrl: payload.pdfUrl !== undefined ? payload.pdfUrl : task.submission.pdfUrl,
+      fileSize: payload.fileSize !== undefined ? payload.fileSize : task.submission.fileSize,
+    },
   });
 };
 
