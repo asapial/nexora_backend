@@ -3,7 +3,21 @@ import AppError from "../../../errorHelpers/AppError";
 import status from "http-status";
 
 // ─── Get all categories ───────────────────────────────────────────────────────
-const getCategories = async (teacherId?: string) => {
+const getCategories = async (teacherUserId?: string) => {
+
+    const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: {
+      userId: teacherUserId!
+    }
+  })
+
+  if (!teacherProfile) {
+    throw new AppError(status.CONTINUE, "Teacher is not found");
+
+  }
+
+  const teacherId = teacherProfile.id;
+
   return prisma.resourceCategory.findMany({
     where: { OR: [{ isGlobal: true }, ...(teacherId ? [{ teacherId }] : [])] },
     include: { _count: { select: { resources: true } } },
@@ -13,7 +27,7 @@ const getCategories = async (teacherId?: string) => {
 
 // ─── Create category ──────────────────────────────────────────────────────────
 const createCategory = async (
-  teacherId: string,
+  teacherUserId: string,
   payload: {
     name: string;
     description?: string;
@@ -23,6 +37,19 @@ const createCategory = async (
   }
 ) => {
   const { name, description, color = "#14b8a6", clusterId, isGlobal = false } = payload;
+
+      const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: {
+      userId: teacherUserId!
+    }
+  })
+
+  if (!teacherProfile) {
+    throw new AppError(status.CONTINUE, "Teacher is not found");
+
+  }
+
+  const teacherId = teacherProfile.id;
 
   const existing = await prisma.resourceCategory.findFirst({
     where: { name: { equals: name, mode: "insensitive" }, teacherId },
@@ -42,10 +69,23 @@ const createCategory = async (
 
 // ─── Update category ──────────────────────────────────────────────────────────
 const updateCategory = async (
-  teacherId: string,
+  teacherUserId: string,
   id: string,
   payload: { name?: string; description?: string; color?: string; clusterId?: string; isGlobal?: boolean }
 ) => {
+      const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: {
+      userId: teacherUserId!
+    }
+  })
+
+  if (!teacherProfile) {
+    throw new AppError(status.CONTINUE, "Teacher is not found");
+
+  }
+
+  const teacherId = teacherProfile.id;
+
   const cat = await prisma.resourceCategory.findUnique({ where: { id } });
   if (!cat) throw new AppError(status.NOT_FOUND, "Category not found.");
   if (cat.teacherId !== teacherId) throw new AppError(status.FORBIDDEN, "Not your category.");
@@ -53,7 +93,20 @@ const updateCategory = async (
 };
 
 // ─── Delete category ──────────────────────────────────────────────────────────
-const deleteCategory = async (teacherId: string, id: string) => {
+const deleteCategory = async (teacherUserId: string, id: string) => {
+      const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: {
+      userId: teacherUserId!
+    }
+  })
+
+  if (!teacherProfile) {
+    throw new AppError(status.CONTINUE, "Teacher is not found");
+
+  }
+
+  const teacherId = teacherProfile.id;
+  
   const cat = await prisma.resourceCategory.findUnique({ where: { id } });
   if (!cat) throw new AppError(status.NOT_FOUND, "Category not found.");
   if (cat.teacherId !== teacherId) throw new AppError(status.FORBIDDEN, "Not your category.");

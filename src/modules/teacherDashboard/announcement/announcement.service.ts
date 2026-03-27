@@ -3,7 +3,22 @@ import AppError from "../../../errorHelpers/AppError";
 import status from "http-status";
 
 // ─── Get my clusters (for teacher) ───────────────────────────────────────────
-const getMyClusters = async (teacherId: string) => {
+const getMyClusters = async (teacherUserId: string) => {
+  
+    const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: {
+      userId: teacherUserId
+    }
+  })
+
+  if (!teacherProfile) {
+    throw new AppError(status.CONTINUE, "Teacher is not found");
+
+  }
+
+  const teacherId = teacherProfile.id;
+
+  
   return prisma.cluster.findMany({
     where: { teacherId },
     select: { id: true, name: true, _count: { select: { members: true } } },
