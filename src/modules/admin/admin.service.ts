@@ -453,12 +453,23 @@ const getRevenueSummary = async () => {
   const teacherMap = Object.fromEntries(teachers.map(t => [t.id, t.user.name]));
 
   return {
-    totalRevenue: totals._sum.totalAmount ?? 0,
-    totalTeacherEarning: totals._sum.teacherEarning ?? 0,
-    totalPlatformEarning: totals._sum.platformEarning ?? 0,
+    grossRevenue: totals._sum.totalAmount ?? 0,
+    platformEarnings: totals._sum.platformEarning ?? 0,
+    teacherPayouts: totals._sum.teacherEarning ?? 0,
     totalPaidEnrollments: totals._count.id,
-    perCourse: perCourse.map(c => ({ ...c, courseTitle: courseMap[c.courseId] ?? c.courseId })),
-    perTeacher: perTeacher.map(t => ({ ...t, teacherName: teacherMap[t.teacherId] ?? t.teacherId })),
+    perCourse: perCourse.map(c => ({
+      courseId: c.courseId,
+      title: courseMap[c.courseId] ?? c.courseId,
+      revenue: c._sum.totalAmount ?? 0,
+      platformCut: c._sum.platformEarning ?? 0,
+      enrollments: c._count.id,
+    })),
+    perTeacher: perTeacher.map(t => ({
+      teacherId: t.teacherId,
+      name: teacherMap[t.teacherId] ?? t.teacherId,
+      earnings: t._sum.teacherEarning ?? 0,
+      courses: t._count.id,
+    })),
   };
 };
 

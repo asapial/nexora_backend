@@ -23,7 +23,8 @@ model User {
   memberships          ClusterMember[]
   coTeacherOf          CoTeacher[]
   resources            Resource[]
-  announcements        Announcement[]
+  announcements        Announcement[]       @relation("AnnouncementAuthor")
+  personalNotices      Announcement[]       @relation("PersonalNotices")
   notifications        Notification[]
   enrollments          CourseEnrollment[]
   badges               UserBadge[]

@@ -26,7 +26,7 @@ const getUsers = async (params: {
 
   const [data, total] = await Promise.all([
     prisma.user.findMany({
-      where,
+      // where,
       select: {
         id: true,
         name: true,
@@ -74,16 +74,32 @@ const updateUser = async (
   id: string,
   payload: { name?: string; role?: Role }
 ) => {
-  const user = await prisma.user.findUnique({ where: { id } });
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: { teacherProfile: true, studentProfile: true, adminProfile: true },
+  });
   if (!user) throw new AppError(status.NOT_FOUND, "User not found");
 
-  return prisma.user.update({
+  const updated = await prisma.user.update({
     where: { id },
     data: {
-      ...(payload.name    !== undefined && { name: payload.name }),
-      ...(payload.role    !== undefined && { role: payload.role }),
+      ...(payload.name !== undefined && { name: payload.name }),
+      ...(payload.role !== undefined && { role: payload.role }),
     },
   });
+
+  // Auto-create the matching profile if role changed and profile doesn't exist
+  if (payload.role && payload.role !== user.role) {
+    if (payload.role === Role.TEACHER && !user.teacherProfile) {
+      await prisma.teacherProfile.create({ data: { userId: id } });
+    } else if (payload.role === Role.STUDENT && !user.studentProfile) {
+      await prisma.studentProfile.create({ data: { userId: id } });
+    } else if (payload.role === Role.ADMIN && !user.adminProfile) {
+      await prisma.adminProfile.create({ data: { userId: id } });
+    }
+  }
+
+  return updated;
 };
 
 const deactivateUser = async (id: string) => {

@@ -32,6 +32,7 @@ import { annotationRouter } from "./modules/studentDashboard/annotation/annotati
 import { teacherAnalyticsRouter } from "./modules/teacherDashboard/analytics/teacherAnalytics.route";
 import { adminPlatformRouter } from "./modules/admin/adminPlatform.route";
 import { adminUsersRouter } from "./modules/admin/adminUsers.route";
+import { teacherNoticeRouter } from "./modules/teacherDashboard/notice/teacherNotice.route";
 
 
 
@@ -125,6 +126,7 @@ app.use("/api/settings", settingsRouter);
 
 
 // ── Teacher Dashboard APIs ───────────────────────────────────────────────────
+app.use("/api/teacher/notices", teacherNoticeRouter);
 app.use("/api/teacher/announcements", teacherAnnouncementRouter);
 app.use("/api/teacher/categories", categoryRouter);
 app.use("/api/teacher/tasks", teacherTaskRouter);

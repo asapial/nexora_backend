@@ -1,5 +1,7 @@
 import { prisma } from "../../lib/prisma";
 import { Role } from "../../generated/prisma/enums";
+import AppError from "../../errorHelpers/AppError";
+import status from "http-status";
 
 // ─── Platform Analytics ──────────────────────────────────────────────────────
 
@@ -17,14 +19,12 @@ const getPlatformAnalytics = async () => {
     prisma.user.count({ where: { role: Role.TEACHER } }),
     prisma.user.count({ where: { role: Role.STUDENT } }),
     prisma.user.count({ where: { role: Role.ADMIN } }),
-    // DAU trend: daily signups for last 30 days
     prisma.user.findMany({
       where: { createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
       select: { createdAt: true },
     }),
   ]);
 
-  // Signup trend per day
   const signupMap: Record<string, number> = {};
   for (const u of recentUsers) {
     const day = new Date(u.createdAt).toISOString().slice(0, 10);
@@ -34,7 +34,6 @@ const getPlatformAnalytics = async () => {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, count]) => ({ date, count }));
 
-  // Storage breakdown (resource count by fileType)
   const storageBreakdown = await prisma.resource.groupBy({
     by: ["fileType"],
     _count: { id: true },
@@ -65,7 +64,14 @@ const getGlobalAnnouncements = async (page = 1, limit = 20) => {
 
 const createGlobalAnnouncement = async (
   authorId: string,
-  payload: { title: string; body: string; urgency?: string; targetRole?: string; scheduledAt?: string }
+  payload: {
+    title: string;
+    body: string;
+    urgency?: string;
+    targetRole?: string;
+    targetUserId?: string;
+    scheduledAt?: string;
+  }
 ) => {
   return prisma.announcement.create({
     data: {
@@ -74,10 +80,12 @@ const createGlobalAnnouncement = async (
       body: payload.body,
       urgency: (payload.urgency as any) ?? "INFO",
       targetRole: payload.targetRole ? (payload.targetRole as any) : null,
+      targetUserId: payload.targetUserId ?? null,
       scheduledAt: payload.scheduledAt ? new Date(payload.scheduledAt) : null,
-      isGlobal: true,
+      isGlobal: !payload.targetUserId, // Personal notices are not global
       publishedAt: payload.scheduledAt ? null : new Date(),
     },
+    include: { author: { select: { id: true, name: true, email: true } } },
   });
 };
 
@@ -125,35 +133,57 @@ const getClusterOversight = async (params: { page?: number; limit?: number; heal
 
 const getFlaggedContent = async (page = 1, limit = 20) => {
   const skip = (page - 1) * limit;
-  // Flag heuristic: resources with many comments or recent resources flagged via isPinned
-  const [comments, resources] = await Promise.all([
-    prisma.resourceComment.findMany({
-      where: { isPinned: false },
-      include: {
-        resource: { select: { id: true, title: true } },
+  const [courses, resources] = await Promise.all([
+    prisma.course.findMany({
+      where: { status: "PUBLISHED" },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        createdAt: true,
+        _count: { select: { enrollments: true } },
+        teacher: {
+          include: { user: { select: { id: true, name: true, email: true } } },
+        },
       },
       orderBy: { createdAt: "desc" },
-      skip, take: Math.floor(limit / 2),
+      skip,
+      take: Math.ceil(limit / 2),
     }),
     prisma.resource.findMany({
-      where: { isFeatured: false, visibility: "PUBLIC" },
-      select: { id: true, title: true, fileType: true, createdAt: true, uploader: { select: { id: true, name: true } } },
+      where: { visibility: "PUBLIC" },
+      select: {
+        id: true,
+        title: true,
+        fileType: true,
+        createdAt: true,
+        uploader: { select: { id: true, name: true } },
+      },
       orderBy: { createdAt: "desc" },
-      skip, take: Math.ceil(limit / 2),
+      skip,
+      take: Math.floor(limit / 2),
     }),
   ]);
-  return { comments, resources };
+  return { courses, resources };
 };
 
-const removeComment = async (id: string) => {
-  await prisma.resourceComment.delete({ where: { id } });
-  return { removed: true, type: "comment", id };
+const removeCourse = async (id: string) => {
+  const course = await prisma.course.findUnique({ where: { id } });
+  if (!course) throw new AppError(status.NOT_FOUND, "Course not found");
+  await prisma.course.delete({ where: { id } });
+  return { removed: true, type: "course", id };
+};
+
+const removeResource = async (id: string) => {
+  const resource = await prisma.resource.findUnique({ where: { id } });
+  if (!resource) throw new AppError(status.NOT_FOUND, "Resource not found");
+  await prisma.resource.delete({ where: { id } });
+  return { removed: true, type: "resource", id };
 };
 
 const warnUser = async (userId: string, reason: string) => {
-  // Store as notification
   await prisma.notification.create({
-    data: { userId, type: "SYSTEM", title: "Warning", body: reason },
+    data: { userId, type: "SYSTEM", title: "Warning from Admin", body: reason },
   });
   return { warned: true, userId };
 };
@@ -168,13 +198,23 @@ const generateCertificate = async (enrollmentId: string) => {
       course: { select: { id: true, title: true } },
     },
   });
-  if (!enrollment) throw new Error("Enrollment not found");
+  if (!enrollment) throw new AppError(status.NOT_FOUND, "Enrollment not found");
+
+  // Check if certificate already exists
+  const existing = await prisma.certificate.findFirst({
+    where: { userId: enrollment.userId, courseId: enrollment.courseId ?? undefined },
+  });
+  if (existing) throw new AppError(status.CONFLICT, "Certificate already issued for this enrollment");
 
   return prisma.certificate.create({
     data: {
       userId: enrollment.userId,
       courseId: enrollment.courseId ?? undefined,
       title: `${enrollment.course?.title ?? "Course"} — Certificate of Completion`,
+    },
+    include: {
+      user: { select: { id: true, name: true, email: true } },
+      course: { select: { id: true, title: true } },
     },
   });
 };
@@ -210,11 +250,123 @@ const manualUnenroll = async (userId: string, courseId: string) => {
   return { unenrolled: true };
 };
 
+// ─── Email Templates ─────────────────────────────────────────────────────────
+
+const DEFAULT_TEMPLATES = [
+  {
+    slug: "teacherWelcome",
+    name: "Teacher Welcome",
+    subject: "Welcome to Nexora — Your Teacher Account",
+    description: "Sent when a new teacher account is created or promoted",
+    body: `<!DOCTYPE html>
+<html>
+<body style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;">
+  <div style="background:white;border-radius:16px;padding:32px;border:1px solid #e5e7eb;">
+    <h1 style="color:#6d28d9;">Welcome to Nexora 🎉</h1>
+    <p>Hi <%= name %>,</p>
+    <p>Your teacher account is ready.</p>
+    <a href="<%= loginUrl %>" style="display:inline-block;background:#6d28d9;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Log In Now</a>
+  </div>
+</body>
+</html>`,
+  },
+  {
+    slug: "taskReminder",
+    name: "Task Reminder",
+    subject: "Reminder: Task due soon",
+    description: "Sent to students when a task deadline is approaching",
+    body: `<!DOCTYPE html>
+<html>
+<body style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;">
+  <div style="background:white;border-radius:16px;padding:32px;border:1px solid #e5e7eb;">
+    <h1 style="color:#d97706;">⏰ Task Reminder</h1>
+    <p>Hi <%= name %>,</p>
+    <p>Your task <strong><%= taskTitle %></strong> is due on <strong><%= dueDate %></strong>.</p>
+    <a href="<%= taskUrl %>" style="display:inline-block;background:#d97706;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">View Task</a>
+  </div>
+</body>
+</html>`,
+  },
+  {
+    slug: "deadlineAlert",
+    name: "Deadline Alert",
+    subject: "URGENT: Deadline in 24 hours",
+    description: "Sent 24 hours before a task or session deadline",
+    body: `<!DOCTYPE html>
+<html>
+<body style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;">
+  <div style="background:white;border-radius:16px;padding:32px;border:1px solid #e5e7eb;border-left:4px solid #ef4444;">
+    <h1 style="color:#ef4444;">🚨 Deadline Alert</h1>
+    <p>Hi <%= name %>,</p>
+    <p><strong><%= itemTitle %></strong> is due in less than 24 hours!</p>
+    <a href="<%= itemUrl %>" style="display:inline-block;background:#ef4444;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Take Action Now</a>
+  </div>
+</body>
+</html>`,
+  },
+  {
+    slug: "credentialReset",
+    name: "Credential Reset",
+    subject: "Nexora — Password Reset",
+    description: "Sent when an admin resets a user's password",
+    body: `<!DOCTYPE html>
+<html>
+<body style="font-family:Inter,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#f9fafb;">
+  <div style="background:white;border-radius:16px;padding:32px;border:1px solid #e5e7eb;">
+    <h1 style="color:#0ea5e9;">🔐 Password Reset</h1>
+    <p>Hi <%= name %>,</p>
+    <p>Your password has been reset. New Password: <strong><%= password %></strong></p>
+    <a href="<%= loginUrl %>" style="display:inline-block;background:#0ea5e9;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Log In</a>
+  </div>
+</body>
+</html>`,
+  },
+];
+
+const seedDefaultTemplates = async () => {
+  for (const t of DEFAULT_TEMPLATES) {
+    await (prisma as any).emailTemplate.upsert({
+      where: { slug: t.slug },
+      create: t,
+      update: {},
+    });
+  }
+};
+
+const getEmailTemplates = async () => {
+  const templates = await (prisma as any).emailTemplate.findMany({
+    orderBy: { updatedAt: "desc" },
+  });
+  if (templates.length === 0) {
+    await seedDefaultTemplates();
+    return (prisma as any).emailTemplate.findMany({ orderBy: { updatedAt: "desc" } });
+  }
+  return templates;
+};
+
+const createEmailTemplate = async (payload: {
+  name: string; slug: string; subject: string; description?: string; body: string;
+}) => {
+  return (prisma as any).emailTemplate.create({ data: payload });
+};
+
+const updateEmailTemplate = async (id: string, payload: Partial<{
+  name: string; subject: string; description: string; body: string;
+}>) => {
+  return (prisma as any).emailTemplate.update({ where: { id }, data: payload });
+};
+
+const deleteEmailTemplate = async (id: string) => {
+  await (prisma as any).emailTemplate.delete({ where: { id } });
+  return { deleted: true };
+};
+
 export const adminPlatformService = {
   getPlatformAnalytics,
   getGlobalAnnouncements, createGlobalAnnouncement, deleteGlobalAnnouncement,
   getClusterOversight,
-  getFlaggedContent, removeComment, warnUser,
+  getFlaggedContent, removeCourse, removeResource, warnUser,
   generateCertificate, getCertificates,
   manualEnroll, manualUnenroll,
+  getEmailTemplates, createEmailTemplate, updateEmailTemplate, deleteEmailTemplate,
 };

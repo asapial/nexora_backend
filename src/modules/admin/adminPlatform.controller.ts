@@ -37,9 +37,14 @@ const getFlaggedContent = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, { status: status.OK, success: true, message: "Flagged content", data });
 });
 
-const removeComment = catchAsync(async (req: Request, res: Response) => {
-  const data = await adminPlatformService.removeComment(req.params.id as string);
-  sendResponse(res, { status: status.OK, success: true, message: "Comment removed", data });
+const removeCourse = catchAsync(async (req: Request, res: Response) => {
+  const data = await adminPlatformService.removeCourse(req.params.id as string);
+  sendResponse(res, { status: status.OK, success: true, message: "Course removed", data });
+});
+
+const removeResource = catchAsync(async (req: Request, res: Response) => {
+  const data = await adminPlatformService.removeResource(req.params.id as string);
+  sendResponse(res, { status: status.OK, success: true, message: "Resource removed", data });
 });
 
 const warnUser = catchAsync(async (req: Request, res: Response) => {
@@ -70,11 +75,33 @@ const manualUnenroll = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, { status: status.OK, success: true, message: "Unenrolled", data });
 });
 
+// Email Templates
+const getEmailTemplates = catchAsync(async (_req: Request, res: Response) => {
+  const data = await adminPlatformService.getEmailTemplates();
+  sendResponse(res, { status: status.OK, success: true, message: "Email templates", data });
+});
+
+const createEmailTemplate = catchAsync(async (req: Request, res: Response) => {
+  const data = await adminPlatformService.createEmailTemplate(req.body);
+  sendResponse(res, { status: status.CREATED, success: true, message: "Template created", data });
+});
+
+const updateEmailTemplate = catchAsync(async (req: Request, res: Response) => {
+  const data = await adminPlatformService.updateEmailTemplate(req.params.id, req.body);
+  sendResponse(res, { status: status.OK, success: true, message: "Template updated", data });
+});
+
+const deleteEmailTemplate = catchAsync(async (req: Request, res: Response) => {
+  const data = await adminPlatformService.deleteEmailTemplate(req.params.id);
+  sendResponse(res, { status: status.OK, success: true, message: "Template deleted", data });
+});
+
 export const adminPlatformController = {
   getPlatformAnalytics,
   getGlobalAnnouncements, createGlobalAnnouncement, deleteGlobalAnnouncement,
   getClusterOversight,
-  getFlaggedContent, removeComment, warnUser,
+  getFlaggedContent, removeCourse, removeResource, warnUser,
   getCertificates, generateCertificate,
   manualEnroll, manualUnenroll,
+  getEmailTemplates, createEmailTemplate, updateEmailTemplate, deleteEmailTemplate,
 };

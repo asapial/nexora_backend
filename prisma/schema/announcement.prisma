@@ -9,11 +9,13 @@ model Announcement {
   publishedAt   DateTime?
   isGlobal      Boolean             @default(false)
   targetRole    Role?
+  targetUserId  String?
   createdAt     DateTime            @default(now())
 
-  author   User?                 @relation(fields: [authorId], references: [id], onDelete: SetNull)
-  clusters AnnouncementCluster[]
-  reads    AnnouncementRead[]
+  author     User?                 @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  targetUser User?                 @relation("PersonalNotices", fields: [targetUserId], references: [id], onDelete: SetNull)
+  clusters   AnnouncementCluster[]
+  reads      AnnouncementRead[]
 }
 
 model AnnouncementCluster {
