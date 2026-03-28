@@ -8,6 +8,7 @@ const router = Router();
 // Sessions & members
 router.get("/sessions", checkAuth(Role.TEACHER), teacherTaskController.getSessionsWithTasks);
 router.get("/sessions/:sessionId/members", checkAuth(Role.TEACHER), teacherTaskController.getSessionMembers);
+router.get("/clusters/:clusterId/members-progress", checkAuth(Role.TEACHER), teacherTaskController.getClusterMembersProgress);
 router.get("/homework", checkAuth(Role.TEACHER), teacherTaskController.getHomeworkManagement);
 
 // Assign task

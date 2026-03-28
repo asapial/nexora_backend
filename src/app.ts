@@ -22,6 +22,7 @@ import { studentTaskRouter } from "./modules/studentDashboard/task/task.route";
 import { homeworkRouter } from "./modules/studentDashboard/homework/homework.route";
 import { courseRouter } from "./modules/course/course.route";
 import { missionRouter } from "./modules/mission/mission.route";
+import { publicRouter } from "./modules/public/public.route";
 
 
 const app: Application = express();
@@ -96,6 +97,7 @@ app.use("/api/teacher", teacherRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/courses", courseRouter);
 app.use("/api/missions", missionRouter);
+app.use("/api/public", publicRouter);
 
 // ── Student Dashboard APIs ───────────────────────────────────────────────────
 app.use("/api/student/clusters", studentClusterRouter);

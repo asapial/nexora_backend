@@ -84,9 +84,9 @@ const deleteSession = catchAsync(async (req: Request, res: Response) => {
 const submitAttendance = catchAsync(async (req: Request, res: Response) => {
   const sessionId = req.params.id as string;
   const userId = req.user.userId;
-  const { attendance } = req.body;
+  const records = (req.body.attendance ?? req.body.records ?? []) as Array<{ studentId: string; status: string; note?: string }>;
 
-  const result = await studySessionService.submitAttendance(sessionId, userId, attendance);
+  const result = await studySessionService.submitAttendance(sessionId, userId, records);
 
   sendResponse(res, {
     status: status.OK,
@@ -107,6 +107,40 @@ const getAttendance = catchAsync(async (req: Request, res: Response) => {
     status: status.OK,
     success: true,
     message: "Attendance fetched successfully",
+    data,
+  });
+});
+
+const getStudentAttendanceHistory = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user.userId;
+  const { studentProfileId } = req.params as { studentProfileId: string };
+  const data = await studySessionService.getStudentAttendanceHistory(userId, studentProfileId);
+  sendResponse(res, {
+    status: status.OK,
+    success: true,
+    message: "Student attendance history fetched",
+    data,
+  });
+});
+
+const getAttendanceWarningConfig = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user.userId;
+  const data = await studySessionService.getAttendanceWarningConfig(userId);
+  sendResponse(res, {
+    status: status.OK,
+    success: true,
+    message: "Attendance warning config fetched",
+    data,
+  });
+});
+
+const saveAttendanceWarningConfig = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user.userId;
+  const data = await studySessionService.saveAttendanceWarningConfig(userId, req.body);
+  sendResponse(res, {
+    status: status.OK,
+    success: true,
+    message: "Attendance warning config saved",
     data,
   });
 });
@@ -196,6 +230,9 @@ export const studySessionController = {
   deleteSession,
   submitAttendance,
   getAttendance,
+  getStudentAttendanceHistory,
+  getAttendanceWarningConfig,
+  saveAttendanceWarningConfig,
   saveAgenda,
   getFeedback,
   submitFeedback,

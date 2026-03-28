@@ -47,7 +47,7 @@ const getSessionMembers = async (teacherUserId: string, sessionId: string) => {
         select: {
           teacherId: true,
           members: {
-            where: { subtype: "RUNNING" },
+            where: { subtype: "RUNNING", studentProfileId: { not: null } },
             include: {
               studentProfile: {
                 include: {
@@ -96,6 +96,81 @@ const getSessionMembers = async (teacherUserId: string, sessionId: string) => {
             submission: task.submission,
           }
         : null,
+    };
+  });
+};
+
+const getClusterMembersProgress = async (teacherUserId: string, clusterId: string) => {
+  const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: { userId: teacherUserId },
+  });
+  if (!teacherProfile) throw new AppError(status.NOT_FOUND, "Teacher not found");
+
+  const cluster = await prisma.cluster.findFirst({
+    where: { id: clusterId, teacherId: teacherProfile.id },
+    include: {
+      members: {
+        where: { studentProfileId: { not: null } },
+        include: {
+          studentProfile: {
+            include: { user: { select: { id: true, name: true, email: true, image: true } } },
+          },
+        },
+      },
+      sessions: {
+        select: {
+          id: true,
+          tasks: {
+            select: { studentProfileId: true, status: true, finalScore: true },
+          },
+          attendance: {
+            select: { studentProfileId: true, status: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!cluster) throw new AppError(status.NOT_FOUND, "Cluster not found");
+
+  return cluster.members.map((m) => {
+    const sid = m.studentProfileId as string;
+    let tasksTotal = 0;
+    let tasksSubmitted = 0;
+    let scoreSum = 0;
+    let scoredCount = 0;
+    let attendance = 0;
+    let attendanceTotal = 0;
+
+    cluster.sessions.forEach((s) => {
+      s.tasks.forEach((t) => {
+        if (t.studentProfileId !== sid) return;
+        tasksTotal += 1;
+        if (t.status === "SUBMITTED" || t.status === "REVIEWED") tasksSubmitted += 1;
+        if (typeof t.finalScore === "number") {
+          scoreSum += t.finalScore;
+          scoredCount += 1;
+        }
+      });
+      s.attendance.forEach((a) => {
+        if (a.studentProfileId !== sid) return;
+        attendanceTotal += 1;
+        if (a.status === "PRESENT" || a.status === "EXCUSED") attendance += 1;
+      });
+    });
+
+    return {
+      studentProfileId: sid,
+      userId: m.studentProfile?.user?.id ?? null,
+      name: m.studentProfile?.user?.name ?? "Unknown",
+      email: m.studentProfile?.user?.email ?? "",
+      image: m.studentProfile?.user?.image ?? null,
+      subtype: m.subtype,
+      tasksTotal,
+      tasksSubmitted,
+      avgScore: scoredCount > 0 ? Math.round((scoreSum / scoredCount) * 10) / 10 : 0,
+      attendance,
+      attendanceTotal,
     };
   });
 };
@@ -182,7 +257,7 @@ const assignTaskToSession = async (
         select: {
           teacherId: true,
           members: {
-            where: { subtype: "RUNNING" },
+            where: { subtype: "RUNNING", studentProfileId: { not: null } },
             select: { studentProfileId: true },
           },
         },
@@ -388,6 +463,7 @@ const getHomeworkManagement = async (teacherId: string) => {
 export const teacherTaskService = {
   getSessionsWithTasks,
   getSessionMembers,
+  getClusterMembersProgress,
   assignTaskToMember,
   assignTaskToSession,
   updateTask,

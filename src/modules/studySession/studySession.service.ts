@@ -381,8 +381,12 @@ const submitAttendance = async (
 
   let processed = 0;
   for (const rec of records) {
-    // studentId in the request is the User.id — resolve to StudentProfile.id
-    const studentProfileId = await resolveStudentProfileId(rec.studentId);
+    // Accept both StudentProfile.id and User.id for compatibility.
+    const profileById = await prisma.studentProfile.findUnique({
+      where: { id: rec.studentId },
+      select: { id: true },
+    });
+    const studentProfileId = profileById?.id ?? (await resolveStudentProfileId(rec.studentId));
 
     await prisma.attendance.upsert({
       where: {
@@ -430,7 +434,8 @@ const getAttendance = async (sessionId: string, userId: string) => {
   });
 
   const enriched = records.map((r) => ({
-    studentId: r.studentProfile?.user?.id,
+    studentId: r.studentProfileId,
+    userId: r.studentProfile?.user?.id ?? null,
     name: r.studentProfile?.user?.name ?? r.studentProfileId,
     email: r.studentProfile?.user?.email,
     status: r.status,
@@ -453,6 +458,106 @@ const getAttendance = async (sessionId: string, userId: string) => {
       rate: total > 0 ? Math.round(((present + excused) / total) * 1000) / 10 : 0,
     },
   };
+};
+
+const getStudentAttendanceHistory = async (teacherUserId: string, studentProfileId: string) => {
+  const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: { userId: teacherUserId },
+    select: { id: true },
+  });
+  if (!teacherProfile) throw new AppError(status.NOT_FOUND, "Teacher not found.");
+
+  const memberships = await prisma.clusterMember.findMany({
+    where: { studentProfileId },
+    select: { clusterId: true },
+  });
+  const clusterIds = memberships.map((m) => m.clusterId);
+  if (clusterIds.length === 0) return [];
+
+  const accessibleClusters = await prisma.cluster.findMany({
+    where: { id: { in: clusterIds }, teacherId: teacherProfile.id },
+    select: { id: true },
+  });
+  const allowedClusterIds = accessibleClusters.map((c) => c.id);
+  if (allowedClusterIds.length === 0) return [];
+
+  return prisma.attendance.findMany({
+    where: {
+      studentProfileId,
+      StudySession: { clusterId: { in: allowedClusterIds } },
+    },
+    select: {
+      status: true,
+      StudySession: { select: { title: true, scheduledAt: true } },
+    },
+    orderBy: { markedAt: "desc" },
+  });
+};
+
+const getAttendanceWarningConfig = async (teacherUserId: string) => {
+  const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: { userId: teacherUserId },
+    select: { id: true },
+  });
+  if (!teacherProfile) throw new AppError(status.NOT_FOUND, "Teacher not found.");
+
+  const flag = await prisma.featureFlag.findUnique({
+    where: { key: `attendance_warning_config:${teacherProfile.id}` },
+    select: { description: true },
+  });
+
+  if (!flag?.description) {
+    return {
+      threshold: 3,
+      message: "This student has excessive absences and may need immediate attention.",
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(flag.description);
+    return {
+      threshold: Number(parsed.threshold ?? 3),
+      message: String(parsed.message ?? "This student has excessive absences and may need immediate attention."),
+    };
+  } catch {
+    return {
+      threshold: 3,
+      message: "This student has excessive absences and may need immediate attention.",
+    };
+  }
+};
+
+const saveAttendanceWarningConfig = async (
+  teacherUserId: string,
+  payload: { threshold?: number; message?: string }
+) => {
+  const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: { userId: teacherUserId },
+    select: { id: true },
+  });
+  if (!teacherProfile) throw new AppError(status.NOT_FOUND, "Teacher not found.");
+
+  const threshold = Math.max(1, Number(payload.threshold ?? 3));
+  const message = (payload.message ?? "This student has excessive absences and may need immediate attention.").trim();
+
+  await prisma.featureFlag.upsert({
+    where: { key: `attendance_warning_config:${teacherProfile.id}` },
+    create: {
+      key: `attendance_warning_config:${teacherProfile.id}`,
+      isEnabled: true,
+      rolloutPercent: threshold,
+      description: JSON.stringify({ threshold, message }),
+      targetRole: Role.TEACHER,
+    },
+    update: {
+      isEnabled: true,
+      rolloutPercent: threshold,
+      description: JSON.stringify({ threshold, message }),
+      targetRole: Role.TEACHER,
+    },
+  });
+
+  return { threshold, message };
 };
 
 
@@ -604,6 +709,9 @@ export const studySessionService = {
   deleteSession,
   submitAttendance,
   getAttendance,
+  getStudentAttendanceHistory,
+  getAttendanceWarningConfig,
+  saveAttendanceWarningConfig,
   saveAgenda,
   getFeedback,
   submitFeedback,

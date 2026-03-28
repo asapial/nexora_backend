@@ -15,6 +15,12 @@ const getSessionMembers = catchAsync(async (req: Request, res: Response, _n: Nex
   sendResponse(res, { status: status.OK, success: true, message: "Members fetched", data: result });
 });
 
+const getClusterMembersProgress = catchAsync(async (req: Request, res: Response, _n: NextFunction) => {
+  const { clusterId } = req.params as { clusterId: string };
+  const result = await teacherTaskService.getClusterMembersProgress(req.user.userId, clusterId);
+  sendResponse(res, { status: status.OK, success: true, message: "Member progress fetched", data: result });
+});
+
 const assignTask = catchAsync(async (req: Request, res: Response, _n: NextFunction) => {
   const { sessionId } = req.params as { sessionId: string };
   const result = await teacherTaskService.assignTaskToSession(req.user.userId, sessionId, req.body);
@@ -59,6 +65,7 @@ const getHomeworkManagement = catchAsync(async (req: Request, res: Response, _n:
 export const teacherTaskController = {
   getSessionsWithTasks,
   getSessionMembers,
+  getClusterMembersProgress,
   assignTask,
   assignTaskToMember,
   updateTask,

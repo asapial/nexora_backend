@@ -70,6 +70,24 @@ router.get(
   studySessionController.getAttendance
 );
 
+router.get(
+  "/students/:studentProfileId/attendance-history",
+  checkAuth(Role.TEACHER),
+  studySessionController.getStudentAttendanceHistory
+);
+
+router.get(
+  "/attendance-warning-config",
+  checkAuth(Role.TEACHER),
+  studySessionController.getAttendanceWarningConfig
+);
+
+router.put(
+  "/attendance-warning-config",
+  checkAuth(Role.TEACHER),
+  studySessionController.saveAttendanceWarningConfig
+);
+
 /* ── Agenda ───────────────────────────────────────────────────────────────── */
 
 // POST /sessions/:id/agenda  (create or replace)
