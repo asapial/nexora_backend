@@ -197,7 +197,8 @@ const getCluster = async (teacherUserId: string, userRole: string) => {
         include: {
           _count: {
             select: {
-              members: true
+              members: true,
+              sessions: true,
             }
           }
         }
@@ -208,7 +209,8 @@ const getCluster = async (teacherUserId: string, userRole: string) => {
       include: {
         _count: {
           select: {
-            members: true
+            members: true,
+            sessions: true,
           }
         }
       }
@@ -252,6 +254,7 @@ const getClusterById = async (
               studentProfileId: true,
               user: {
                 select: {
+                  name: true,
                   email: true
                 }
               }

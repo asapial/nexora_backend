@@ -4,6 +4,29 @@ import { sendResponse } from "../../utils/sendResponse";
 import status from "http-status";
 import { courseService } from "./course.service";
 
+const getPublicCourses = catchAsync(async (req: Request, res: Response) => {
+  const result = await courseService.getPublicCourses(req.query as any);
+ 
+  sendResponse(res, {
+    status: status.OK,
+    success: true,
+    message: "Courses retrieved successfully",
+    data: result,
+  });
+});
+ 
+const getPublicCourseById = catchAsync(async (req: Request, res: Response) => {
+  const result = await courseService.getPublicCourseById(req.params.id);
+ 
+  sendResponse(res, {
+    status: status.OK,
+    success: true,
+    message: "Course retrieved successfully",
+    data: result,
+  });
+});
+ 
+
 const createCourse = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user!.userId;
   const result = await courseService.createCourse(userId, req.body);
@@ -110,6 +133,8 @@ const submitMission = catchAsync(async (req: Request, res: Response) => {
 
 
 export const courseController={
+  getPublicCourses,
+  getPublicCourseById,
     createCourse,
     getMyCourses,
     getCourseById,

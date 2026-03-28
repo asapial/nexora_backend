@@ -19,10 +19,14 @@ import { categoryRouter } from "./modules/teacherDashboard/category/category.rou
 import { teacherTaskRouter } from "./modules/teacherDashboard/teacherTask/teacherTask.route";
 import { progressRouter } from "./modules/studentDashboard/progress/progress.route";
 import { studentTaskRouter } from "./modules/studentDashboard/task/task.route";
+import { studentCourseEnrollmentRouter } from "./modules/studentDashboard/courseEnrollment/courseEnrollment.route";
+import { studentMissionRouter } from "./modules/studentDashboard/studentMission/studentMission.route";
+import { settingsRouter } from "./modules/settings/settings.route";
 import { homeworkRouter } from "./modules/studentDashboard/homework/homework.route";
 import { courseRouter } from "./modules/course/course.route";
 import { missionRouter } from "./modules/mission/mission.route";
-import { publicRouter } from "./modules/public/public.route";
+import { paymentRouter } from "./modules/payments/payment.route";
+
 
 
 const app: Application = express();
@@ -92,19 +96,22 @@ app.use("/api/auth", authRouter);
 app.use("/api/cluster", clusterRouter);
 app.use("/api/resource", resourceRouter);
 app.use("/api/sessions", studySessionRouter);
-app.use("/api/student", studentRouter);
-app.use("/api/teacher", teacherRouter);
-app.use("/api/admin", adminRouter);
-app.use("/api/courses", courseRouter);
-app.use("/api/missions", missionRouter);
-app.use("/api/public", publicRouter);
-
-// ── Student Dashboard APIs ───────────────────────────────────────────────────
+// Student sub-routers must be registered before /api/student so paths like /enrollments match.
+app.use("/api/student/enrollments", studentCourseEnrollmentRouter);
+app.use("/api/student/missions", studentMissionRouter);
 app.use("/api/student/clusters", studentClusterRouter);
 app.use("/api/student/notices", noticeRouter);
 app.use("/api/student/progress", progressRouter);
 app.use("/api/student/tasks", studentTaskRouter);
 app.use("/api/student/homework", homeworkRouter);
+app.use("/api/student", studentRouter);
+app.use("/api/teacher", teacherRouter);
+app.use("/api/admin", adminRouter);
+app.use("/api/courses", courseRouter);
+app.use("/api/missions", missionRouter);
+app.use("/api/payments", paymentRouter);
+app.use("/api/settings", settingsRouter);
+
 
 // ── Teacher Dashboard APIs ───────────────────────────────────────────────────
 app.use("/api/teacher/announcements", teacherAnnouncementRouter);

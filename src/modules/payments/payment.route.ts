@@ -10,8 +10,29 @@ const router = Router();
 // POST /api/payments/create-intent  — authenticated student
 router.post(
   "/create-intent",
-  checkAuth(Role.STUDENT),
+  checkAuth(),
   paymentController.createIntent
+);
+
+// POST /api/payments/confirm — finalize enrollment after client-side payment success
+router.post(
+  "/confirm",
+  checkAuth(),
+  paymentController.confirmPayment
+);
+
+// POST /api/payments/sync/:courseId — recover enrollment when Stripe succeeded but webhook missed
+router.post(
+  "/sync/:courseId",
+  checkAuth(),
+  paymentController.syncCoursePayment
+);
+
+// POST /api/payments/sync-pending — finalize all pending payments that are already paid in Stripe
+router.post(
+  "/sync-pending",
+  checkAuth(),
+  paymentController.syncPendingPayments
 );
 
 // GET /api/payments/status/:courseId — check enrollment/payment status
@@ -35,4 +56,4 @@ router.post(
   paymentController.stripeWebhook
 );
 
-export default router;
+export const paymentRouter=router;

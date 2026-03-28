@@ -80,7 +80,8 @@ const getEarningsSummary = catchAsync(async (req: Request, res: Response) => {
 
 const getTransactions = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user!.userId;
-  const result = await teacherService.getTransactions(userId, req.query as any);
+  const q = (req as Request & { validatedQuery?: unknown }).validatedQuery ?? req.query;
+  const result = await teacherService.getTransactions(userId, q as any);
   sendResponse(res, { status: status.OK, success: true, message: "Transactions retrieved", data: result });
 });
 

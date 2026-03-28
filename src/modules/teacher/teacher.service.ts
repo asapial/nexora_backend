@@ -100,31 +100,124 @@ const deleteTeacherProfile = async (userId: string) => {
 // EARNINGS
 // ─────────────────────────────────────────────────────────
 
+const num = (v: unknown): number => {
+  if (v === null || v === undefined) return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
 const getEarningsSummary = async (userId: string) => {
   const teacherId = await getTeacherIdByUserId(userId);
   const agg = await prisma.revenueTransaction.aggregate({
     where: { teacherId },
     _sum: { teacherEarning: true, totalAmount: true },
   });
-  const perCourse = await prisma.revenueTransaction.groupBy({
+
+  const revenueByCourse = await prisma.revenueTransaction.groupBy({
     by: ["courseId"],
     where: { teacherId },
     _sum: { teacherEarning: true, totalAmount: true },
     _count: { id: true },
   });
+  const revenueMap = Object.fromEntries(
+    revenueByCourse.map((row) => [
+      row.courseId,
+      {
+        teacherEarning: num(row._sum.teacherEarning),
+        totalAmount: num(row._sum.totalAmount),
+        txCount: row._count.id,
+      },
+    ])
+  );
+
+  const teacherCourses = await prisma.course.findMany({
+    where: { teacherId },
+    select: {
+      id: true,
+      title: true,
+      teacherRevenuePercent: true,
+      _count: { select: { enrollments: true } },
+    },
+    orderBy: { title: "asc" },
+  });
+
+  const perCourse = teacherCourses.map((c) => {
+    const rev = revenueMap[c.id];
+    return {
+      courseId: c.id,
+      courseTitle: c.title,
+      teacherRevenuePercent: num(c.teacherRevenuePercent) || 70,
+      _sum: {
+        teacherEarning: rev?.teacherEarning ?? 0,
+        totalAmount: rev?.totalAmount ?? 0,
+      },
+      _count: { id: c._count.enrollments },
+    };
+  });
+
+  const paidEnrollmentCount = await prisma.revenueTransaction.count({ where: { teacherId } });
+  const totalEnrollmentCount = teacherCourses.reduce((acc, c) => acc + c._count.enrollments, 0);
+
+  const now = new Date();
+  const monthlyAgg = await Promise.all(
+    Array.from({ length: 8 }, (_, i) => {
+      const offset = 7 - i;
+      const start = new Date(now.getFullYear(), now.getMonth() - offset, 1, 0, 0, 0, 0);
+      const end = new Date(now.getFullYear(), now.getMonth() - offset + 1, 0, 23, 59, 59, 999);
+      return prisma.revenueTransaction.aggregate({
+        where: { teacherId, transactedAt: { gte: start, lte: end } },
+        _sum: { teacherEarning: true },
+      });
+    })
+  );
+  const monthlyEarningsTrend = monthlyAgg.map((m) => num(m._sum.teacherEarning));
+
   return {
-    totalEarned: agg._sum.teacherEarning ?? 0,
-    totalRevenue: agg._sum.totalAmount ?? 0,
+    totalEarned: num(agg._sum.teacherEarning),
+    totalRevenue: num(agg._sum.totalAmount),
+    paidEnrollmentCount,
+    totalEnrollmentCount,
+    monthlyEarningsTrend,
     perCourse,
   };
 };
 
 const getTransactions = async (userId: string, query: EarningsQueryParams) => {
   const teacherId = await getTeacherIdByUserId(userId);
-  const { page = 1, limit = 20, search, courseId } = query;
+  const page = Math.max(1, num((query as any).page) || 1);
+  const limit = Math.min(100, Math.max(1, num((query as any).limit) || 20));
+  const search = (query as any).search as string | undefined;
+  const courseId = (query as any).courseId as string | undefined;
 
   const where: any = { teacherId };
   if (courseId) where.courseId = courseId;
+  if (search?.trim()) {
+    const q = search.trim();
+    const [users, courses] = await Promise.all([
+      prisma.user.findMany({
+        where: {
+          OR: [
+            { name: { contains: q, mode: "insensitive" } },
+            { email: { contains: q, mode: "insensitive" } },
+          ],
+        },
+        select: { id: true },
+      }),
+      prisma.course.findMany({
+        where: { title: { contains: q, mode: "insensitive" }, teacherId },
+        select: { id: true },
+      }),
+    ]);
+    if (users.length === 0 && courses.length === 0) {
+      return { data: [], total: 0, page, limit, totalPages: 0 };
+    }
+    const ids = [...users.map((u) => u.id)];
+    const courseIds = [...courses.map((c) => c.id)];
+    const orClause: any[] = [];
+    if (ids.length) orClause.push({ studentId: { in: ids } });
+    if (courseIds.length) orClause.push({ courseId: { in: courseIds } });
+    where.AND = [{ OR: orClause }];
+  }
 
   const [total, transactions] = await Promise.all([
     prisma.revenueTransaction.count({ where }),
@@ -136,7 +229,45 @@ const getTransactions = async (userId: string, query: EarningsQueryParams) => {
     }),
   ]);
 
-  return { data: transactions, total, page, limit, totalPages: Math.ceil(total / limit) };
+  const userIds = [...new Set(transactions.map((t) => t.studentId))];
+  const cIds = [...new Set(transactions.map((t) => t.courseId))];
+  const [users, courseRows] = await Promise.all([
+    userIds.length
+      ? prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true },
+        })
+      : Promise.resolve([]),
+    cIds.length
+      ? prisma.course.findMany({
+          where: { id: { in: cIds } },
+          select: { id: true, title: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
+  const courseMap = Object.fromEntries(courseRows.map((c) => [c.id, c]));
+
+  const rows = transactions.map((t) => {
+    const u = userMap[t.studentId];
+    const c = courseMap[t.courseId];
+    return {
+      id: t.id,
+      enrollmentId: t.enrollmentId,
+      courseId: t.courseId,
+      studentId: t.studentId,
+      transactedAt:
+        t.transactedAt instanceof Date ? t.transactedAt.toISOString() : String(t.transactedAt),
+      totalAmount: num(t.totalAmount),
+      teacherPercent: num(t.teacherPercent),
+      teacherEarning: num(t.teacherEarning),
+      platformEarning: num(t.platformEarning),
+      studentName: u?.name ?? u?.email ?? "Student",
+      courseTitle: c?.title ?? "Course",
+    };
+  });
+
+  return { data: rows, total, page, limit, totalPages: Math.ceil(total / limit) || 0 };
 };
 
 export const teacherService = {

@@ -1,0 +1,21 @@
+/// App preferences: notifications, privacy toggles, locale (used by /api/settings)
+model UserAccountSettings {
+  id        String @id @default(uuid())
+  userId    String @unique
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  timezone String?
+  language String?
+
+  /// { sessionCreated, submissionAlert, atRiskAlert, badgeEarned, weeklyDigest, marketing }
+  emailNotifications Json?
+  /// { deadline, memberInactive, newSubmission, systemAnnounce }
+  pushNotifications  Json?
+  /// { profilePublic, showEmail, showClusters, activityVisible, twoFactor }
+  privacy            Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_account_settings")
+}

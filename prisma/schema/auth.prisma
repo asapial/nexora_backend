@@ -44,6 +44,8 @@ model User {
    adminProfile   AdminProfile? 
   planTier       PlanTier        @default(FREE)
 
+  accountSettings UserAccountSettings?
+
   @@unique([email])
   @@index([email, role])
   @@map("user")

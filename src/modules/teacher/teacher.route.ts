@@ -42,8 +42,7 @@ router.get(
 router.get(
   "/earnings/transactions",
   checkAuth(Role.TEACHER),
-  // validateRequest(earningsQuerySchema, "query"),
-  validateRequest(earningsQuerySchema),
+  validateRequest(earningsQuerySchema, "query"),
   teacherController.getTransactions
 );
 

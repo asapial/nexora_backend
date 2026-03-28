@@ -7,6 +7,14 @@ import { courseController } from "./course.controller";
 
 const router = Router();
 
+// GET /api/courses/public — public catalog (no auth required)
+router.get("/public", courseController.getPublicCourses);
+
+// GET /api/courses/:id/public — public course detail (no auth required)
+router.get("/:id/public", courseController.getPublicCourseById);
+
+
+ 
 // GET    /api/teacher/courses           → list teacher's own courses
 router.get(
   "/",

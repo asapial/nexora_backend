@@ -63,9 +63,9 @@ const listSessions = async (
     include: {
       tasks: { select: { id: true, status: true } },
       attendance: { select: { status: true } },
-      cluster:true,
-      agenda:true,
-
+      feedback: { select: { rating: true } },
+      cluster: { include: { _count: { select: { members: true } } } },
+      agenda: true,
     },
   });
 
@@ -78,26 +78,43 @@ const listSessions = async (
     const present = s.attendance.filter(
       (a) => a.status === "PRESENT" || a.status === "EXCUSED"
     ).length;
+    const memberCount = s.cluster._count?.members ?? 0;
+    const ratings = s.feedback.map((f) => f.rating);
+    const avgRating =
+      ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
     return {
       id: s.id,
-      status:s.status,
-      agenda:s.agenda,
+      status: s.status,
+      agenda: s.agenda.map((a) => ({
+        id: a.id,
+        startTime: a.startTime,
+        durationMins: a.durationMins,
+        topic: a.topic,
+        presenter: a.presenter ?? undefined,
+        order: a.order,
+      })),
       clusterId: s.clusterId,
-      clusterName:s.cluster.name,
-      clusterBatchTag:s.cluster.batchTag,
+      clusterName: s.cluster.name,
+      clusterBatchTag: s.cluster.batchTag,
       title: s.title,
       description: s.description,
       scheduledAt: s.scheduledAt,
-      durationMins:s.durationMins,
+      durationMins: s.durationMins,
       location: s.location,
       taskDeadline: s.taskDeadline,
+      templateId: s.templateId ?? undefined,
+      recordingUrl: s.recordingUrl ?? undefined,
+      recordingNotes: s.recordingNotes ?? undefined,
+      createdAt: s.createdAt,
       submissionRate: totalTasks > 0 ? Math.round((submitted / totalTasks) * 1000) / 10 : null,
       attendanceRate: totalAtt > 0 ? Math.round((present / totalAtt) * 1000) / 10 : null,
-      taskSubmittedCount:0,
-      attendanceCount:0,
-      memberCount:0
-
-
+      taskSubmittedCount: submitted,
+      attendanceCount: present,
+      memberCount,
+      feedback:
+        avgRating !== null
+          ? { averageRating: Math.round(avgRating * 10) / 10, totalCount: ratings.length }
+          : undefined,
     };
   });
 };
