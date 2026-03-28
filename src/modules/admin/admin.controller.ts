@@ -5,9 +5,31 @@ import { sendResponse } from "../../utils/sendResponse";
 import status from "http-status";
 import { prisma } from "../../lib/prisma";
 
+function normalizeEmailsFromBody(body: unknown): string[] {
+  if (!body || typeof body !== "object") return [];
+  const raw = (body as { emails?: unknown }).emails;
+  if (Array.isArray(raw)) {
+    return raw.map((e) => String(e).trim().toLowerCase()).filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    return raw
+      .split(/[\s,;]+/)
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 const createTeacher = catchAsync(async (req: Request, res: Response) => {
-  const { emails } = req.body;
-  
+  const emails = normalizeEmailsFromBody(req.body);
+  if (!emails.length) {
+    return sendResponse(res, {
+      status: status.BAD_REQUEST,
+      success: false,
+      message: "Provide one or more emails in `emails` (array or comma-separated string).",
+      data: null,
+    });
+  }
   const result = await adminService.createTeacher(emails);
 
   sendResponse(res, {
@@ -19,8 +41,15 @@ const createTeacher = catchAsync(async (req: Request, res: Response) => {
 });
 
 const createAdmin = catchAsync(async (req: Request, res: Response) => {
-  const { emails } = req.body;
-  
+  const emails = normalizeEmailsFromBody(req.body);
+  if (!emails.length) {
+    return sendResponse(res, {
+      status: status.BAD_REQUEST,
+      success: false,
+      message: "Provide one or more emails in `emails` (array or comma-separated string).",
+      data: null,
+    });
+  }
   const result = await adminService.createAdmin(emails);
 
   sendResponse(res, {

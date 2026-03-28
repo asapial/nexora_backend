@@ -62,6 +62,12 @@ const syncPendingPayments = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, { status: status.OK, success: true, message: "Pending payments checked", data: result });
 });
 
+const getMyPaymentHistory = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+  const result = await paymentService.getMyPaymentHistory(userId);
+  sendResponse(res, { status: status.OK, success: true, message: "Payment history", data: result });
+});
+
 export const paymentController = {
   createIntent,
   stripeWebhook,
@@ -70,4 +76,5 @@ export const paymentController = {
   confirmPayment,
   syncCoursePayment,
   syncPendingPayments,
+  getMyPaymentHistory,
 };

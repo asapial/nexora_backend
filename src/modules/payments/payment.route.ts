@@ -35,6 +35,13 @@ router.post(
   paymentController.syncPendingPayments
 );
 
+// GET /api/payments/history — logged-in student's course payment history
+router.get(
+  "/history",
+  checkAuth(Role.STUDENT),
+  paymentController.getMyPaymentHistory
+);
+
 // GET /api/payments/status/:courseId — check enrollment/payment status
 router.get(
   "/status/:courseId",

@@ -26,6 +26,12 @@ import { homeworkRouter } from "./modules/studentDashboard/homework/homework.rou
 import { courseRouter } from "./modules/course/course.route";
 import { missionRouter } from "./modules/mission/mission.route";
 import { paymentRouter } from "./modules/payments/payment.route";
+import { leaderboardRouter } from "./modules/studentDashboard/leaderboard/leaderboard.route";
+import { studyPlannerRouter } from "./modules/studentDashboard/studyPlanner/studyPlanner.route";
+import { annotationRouter } from "./modules/studentDashboard/annotation/annotation.route";
+import { teacherAnalyticsRouter } from "./modules/teacherDashboard/analytics/teacherAnalytics.route";
+import { adminPlatformRouter } from "./modules/admin/adminPlatform.route";
+import { adminUsersRouter } from "./modules/admin/adminUsers.route";
 
 
 
@@ -104,9 +110,14 @@ app.use("/api/student/notices", noticeRouter);
 app.use("/api/student/progress", progressRouter);
 app.use("/api/student/tasks", studentTaskRouter);
 app.use("/api/student/homework", homeworkRouter);
+app.use("/api/student/leaderboard", leaderboardRouter);
+app.use("/api/student/study-planner", studyPlannerRouter);
+app.use("/api/student/annotations", annotationRouter);
 app.use("/api/student", studentRouter);
 app.use("/api/teacher", teacherRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/admin/platform", adminPlatformRouter);
+app.use("/api/admin/users", adminUsersRouter);
 app.use("/api/courses", courseRouter);
 app.use("/api/missions", missionRouter);
 app.use("/api/payments", paymentRouter);
@@ -117,6 +128,7 @@ app.use("/api/settings", settingsRouter);
 app.use("/api/teacher/announcements", teacherAnnouncementRouter);
 app.use("/api/teacher/categories", categoryRouter);
 app.use("/api/teacher/tasks", teacherTaskRouter);
+app.use("/api/teacher", teacherAnalyticsRouter);
 
 
 

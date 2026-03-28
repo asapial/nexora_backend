@@ -310,6 +310,44 @@ const getPaymentStatus = async (userId: string, courseId: string) => {
   return { status: payment?.status ?? "NONE", paymentId: payment?.id };
 };
 
+// ─── Student payment history (course purchases) ───────────
+const getMyPaymentHistory = async (userId: string) => {
+  const payments = await prisma.payment.findMany({
+    where: { userId },
+    include: {
+      course: { select: { id: true, title: true, thumbnailUrl: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const paid = payments.filter((p) => p.status === "PAID");
+  const summary = {
+    totalPaidUsd: paid.reduce((s, p) => s + p.amount, 0),
+    totalAttempts: payments.length,
+    paidCount: paid.length,
+    pendingCount: payments.filter((p) => p.status === "PENDING").length,
+    failedCount: payments.filter((p) => p.status === "FAILED").length,
+    refundedCount: payments.filter((p) => p.status === "REFUNDED").length,
+  };
+
+  const rows = payments.map((p) => ({
+    id: p.id,
+    courseId: p.courseId,
+    courseTitle: p.course.title,
+    courseThumbnailUrl: p.course.thumbnailUrl,
+    amount: p.amount,
+    currency: p.currency,
+    status: p.status,
+    stripePaymentIntentId: p.stripePaymentIntentId,
+    paidAt: p.paidAt?.toISOString() ?? null,
+    failedAt: p.failedAt?.toISOString() ?? null,
+    refundedAt: p.refundedAt?.toISOString() ?? null,
+    createdAt: p.createdAt.toISOString(),
+  }));
+
+  return { summary, payments: rows };
+};
+
 // ─── Free enrollment ──────────────────────────────────────
 const freeEnroll = async (userId: string, courseId: string) => {
   const course = await prisma.course.findUnique({ where: { id: courseId } });
@@ -329,6 +367,7 @@ export const paymentService = {
   createPaymentIntent,
   handleWebhook,
   getPaymentStatus,
+  getMyPaymentHistory,
   freeEnroll,
   confirmPaymentFromClient,
   syncLatestPaymentForCourse,
