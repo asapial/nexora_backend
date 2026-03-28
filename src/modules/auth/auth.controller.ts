@@ -35,8 +35,6 @@ const registerController = catchAsync(
     }
 )
 
-
-
 const loginController = catchAsync(
     async (req: Request, res: Response, next: NextFunction) => {
 
@@ -57,6 +55,23 @@ const loginController = catchAsync(
     }
 )
 
+const getMyDataController = catchAsync(
+    async (req: Request, res: Response, next: NextFunction) => {
+
+        const userId=req.user.userId;
+        const userEmail=req.user.email;
+        // console.log("getMyDataController",userId, userEmail)
+
+        const result = await authService.getMyData(userId as string, userEmail as string);
+
+        sendResponse(res, {
+            status: status.OK,
+            success: true,
+            message: "User featched successfully",
+            data: result
+        })
+    }
+)
 
 const changePasswordController = catchAsync(
     async (req: Request, res: Response, next: NextFunction) => {
@@ -128,6 +143,19 @@ const verifyEmail = catchAsync(
     }
 )
 
+const resendVerificationEmail = catchAsync(
+    async (req: Request, res: Response) => {
+        const { email } = req.body;
+        await authService.resendVerificationEmail(email);
+
+        sendResponse(res, {
+            status: status.OK,
+            success: true,
+            message: "A fresh verification code has been sent to your email. It expires in 5 minutes.",
+        });
+    }
+)
+
 const forgetPassword = catchAsync(
     async (req: Request, res: Response) => {
         const { email } = req.body;
@@ -141,25 +169,37 @@ const forgetPassword = catchAsync(
     }
 )
 
-const resetPassword = catchAsync(
-    async (req: Request, res: Response) => {
-        const { email, otp, newPassword } = req.body;
-        await authService.resetPassword(email, otp, newPassword);
 
-        sendResponse(res, {
-            status: status.OK,
-            success: true,
-            message: "Password reset successfully",
-        });
-    }
-)
+const verifyResetOtp = catchAsync(async (req: Request, res: Response) => {
+    const { email, otp } = req.body;
+    await authService.verifyResetOtp(email, otp);
+
+    sendResponse(res, {
+        status: status.OK,
+        success: true,
+        message: "OTP verified successfully",
+    });
+});
+
+
+const resetPassword = catchAsync(async (req: Request, res: Response) => {
+    const { email, otp, newPassword } = req.body;
+    await authService.resetPassword(email, otp, newPassword);
+
+    sendResponse(res, {
+        status: status.OK,
+        success: true,
+        message: "Password reset successfully",
+    });
+});
+
 
 const googleLogin = catchAsync((req: Request, res: Response) => {
     const redirectPath = req.query.redirect || "/dashboard";
 
     const encodedRedirectPath = encodeURIComponent(redirectPath as string);
 
-    const callbackURL = `${envVars.BETTER_AUTH_URL}/api/v1/auth/google/success?redirect=${encodedRedirectPath}`;
+    const callbackURL = `${envVars.BETTER_AUTH_URL}/api/auth/google/success?redirect=${encodedRedirectPath}`;
 
     res.render("googleRedirect", {
         callbackURL : callbackURL,
@@ -173,7 +213,7 @@ const googleLoginSuccess = catchAsync(async (req: Request, res: Response) => {
     const sessionToken = req.cookies["better-auth.session_token"];
 
     if(!sessionToken){
-        return res.redirect(`${envVars.FRONTEND_URL}/login?error=oauth_failed`);
+        return res.redirect(`${envVars.FRONTEND_URL}/auth/login?error=oauth_failed`);
     }
 
     const session = await auth.api.getSession({
@@ -183,44 +223,77 @@ const googleLoginSuccess = catchAsync(async (req: Request, res: Response) => {
     })
 
     if (!session) {
-        return res.redirect(`${envVars.FRONTEND_URL}/login?error=no_session_found`);
+        return res.redirect(`${envVars.FRONTEND_URL}/auth/login?error=no_session_found`);
     }
 
-
     if(session && !session.user){
-        return res.redirect(`${envVars.FRONTEND_URL}/login?error=no_user_found`);
+        return res.redirect(`${envVars.FRONTEND_URL}/auth/login?error=no_user_found`);
     }
 
     const result = await authService.googleLoginSuccess(session);
 
     const {accessToken, refreshToken} = result;
 
-    tokenUtils.setAccessTokenCookie(res, accessToken);
-    tokenUtils.setRefreshTokenCookie(res, refreshToken);
-
-
     const isValidRedirectPath = redirectPath.startsWith("/") && !redirectPath.startsWith("//");
     const finalRedirectPath = isValidRedirectPath ? redirectPath : "/dashboard";
 
-    res.redirect(`${envVars.FRONTEND_URL}${finalRedirectPath}`);
+    // Redirect to the Next.js /auth/google/callback route.
+    // IMPORTANT: Must be outside /api/ — Next.js rewrite rules proxy /api/* to the backend,
+    // so any route under /api/ would 404. /auth/google/callback is not affected by rewrites.
+    const setTokensUrl = new URL(`${envVars.FRONTEND_URL}/auth/google/callback`);
+    setTokensUrl.searchParams.set("accessToken", accessToken);
+    setTokensUrl.searchParams.set("refreshToken", refreshToken);
+    setTokensUrl.searchParams.set("redirect", finalRedirectPath);
+
+    res.redirect(setTokensUrl.toString());
 })
 
 const handleOAuthError = catchAsync((req: Request, res: Response) => {
     const error = req.query.error as string || "oauth_failed";
-    res.redirect(`${envVars.FRONTEND_URL}/login?error=${error}`);
+    res.redirect(`${envVars.FRONTEND_URL}/auth/login?error=${error}`);
 })
+
+const updateProfileController = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const userId = req.user.userId;
+    const role   = req.user.role;    
+    const patch = req.body;            
+ 
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+      return sendResponse(res, {
+        status:  status.BAD_REQUEST,
+        success: false,
+        message: "Request body must be a plain object",
+      });
+    }
+ 
+    const result = await authService.updateProfileService(userId, role, patch);
+ 
+    sendResponse(res, {
+      status:  status.OK,
+      success: true,
+      message: "Profile updated successfully",
+      data:    result,
+    });
+  }
+);
+ 
 
 
 
 export const authController = {
     registerController,
     loginController,
+    getMyDataController,
     changePasswordController,
     logoutController,
     verifyEmail,
+    resendVerificationEmail,
     forgetPassword,
     resetPassword,
     googleLogin,
     googleLoginSuccess,
-    handleOAuthError
+    handleOAuthError,
+    verifyResetOtp,
+    updateProfileController
 }

@@ -1,43 +1,46 @@
 model Task {
-  id             String     @id @default(uuid())
-  studySessionId String
-  memberId       String
-  title          String
-  description    String?
-  status         TaskStatus @default(PENDING)
-  score          TaskScore?
-  reviewNote     String?
-  homework       String?
-  rubricId       String?
-  finalScore     Float?
-  peerReviewOn   Boolean    @default(false)
-  deadline       DateTime?
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  id               String     @id @default(uuid())
+  studySessionId   String
+  studentProfileId String
+  title            String
+  description      String?
+  status           TaskStatus @default(PENDING)
+  score            TaskScore?
+  reviewNote       String?
+  homework         String?
+  rubricId         String?
+  finalScore       Float?
+  peerReviewOn     Boolean    @default(false)
+  deadline         DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
-  StudySession     StudySession    @relation(fields: [studySessionId], references: [id])
-  member           User            @relation(fields: [memberId], references: [id])
-  submission       TaskSubmission?
-  rubric           GradingRubric?  @relation(fields: [rubricId], references: [id])
-  drafts           TaskDraft[]
-  peerReviews      PeerReview[]
-  studentProfile   StudentProfile? @relation(fields: [studentProfileId], references: [id])
-  studentProfileId String?
+  StudySession   StudySession    @relation(fields: [studySessionId], references: [id])
+  submission     TaskSubmission?
+  rubric         GradingRubric?  @relation(fields: [rubricId], references: [id])
+  drafts         TaskDraft[]
+  peerReviews    PeerReview[]
+  studentProfile StudentProfile  @relation(fields: [studentProfileId], references: [id])
 
-  @@index([memberId, status])
+  @@index([studentProfileId, status])
   @@index([studySessionId])
 }
 
 model TaskSubmission {
-  id          String   @id @default(uuid())
-  taskId      String   @unique
-  userId      String
-  body        String
-  fileUrl     String?
-  submittedAt DateTime @default(now())
+  id               String   @id @default(uuid())
+  taskId           String   @unique
+  studentProfileId String
+  body             String
+  
+  videoUrl         String? // for VIDEO
+  duration         Int? // seconds, for VIDEO
+  textBody         String? // for TEXT (markdown/html)
+  pdfUrl           String? // for PDF
+  fileSize         Int? // bytes, for PDF
+  submittedAt      DateTime @default(now())
 
-  task Task @relation(fields: [taskId], references: [id])
-  user User @relation(fields: [userId], references: [id])
+  task           Task           @relation(fields: [taskId], references: [id])
+  studentProfile StudentProfile @relation(fields: [studentProfileId], references: [id], onDelete: SetNull)
 }
 
 model TaskDraft {

@@ -76,7 +76,7 @@ export const deleteFileFromCloudinary = async (url : string) => {
             }
             )
 
-            console.log(`File ${publicId} deleted from cloudinary`);
+            // console.log(`File ${publicId} deleted from cloudinary`);
         }
 
     } catch (error) {

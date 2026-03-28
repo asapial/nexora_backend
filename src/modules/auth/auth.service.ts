@@ -4,6 +4,7 @@ import { auth } from "../../lib/auth"
 import { prisma } from "../../lib/prisma";
 import { tokenUtils } from "../../utils/token";
 import { ILoginData, IRegisterData } from "./auth.type";
+import { coerceValue } from "../../utils/coerceValue";
 
 
 
@@ -74,6 +75,12 @@ const loginService = async (data: ILoginData) => {
         throw new AppError(status.FORBIDDEN, "User is not active");
     }
 
+    const student = await prisma.studentProfile.findFirst({
+        where:{
+            userId:result.user.id
+        }
+    });
+
     const accessToken = tokenUtils.createAccessToken({
         userId: result.user.id,
         role: result.user.role,
@@ -111,14 +118,6 @@ const getMyData = async (userId: string, email: string) => {
         },
         include: {
             studentProfile: {
-                select: {
-                    institution: true,
-                    batch: true,
-                    programme: true,
-                    bio: true,
-                    linkedinUrl: true,
-                    githubUrl: true,
-                },
                 include: {
                     clusterMembers: true,
                     tasks: true,
@@ -128,31 +127,37 @@ const getMyData = async (userId: string, email: string) => {
                 }
             },
             teacherProfile: {
-                select: {
-                    designation: true,
-                    department: true,
-                    institution: true,
-                    bio: true,
-                    website: true,
-                    linkedinUrl: true
-                },
                 include: {
-                    clusters: true,
                     coTeacherOf: true,
                     sessions: true,
-                    taskTemplates: true
+                    taskTemplates: true,
+                    
                 }
             },
+            adminProfile:{
+                include:{
+                    activityLogs:true,
+
+                }
+            }
+            
         }
     })
+
 
     if (!isUserExists) {
         throw new AppError(status.NOT_FOUND, "User not found");
     }
 
-    return isUserExists;
-}
+    const {studentProfile,teacherProfile,adminProfile,...userData}=isUserExists;
 
+    return {
+        userData,
+        studentProfile,
+        teacherProfile,
+        adminProfile
+    };
+}
 
 const changePasswordService = async (newPassword: string, oldPassword: string, sessionToken: string) => {
 
@@ -253,6 +258,36 @@ const verifyEmail = async (email: string, otp: string) => {
     }
 }
 
+const resendVerificationEmail = async (email: string) => {
+    // Verify the user actually exists
+    const user = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, emailVerified: true, isDeleted: true },
+    });
+
+    // console.log("resendVerificationEmail :",user);
+
+    if (!user) {
+        throw new AppError(status.NOT_FOUND, "No account found with this email address.");
+    }
+
+    if (user.isDeleted) {
+        throw new AppError(status.NOT_FOUND, "No account found with this email address.");
+    }
+
+    if (user.emailVerified) {
+        throw new AppError(
+            status.BAD_REQUEST,
+            "This email is already verified. No need to resend a verification code."
+        );
+    }
+
+    // Use BetterAuth's emailOTP plugin to generate + send a fresh OTP
+    await auth.api.sendVerificationEmail({
+        body: { email },
+    });
+};
+
 const forgetPassword = async (email: string) => {
     const isUserExist = await prisma.user.findUnique({
         where: {
@@ -264,9 +299,9 @@ const forgetPassword = async (email: string) => {
         throw new AppError(status.NOT_FOUND, "User not found");
     }
 
-    if (!isUserExist.emailVerified) {
-        throw new AppError(status.BAD_REQUEST, "Email not verified");
-    }
+    // if (!isUserExist.emailVerified) {
+    //     throw new AppError(status.BAD_REQUEST, "Email not verified");
+    // }
 
     if (isUserExist.isDeleted) {
         throw new AppError(status.NOT_FOUND, "User not found");
@@ -279,51 +314,57 @@ const forgetPassword = async (email: string) => {
     })
 }
 
-const resetPassword = async (email: string, otp: string, newPassword: string) => {
-    const isUserExist = await prisma.user.findUnique({
-        where: {
-            email,
-        }
-    })
+
+const verifyResetOtp = async (email: string, otp: string) => {
+    const isUserExist = await prisma.user.findUnique({ where: { email } });
 
     if (!isUserExist) {
         throw new AppError(status.NOT_FOUND, "User not found");
     }
-
-    if (!isUserExist.emailVerified) {
-        throw new AppError(status.BAD_REQUEST, "Email not verified");
+    // if (!isUserExist.emailVerified) {
+    //     throw new AppError(status.BAD_REQUEST, "Email not verified");
+    // }
+    if (isUserExist.isDeleted) {
+        throw new AppError(status.NOT_FOUND, "User not found");
     }
 
+
+    if (!otp || otp.length !== 6) {
+        throw new AppError(status.BAD_REQUEST, "Invalid OTP");
+    }
+
+
+};
+
+
+const resetPassword = async (email: string, otp: string, newPassword: string) => {
+    const isUserExist = await prisma.user.findUnique({ where: { email } });
+
+    if (!isUserExist) {
+        throw new AppError(status.NOT_FOUND, "User not found");
+    }
+    // if (!isUserExist.emailVerified) {
+    //     throw new AppError(status.BAD_REQUEST, "Email not verified");
+    // }
     if (isUserExist.isDeleted) {
         throw new AppError(status.NOT_FOUND, "User not found");
     }
 
     await auth.api.resetPasswordEmailOTP({
-        body: {
-            email,
-            otp,
-            password: newPassword,
-        }
-    })
+        body: { email, otp, password: newPassword }
+    });
 
     if (isUserExist.needPasswordChange) {
         await prisma.user.update({
-            where: {
-                id: isUserExist.id,
-            },
-            data: {
-                needPasswordChange: false,
-            }
-        })
+            where: { id: isUserExist.id },
+            data: { needPasswordChange: false }
+        });
     }
 
     await prisma.session.deleteMany({
-        where: {
-            userId: isUserExist.id,
-        }
-    })
-}
-
+        where: { userId: isUserExist.id }
+    });
+};
 
 const googleLoginSuccess= async (session: Record<string, any>)=>{
     const isStudentExists= await prisma.studentProfile.findUnique({
@@ -335,7 +376,7 @@ const googleLoginSuccess= async (session: Record<string, any>)=>{
     if(!isStudentExists){
         await prisma.studentProfile.create({
             data:{
-                userId:session.user.userId
+                userId:session.user.id
             }
         })
     }
@@ -358,13 +399,129 @@ const googleLoginSuccess= async (session: Record<string, any>)=>{
     }
 }
 
+ 
+// ─── Fields allowed on the User table ─────────────────────
+const USER_TABLE_FIELDS = new Set(["name", "email", "image"]);
+ 
+// ─── Allowed fields per role ───────────────────────────────
+const ALLOWED_FIELDS: Record<string, Set<string>> = {
+  STUDENT: new Set([
+    "phone", "address", "bio", "nationality",
+    "institution", "department", "batch", "programme",
+    "cgpa", "enrollmentYear", "expectedGraduation",
+    "skills", "linkedinUrl", "githubUrl", "website", "portfolioUrl",
+  ]),
+  TEACHER: new Set([
+    "designation", "department", "institution", "bio",
+    "website", "linkedinUrl", "specialization", "experience",
+    "researchInterests", "googleScholarUrl", "officeHours",
+  ]),
+  ADMIN: new Set([
+    "phone", "bio", "nationality", "avatarUrl",
+    "designation", "department", "organization",
+    "linkedinUrl", "website",
+  ]),
+};
+ 
+
+
+const updateProfileService = async (
+  userId: string,
+  role: string,
+  patch: Record<string, unknown>
+) => {
+  // Validate role
+  if (!["STUDENT", "TEACHER", "ADMIN"].includes(role)) {
+    throw new AppError(status.FORBIDDEN, "Invalid role");
+  }
+ 
+  const allowedProfile = ALLOWED_FIELDS[role];
+ 
+  // Split patch into userPatch and profilePatch
+  const userPatch:    Record<string, unknown> = {};
+  const profilePatch: Record<string, unknown> = {};
+ 
+  for (const [key, rawValue] of Object.entries(patch)) {
+    if (USER_TABLE_FIELDS.has(key)) {
+      // Validate it's in the user-allowed list
+      if (!["name", "email", "image"].includes(key)) {
+        throw new AppError(
+          status.BAD_REQUEST,
+          `Field '${key}' is not allowed`
+        );
+      }
+      userPatch[key] = rawValue;
+    } else if (allowedProfile!.has(key)) {
+      profilePatch[key] = coerceValue(key, rawValue);
+    } else {
+      // Unknown or forbidden field — reject silently or throw
+      throw new AppError(
+        status.BAD_REQUEST,
+        `Field '${key}' is not allowed for role ${role}`
+      );
+    }
+  }
+ 
+  // Nothing to do
+  if (
+    Object.keys(userPatch).length === 0 &&
+    Object.keys(profilePatch).length === 0
+  ) {
+    throw new AppError(status.BAD_REQUEST, "No valid fields to update");
+  }
+ 
+  // Run both updates in a single transaction
+  await prisma.$transaction(async (tx) => {
+    // ── User table ────────────────────────────────────────
+    if (Object.keys(userPatch).length > 0) {
+      await tx.user.update({
+        where: { id: userId },
+        data: userPatch,
+      });
+    }
+ 
+    // ── Profile table (role-specific) ─────────────────────
+    if (Object.keys(profilePatch).length > 0) {
+      if (role === "STUDENT") {
+        await tx.studentProfile.update({
+          where: { userId },
+          data: profilePatch,
+        });
+      } else if (role === "TEACHER") {
+        await tx.teacherProfile.update({
+          where: { userId },
+          data: profilePatch,
+        });
+      } else if (role === "ADMIN") {
+        await tx.adminProfile.update({
+          where: { userId },
+          data: profilePatch,
+        });
+      }
+    }
+  });
+ 
+  // Return updated data so the frontend can sync local state
+  const updatedUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, name: true, email: true, image: true },
+  });
+ 
+  return { updatedUser };
+};
+
+
 export const authService = {
     registerService,
     loginService,
+    getMyData,
     changePasswordService,
     logoutService,
     verifyEmail,
+    resendVerificationEmail,
     forgetPassword,
     resetPassword,
-    googleLoginSuccess
+    verifyResetOtp,
+    googleLoginSuccess,
+    updateProfileService
 }

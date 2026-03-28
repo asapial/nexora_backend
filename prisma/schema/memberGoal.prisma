@@ -8,7 +8,7 @@ model MemberGoal {
   achievedAt DateTime?
   createdAt  DateTime  @default(now())
 
-  user             User            @relation(fields: [userId], references: [id])
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   studentProfile   StudentProfile? @relation(fields: [studentProfileId], references: [id])
   studentProfileId String?
 }

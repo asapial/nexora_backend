@@ -5,143 +5,246 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Connecting with Google — Nexora</title>
   <style>
-    /* ── RESET & BASE ─────────────────────────────────── */
+    /* ── RESET ───────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* ── DESIGN TOKENS — matches Nexora's teal system ─ */
     :root {
-      --bg:        #f4f6fb;
-      --card:      #ffffff;
-      --navy:      #1B2B4B;
-      --blue:      #2563eb;
-      --blue-lt:   #eff6ff;
-      --purple:    #7c3aed;
-      --text-1:    #111827;
-      --text-2:    #6b7280;
-      --text-3:    #9ca3af;
-      --border:    #e5e7eb;
-      --red:       #ef4444;
-      --red-bg:    #fef2f2;
-      --red-bdr:   #fecaca;
-      --shadow:    0 8px 40px rgba(37,99,235,0.10), 0 2px 8px rgba(0,0,0,0.06);
+      --bg:          #09090b;          /* zinc-950 */
+      --card-bg:     #111113;          /* zinc-900 */
+      --card-border: rgba(255,255,255,.07);
+      --teal-500:    #14b8a6;
+      --teal-600:    #0d9488;
+      --teal-400:    #2dd4bf;
+      --teal-300:    #5eead4;
+      --teal-dim:    rgba(20,184,166,.1);
+      --teal-glow:   rgba(20,184,166,.15);
+      --red-500:     #ef4444;
+      --red-bg:      rgba(239,68,68,.08);
+      --red-border:  rgba(239,68,68,.2);
+      --text-1:      #fafafa;          /* zinc-50  */
+      --text-2:      #a1a1aa;          /* zinc-400 */
+      --text-3:      #52525b;          /* zinc-600 */
+      --rule:        rgba(255,255,255,.06);
     }
 
     html, body {
       height: 100%;
       background-color: var(--bg);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-                   'Helvetica Neue', Arial, sans-serif;
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                   system-ui, sans-serif;
       -webkit-font-smoothing: antialiased;
     }
 
-    /* ── LAYOUT ───────────────────────────────────────── */
+    /* ── PAGE SHELL ──────────────────────────────────── */
     .page {
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 24px 16px;
+      padding: 32px 16px;
+      position: relative;
+      overflow: hidden;
+
+      /* radial teal glow from centre-top */
       background:
-        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(37,99,235,0.10) 0%, transparent 70%),
-        #f4f6fb;
+        radial-gradient(ellipse 70% 45% at 50% 0%, rgba(20,184,166,.09) 0%, transparent 70%),
+        #09090b;
     }
+
+    /* subtle grid overlay */
+    .page::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(20,184,166,.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(20,184,166,.025) 1px, transparent 1px);
+      background-size: 52px 52px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* floating orbs */
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(40px);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .orb-1 {
+      width: 400px; height: 400px;
+      top: -130px; left: -100px;
+      background: radial-gradient(circle, rgba(20,184,166,.09) 0%, transparent 65%);
+      animation: orb-drift 14s ease-in-out infinite;
+    }
+    .orb-2 {
+      width: 300px; height: 300px;
+      bottom: -80px; right: -70px;
+      background: radial-gradient(circle, rgba(20,184,166,.06) 0%, transparent 65%);
+      animation: orb-drift 10s ease-in-out infinite 4s;
+    }
+
+    @keyframes orb-drift {
+      0%,100% { transform: translate(0,0) scale(1); }
+      50%      { transform: translate(-16px,16px) scale(1.05); }
+    }
+
+    /* corner SVG decorations */
+    .corner-svg {
+      position: fixed;
+      pointer-events: none;
+      opacity: .055;
+      z-index: 0;
+    }
+    .corner-svg.tl { top: 0; left: 0; }
+    .corner-svg.br { bottom: 0; right: 0; transform: rotate(180deg); }
 
     /* ── CARD ─────────────────────────────────────────── */
     .card {
+      position: relative;
+      z-index: 10;
       width: 100%;
-      max-width: 440px;
-      background: var(--card);
-      border-radius: 20px;
-      box-shadow: var(--shadow);
+      max-width: 432px;
+      background: var(--card-bg);
+      border-radius: 24px;
+      border: 1px solid var(--card-border);
       overflow: hidden;
-      border: 1px solid var(--border);
+      box-shadow:
+        0 0 0 1px rgba(20,184,166,.06),
+        0 24px 64px -12px rgba(0,0,0,.55),
+        0 8px 24px -4px rgba(0,0,0,.3);
+      /* entrance animation */
+      animation: card-in .6s cubic-bezier(.16,1,.3,1) both;
     }
 
-    /* top shimmer bar */
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(22px) scale(.97); }
+      to   { opacity: 1; transform: translateY(0)   scale(1);    }
+    }
+
+    /* teal top-accent rule */
     .card-bar {
-      height: 3px;
-      background: linear-gradient(90deg, var(--blue) 0%, var(--purple) 100%);
+      height: 2px;
+      background: linear-gradient(90deg,
+        transparent   0%,
+        var(--teal-600) 30%,
+        var(--teal-400) 55%,
+        var(--teal-300) 75%,
+        transparent   100%
+      );
     }
 
     .card-body {
-      padding: 48px 44px 44px;
+      padding: 44px 40px 40px;
       display: flex;
       flex-direction: column;
       align-items: center;
       text-align: center;
     }
 
-    /* ── LOGO ─────────────────────────────────────────── */
+    /* ── NEXORA LOGO ──────────────────────────────────── */
     .logo {
-      font-size: 22px;
-      font-weight: 800;
-      letter-spacing: -0.04em;
-      color: var(--navy);
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
       text-decoration: none;
       margin-bottom: 36px;
-      display: block;
     }
 
-    .logo span { color: var(--blue); }
+    .logo-hex {
+      width: 34px; height: 34px;
+      border-radius: 9px;
+      background: var(--teal-dim);
+      border: 1px solid rgba(20,184,166,.25);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--teal-400);
+      font-size: 16px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .logo-text {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -.025em;
+      color: var(--text-1);
+    }
 
     /* ── ICON STACK ───────────────────────────────────── */
     .icon-stack {
       position: relative;
-      width: 80px;
-      height: 80px;
+      width: 80px; height: 80px;
       margin-bottom: 28px;
     }
 
-    /* outer ring — pulses */
+    /* outer pulse ring */
     .icon-stack::before {
       content: '';
       position: absolute;
-      inset: -8px;
+      inset: -10px;
       border-radius: 50%;
-      border: 2px solid rgba(37,99,235,0.15);
-      animation: ring-pulse 2s ease-in-out infinite;
+      border: 1.5px solid rgba(20,184,166,.22);
+      animation: ring-pulse 2.4s ease-in-out infinite;
+    }
+    /* mid pulse ring */
+    .icon-stack::after {
+      content: '';
+      position: absolute;
+      inset: -20px;
+      border-radius: 50%;
+      border: 1px solid rgba(20,184,166,.1);
+      animation: ring-pulse 2.4s ease-in-out infinite .4s;
     }
 
     @keyframes ring-pulse {
-      0%, 100% { transform: scale(1);   opacity: 1; }
-      50%       { transform: scale(1.08); opacity: 0.4; }
+      0%,100% { transform: scale(1);    opacity: 1;   }
+      50%      { transform: scale(1.09); opacity: 0.3; }
     }
 
     .icon-circle {
-      width: 80px;
-      height: 80px;
+      width: 80px; height: 80px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #dbeafe 0%, #ede9fe 100%);
+      background: rgba(20,184,166,.08);
+      border: 1.5px solid rgba(20,184,166,.2);
       display: flex;
       align-items: center;
       justify-content: center;
+      position: relative;
+      overflow: hidden;
+      /* inner shimmer */
+      background: linear-gradient(135deg,
+        rgba(20,184,166,.12) 0%,
+        rgba(20,184,166,.04) 100%
+      );
     }
 
-    /* Google 'G' SVG */
     .icon-circle svg { width: 38px; height: 38px; }
 
-    /* ── HEADING ──────────────────────────────────────── */
+    /* ── CARD HEADING ─────────────────────────────────── */
     .card-title {
       font-size: 20px;
-      font-weight: 700;
+      font-weight: 800;
       color: var(--text-1);
-      letter-spacing: -0.02em;
+      letter-spacing: -.02em;
       margin-bottom: 8px;
     }
 
     .card-sub {
-      font-size: 14px;
+      font-size: 13.5px;
       color: var(--text-2);
-      line-height: 1.7;
-      max-width: 300px;
-      margin: 0 auto 36px;
+      line-height: 1.75;
+      max-width: 290px;
+      margin: 0 auto 32px;
     }
 
     /* ── PROGRESS BAR ─────────────────────────────────── */
     .progress-wrap {
       width: 100%;
-      height: 4px;
-      background-color: #e5e7eb;
+      height: 3px;
+      background: rgba(255,255,255,.06);
       border-radius: 999px;
       overflow: hidden;
       margin-bottom: 14px;
@@ -150,45 +253,48 @@
     .progress-bar {
       height: 100%;
       width: 0%;
-      background: linear-gradient(90deg, var(--blue), var(--purple));
+      background: linear-gradient(90deg,
+        var(--teal-600) 0%,
+        var(--teal-400) 55%,
+        var(--teal-300) 100%
+      );
       border-radius: 999px;
-      animation: progress-fill 2.4s cubic-bezier(0.4,0,0.2,1) forwards;
+      animation: progress-fill 2.8s cubic-bezier(.4,0,.2,1) forwards;
     }
 
     @keyframes progress-fill {
-      0%   { width: 0%; }
-      60%  { width: 75%; }
-      85%  { width: 88%; }
-      100% { width: 95%; }
+      0%   { width: 0%;  }
+      55%  { width: 72%; }
+      80%  { width: 86%; }
+      100% { width: 94%; }
     }
 
-    /* ── STATUS TEXT ──────────────────────────────────── */
-    .status-text {
-      font-size: 12.5px;
-      color: var(--text-3);
-      letter-spacing: 0.02em;
-      height: 18px;
+    /* ── STATUS ROW ───────────────────────────────────── */
+    .status-row {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
+      gap: 7px;
+      height: 20px;
+      font-size: 12.5px;
+      color: var(--text-3);
+      letter-spacing: .02em;
     }
 
-    /* typing dots */
+    /* teal bouncing dots */
     .dot {
       width: 4px; height: 4px;
-      background-color: var(--blue);
+      background: var(--teal-500);
       border-radius: 50%;
-      opacity: 0.5;
-      animation: dot-blink 1.2s ease-in-out infinite;
+      opacity: .4;
+      animation: dot-bounce 1.3s ease-in-out infinite;
     }
+    .dot:nth-child(2) { animation-delay: .18s; }
+    .dot:nth-child(3) { animation-delay: .36s; }
 
-    .dot:nth-child(2) { animation-delay: 0.2s; }
-    .dot:nth-child(3) { animation-delay: 0.4s; }
-
-    @keyframes dot-blink {
-      0%, 80%, 100% { transform: scale(1);   opacity: 0.4; }
-      40%            { transform: scale(1.4); opacity: 1;   }
+    @keyframes dot-bounce {
+      0%,80%,100% { transform: scale(1);   opacity: .35; }
+      40%          { transform: scale(1.5); opacity: 1;   }
     }
 
     /* ── SECURE BADGE ─────────────────────────────────── */
@@ -198,35 +304,48 @@
       gap: 6px;
       margin-top: 28px;
       padding: 6px 14px;
-      background-color: #f0fdf4;
-      border: 1px solid #bbf7d0;
+      background: rgba(20,184,166,.07);
+      border: 1px solid rgba(20,184,166,.18);
       border-radius: 999px;
       font-size: 11.5px;
-      color: #15803d;
-      font-weight: 500;
+      font-weight: 600;
+      color: var(--teal-400);
     }
 
-    .secure-badge svg { width: 13px; height: 13px; flex-shrink: 0; }
+    .secure-badge svg {
+      width: 12px; height: 12px;
+      flex-shrink: 0;
+    }
 
-    /* ── ERROR STATE ──────────────────────────────────── */
+    /* ── ERROR CARD ───────────────────────────────────── */
     .error-card {
       display: none;
+      position: relative;
+      z-index: 10;
       width: 100%;
-      max-width: 440px;
-      background: var(--card);
-      border-radius: 20px;
-      box-shadow: var(--shadow);
+      max-width: 432px;
+      background: var(--card-bg);
+      border-radius: 24px;
+      border: 1px solid var(--red-border);
       overflow: hidden;
-      border: 1px solid var(--red-bdr);
+      box-shadow:
+        0 0 0 1px rgba(239,68,68,.06),
+        0 24px 64px -12px rgba(0,0,0,.55);
+      animation: card-in .5s cubic-bezier(.16,1,.3,1) both;
     }
 
     .error-bar {
-      height: 3px;
-      background: linear-gradient(90deg, var(--red) 0%, #f97316 100%);
+      height: 2px;
+      background: linear-gradient(90deg,
+        transparent 0%,
+        var(--red-500) 30%,
+        #f97316 70%,
+        transparent 100%
+      );
     }
 
     .error-body {
-      padding: 48px 44px 44px;
+      padding: 44px 40px 40px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -234,72 +353,77 @@
     }
 
     .error-icon {
-      width: 72px;
-      height: 72px;
+      width: 72px; height: 72px;
       border-radius: 50%;
       background: var(--red-bg);
-      border: 1px solid var(--red-bdr);
+      border: 1px solid var(--red-border);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 28px;
+      font-size: 26px;
       margin-bottom: 22px;
     }
 
     .error-title {
       font-size: 19px;
-      font-weight: 700;
+      font-weight: 800;
       color: var(--text-1);
+      letter-spacing: -.02em;
       margin-bottom: 10px;
     }
 
     .error-msg {
-      font-size: 14px;
+      font-size: 13.5px;
       color: var(--text-2);
-      line-height: 1.7;
-      margin-bottom: 28px;
-      max-width: 320px;
+      line-height: 1.75;
+      margin-bottom: 24px;
+      max-width: 300px;
     }
 
     .error-detail {
-      font-size: 12px;
+      display: none;
+      font-size: 11.5px;
       font-family: 'Courier New', monospace;
-      color: var(--red);
+      color: var(--red-500);
       background: var(--red-bg);
-      border: 1px solid var(--red-bdr);
-      border-radius: 8px;
+      border: 1px solid var(--red-border);
+      border-radius: 10px;
       padding: 10px 14px;
       width: 100%;
       text-align: left;
-      margin-bottom: 28px;
+      margin-bottom: 26px;
       word-break: break-all;
-      display: none;
+      line-height: 1.6;
     }
 
+    /* ── RETRY BUTTON ─────────────────────────────────── */
     .retry-btn {
       display: inline-flex;
       align-items: center;
       gap: 8px;
       padding: 12px 28px;
-      background: linear-gradient(135deg, var(--blue) 0%, var(--purple) 100%);
+      background: var(--teal-600);
       color: #ffffff;
       font-size: 14px;
-      font-weight: 600;
+      font-weight: 700;
       border: none;
-      border-radius: 10px;
+      border-radius: 12px;
       cursor: pointer;
       text-decoration: none;
-      transition: opacity 0.2s, transform 0.15s;
-      box-shadow: 0 4px 14px rgba(37,99,235,0.3);
+      transition: background .2s, transform .15s;
+      box-shadow: 0 6px 22px rgba(13,148,136,.28);
     }
+    .retry-btn:hover  { background: #0f766e; transform: scale(1.02); }
+    .retry-btn:active { transform: scale(.98); }
 
-    .retry-btn:hover  { opacity: 0.9; transform: translateY(-1px); }
-    .retry-btn:active { opacity: 1;   transform: translateY(0); }
+    .retry-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
 
     /* ── FOOTER ───────────────────────────────────────── */
     .page-footer {
-      margin-top: 24px;
-      font-size: 12px;
+      position: relative;
+      z-index: 10;
+      margin-top: 22px;
+      font-size: 11.5px;
       color: var(--text-3);
       text-align: center;
     }
@@ -307,8 +431,7 @@
     /* ── RESPONSIVE ───────────────────────────────────── */
     @media (max-width: 480px) {
       .card-body, .error-body { padding: 36px 28px 32px; }
-      .card-title  { font-size: 18px; }
-      .logo        { font-size: 20px; }
+      .card-title, .error-title { font-size: 18px; }
     }
   </style>
 </head>
@@ -316,17 +439,42 @@
 
   <div class="page">
 
-    <!-- ── LOADING CARD ─────────────────────────────── -->
-    <div class="card" id="loadingCard">
+    <!-- Corner arc decorations -->
+    <svg class="corner-svg tl" width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="0" cy="0" r="140" stroke="#14b8a6" stroke-width=".7"/>
+      <circle cx="0" cy="0" r="90"  stroke="#14b8a6" stroke-width=".7"/>
+      <circle cx="0" cy="0" r="45"  stroke="#14b8a6" stroke-width=".7"/>
+      <line x1="0" y1="90"  x2="90"  y2="0" stroke="#14b8a6" stroke-width=".5"/>
+      <line x1="0" y1="140" x2="140" y2="0" stroke="#14b8a6" stroke-width=".4"/>
+    </svg>
+    <svg class="corner-svg br" width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="0" cy="0" r="140" stroke="#14b8a6" stroke-width=".7"/>
+      <circle cx="0" cy="0" r="90"  stroke="#14b8a6" stroke-width=".7"/>
+      <circle cx="0" cy="0" r="45"  stroke="#14b8a6" stroke-width=".7"/>
+    </svg>
+
+    <!-- Background orbs -->
+    <div class="orb orb-1" aria-hidden="true"></div>
+    <div class="orb orb-2" aria-hidden="true"></div>
+
+    <!-- ══════════════════════════════════════════════════
+         LOADING CARD
+    ══════════════════════════════════════════════════ -->
+    <div class="card" id="loadingCard" role="status" aria-live="polite" aria-label="Connecting with Google">
       <div class="card-bar"></div>
       <div class="card-body">
 
-        <a class="logo" href="#">Nex<span>o</span>ra</a>
+        <!-- Nexora logo -->
+        <a class="logo" href="/" aria-label="Nexora home">
+          <div class="logo-hex" aria-hidden="true">⬡</div>
+          <span class="logo-text">Nexora</span>
+        </a>
 
-        <div class="icon-stack">
+        <!-- Google icon with orbital rings -->
+        <div class="icon-stack" aria-hidden="true">
           <div class="icon-circle">
-            <!-- Google G SVG -->
-            <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+            <!-- Official Google G mark -->
+            <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Google">
               <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/>
               <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
               <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
@@ -339,23 +487,25 @@
         <h1 class="card-title">Connecting with Google</h1>
         <p class="card-sub">
           Please wait while we securely redirect you to
-          Google to complete the sign-in process.
+          Google to complete sign-in.
         </p>
 
-        <div class="progress-wrap">
+        <!-- Progress bar -->
+        <div class="progress-wrap" role="progressbar" aria-label="Connection progress">
           <div class="progress-bar" id="progressBar"></div>
         </div>
 
-        <div class="status-text" id="statusText">
-          <span class="dot"></span>
-          <span class="dot"></span>
-          <span class="dot"></span>
+        <!-- Status dots + message -->
+        <div class="status-row">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="dot" aria-hidden="true"></span>
+          <span class="dot" aria-hidden="true"></span>
           <span id="statusMsg">Initiating secure connection</span>
         </div>
 
-        <div class="secure-badge">
-          <!-- shield check icon -->
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <!-- OAuth badge -->
+        <div class="secure-badge" aria-label="Secured with OAuth 2.0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
             <polyline points="9 12 11 14 15 10"/>
           </svg>
@@ -365,14 +515,20 @@
       </div>
     </div>
 
-    <!-- ── ERROR CARD ────────────────────────────────── -->
-    <div class="error-card" id="errorCard">
+    <!-- ══════════════════════════════════════════════════
+         ERROR CARD
+    ══════════════════════════════════════════════════ -->
+    <div class="error-card" id="errorCard" role="alert" aria-label="Connection failed">
       <div class="error-bar"></div>
       <div class="error-body">
 
-        <a class="logo" href="#">Nex<span>o</span>ra</a>
+        <!-- Nexora logo -->
+        <a class="logo" href="/" aria-label="Nexora home">
+          <div class="logo-hex" aria-hidden="true">⬡</div>
+          <span class="logo-text">Nexora</span>
+        </a>
 
-        <div class="error-icon">&#128683;</div>
+        <div class="error-icon" aria-hidden="true">⚠</div>
 
         <h1 class="error-title">Redirect Failed</h1>
         <p class="error-msg" id="errorMsg">
@@ -380,11 +536,11 @@
           Please try again — your account has not been affected.
         </p>
 
-        <div class="error-detail" id="errorDetail"></div>
+        <!-- Technical error detail (shown only when available) -->
+        <pre class="error-detail" id="errorDetail"></pre>
 
-        <button class="retry-btn" onclick="startAuth()">
-          <!-- refresh icon -->
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <button class="retry-btn" onclick="startAuth()" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="23 4 23 10 17 10"/>
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
           </svg>
@@ -395,39 +551,55 @@
     </div>
 
     <p class="page-footer">
-      &copy; <%= new Date().getFullYear() %> Nexora. All rights reserved.
+      &copy; <span id="yr"></span> Nexora Technologies. All rights reserved.
     </p>
 
-  </div>
+  </div><!-- .page -->
 
   <script>
+    /* ── Year ─────────────────────────────────────────── */
+    document.getElementById('yr').textContent = new Date().getFullYear();
+
+    /* ── Status messages ──────────────────────────────── */
     const MESSAGES = [
       'Initiating secure connection',
       'Contacting Google servers',
-      'Preparing redirect',
+      'Preparing your redirect',
       'Almost there',
     ];
-
-    let msgIndex = 0;
-    let msgInterval;
+    let msgIdx = 0;
+    let msgTimer = null;
 
     function cycleMessages() {
-      msgInterval = setInterval(() => {
-        msgIndex = (msgIndex + 1) % MESSAGES.length;
+      msgTimer = setInterval(function () {
+        msgIdx = (msgIdx + 1) % MESSAGES.length;
         const el = document.getElementById('statusMsg');
-        if (el) el.textContent = MESSAGES[msgIndex];
-      }, 900);
+        if (el) {
+          el.style.opacity = '0';
+          el.style.transition = 'opacity .25s';
+          setTimeout(function () {
+            el.textContent = MESSAGES[msgIdx];
+            el.style.opacity = '1';
+          }, 260);
+        }
+      }, 950);
     }
 
+    /* ── Show error state ─────────────────────────────── */
     function showError(message, detail) {
-      clearInterval(msgInterval);
+      clearInterval(msgTimer);
+
       document.getElementById('loadingCard').style.display = 'none';
+
       const errorCard   = document.getElementById('errorCard');
       const errorMsg    = document.getElementById('errorMsg');
       const errorDetail = document.getElementById('errorDetail');
 
       errorCard.style.display = 'block';
-      if (message) errorMsg.textContent = message;
+
+      if (message) {
+        errorMsg.textContent = message;
+      }
 
       if (detail) {
         errorDetail.style.display = 'block';
@@ -435,46 +607,68 @@
       }
     }
 
+    /* ── Main auth flow ───────────────────────────────── */
     async function startAuth() {
-      // reset UI if retrying
+      /* reset UI if retrying */
+      clearInterval(msgTimer);
+      msgIdx = 0;
+
       document.getElementById('errorCard').style.display   = 'none';
       document.getElementById('loadingCard').style.display = 'block';
-      document.getElementById('statusMsg').textContent     = MESSAGES[0];
-      msgIndex = 0;
+
+      const statusEl = document.getElementById('statusMsg');
+      if (statusEl) statusEl.textContent = MESSAGES[0];
+
+      /* restart progress bar animation by cloning the element */
+      const oldBar = document.getElementById('progressBar');
+      if (oldBar) {
+        const newBar = oldBar.cloneNode(true);
+        oldBar.parentNode.replaceChild(newBar, oldBar);
+      }
+
       cycleMessages();
 
       try {
-        const response = await fetch("<%= betterAuthUrl %>/api/auth/sign-in/social", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            provider:    "google",
-            callbackURL: "<%= callbackURL %>",
-          }),
-        });
+        const response = await fetch(
+          // '<%= betterAuthUrl %>/api/auth/sign-in/social',
+          '/api/auth/sign-in/social',
+          {
+            method:      'POST',
+            headers:     { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              provider:    'google',
+              callbackURL: '<%= callbackURL %>',
+            }),
+          }
+        );
 
         const data = await response.json();
 
-        if (data.url) {
-          document.getElementById('statusMsg').textContent = 'Redirecting now';
-          // slight delay so user sees the final status
-          setTimeout(() => { window.location.href = data.url; }, 300);
+        if (data && data.url) {
+          /* show final status then redirect */
+          clearInterval(msgTimer);
+          const el = document.getElementById('statusMsg');
+          if (el) el.textContent = 'Redirecting to Google';
+          setTimeout(function () {
+            window.location.href = data.url;
+          }, 320);
         } else {
           showError(
             'Google sign-in is temporarily unavailable. Please try again in a moment.',
-            data.error || data.message || null,
+            data.error || data.message || null
           );
         }
+
       } catch (err) {
         showError(
-          'A network error occurred while connecting to Google. Please check your connection and try again.',
-          err.message || null,
+          'A network error occurred while connecting to Google. Check your connection and try again.',
+          err && err.message ? err.message : null
         );
       }
     }
 
-    // kick off immediately
+    /* ── Boot ─────────────────────────────────────────── */
     cycleMessages();
     startAuth();
   </script>

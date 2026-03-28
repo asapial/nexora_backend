@@ -15,7 +15,7 @@ model UserBadge {
   milestoneId String
   awardedAt   DateTime @default(now())
 
-  user      User      @relation(fields: [userId], references: [id])
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   milestone Milestone @relation(fields: [milestoneId], references: [id])
 
   @@unique([userId, milestoneId])
@@ -31,5 +31,5 @@ model Certificate {
   verifyCode String   @unique @default(uuid())
   issuedAt   DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
