@@ -1,6 +1,6 @@
 model Resource {
   id          String     @id @default(uuid())
-  uploaderId  String
+  uploaderId  String?
   clusterId   String?
   categoryId  String?
   title       String
@@ -17,7 +17,7 @@ model Resource {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  uploader    User                 @relation(fields: [uploaderId], references: [id])
+  uploader    User?                @relation(fields: [uploaderId], references: [id], onDelete: SetNull)
   cluster     Cluster?             @relation(fields: [clusterId], references: [id])
   category    ResourceCategory?    @relation(fields: [categoryId], references: [id])
   comments    ResourceComment[]
@@ -30,6 +30,8 @@ model Resource {
 model ResourceCategory {
   id         String   @id @default(uuid())
   name       String
+  description String?
+  color      String   @default("#14b8a6")
   teacherId  String?
   clusterId  String?
   isGlobal   Boolean  @default(false)
@@ -38,6 +40,7 @@ model ResourceCategory {
 
   resources Resource[]
 }
+
 
 model ResourceComment {
   id         String   @id @default(uuid())
@@ -64,7 +67,7 @@ model ResourceAnnotation {
   createdAt  DateTime @default(now())
 
   resource Resource @relation(fields: [resourceId], references: [id])
-  user     User     @relation(fields: [userId], references: [id])
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ResourceQuiz {

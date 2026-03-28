@@ -6,7 +6,7 @@ model ReadingList {
   shareSlug String?  @unique
   createdAt DateTime @default(now())
 
-  user             User              @relation(fields: [userId], references: [id])
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   items            ReadingListItem[]
   studentProfile   StudentProfile?   @relation(fields: [studentProfileId], references: [id])
   studentProfileId String?

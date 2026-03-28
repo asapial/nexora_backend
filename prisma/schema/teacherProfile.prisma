@@ -1,19 +1,27 @@
 model TeacherProfile {
     id String @id @default(cuid())
 
-    // ── Relationship to User ──────────────────────────────
-
     userId String @unique
     user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
     // ── Professional identity ─────────────────────────────
-    designation String?
-    department  String?
-    institution String?
-    bio         String?
-    website     String?
-    linkedinUrl String?
+    designation    String?
+    department     String?
+    institution    String?
+    bio            String?
+    website        String?
+    linkedinUrl    String?
+    specialization String?               
+    experience     Int?                  
 
+    // ── Research ──────────────────────────────────────────
+    researchInterests String[]           
+    googleScholarUrl  String?            
+
+    // ── Availability ──────────────────────────────────────
+    officeHours String?                 
+
+    // ── Verification ─────────────────────────────────────
     isVerified   Boolean   @default(false)
     verifiedAt   DateTime?
     rejectedAt   DateTime?
@@ -24,12 +32,15 @@ model TeacherProfile {
     updatedAt DateTime @updatedAt
 
     // ── Owned resources ───────────────────────────────────
-
-    clusters      Cluster[]
     coTeacherOf   CoTeacher[]
     sessions      StudySession[]  @relation("SessionCreator")
-    //   paperCategories PaperCategory[]   
     taskTemplates TaskTemplate[]
+  teacherClusters      Cluster[]            @relation("ClusterTeacher")
+
+    // courses
+    courses             Course[]
+priceRequests       CoursePriceRequest[]
+revenueTransactions RevenueTransaction[]
 
     @@map("teacher_profile")
 }

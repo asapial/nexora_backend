@@ -7,407 +7,235 @@
   <meta name="x-apple-disable-message-reformatting" />
   <meta name="format-detection" content="telephone=no, date=no, address=no, email=no" />
   <title>Verify Your Email — Nexora</title>
-
-  <!--[if mso]>
-  <noscript>
-    <xml>
-      <o:OfficeDocumentSettings>
-        <o:PixelsPerInch>96</o:PixelsPerInch>
-      </o:OfficeDocumentSettings>
-    </xml>
-  </noscript>
-  <![endif]-->
-
+  <!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><![endif]-->
   <style>
-    /* ── RESET ─────────────────────────────────────────── */
+    /* ── RESET ───────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; }
     body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
     table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
     img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; }
     body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
 
-    /* ── BASE ──────────────────────────────────────────── */
-    body {
-      background-color: #08090a;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-                   'Helvetica Neue', Arial, sans-serif;
-    }
+    /* ── NEXORA TOKENS ───────────────────────────── */
+    /* bg: #09090b  card: #111113  border: #27272a
+       teal-600: #0d9488  teal-400: #2dd4bf  teal-300: #5eead4
+       zinc-400: #a1a1aa  zinc-500: #71717a  zinc-600: #52525b */
 
-    .email-wrapper {
-      width: 100%;
-      background-color: #08090a;
-      padding: 40px 16px;
-    }
+    body { background-color: #09090b; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
 
-    .email-container {
-      max-width: 560px;
-      margin: 0 auto;
-      background-color: #0f1114;
-      border: 1px solid #1e2328;
-      border-radius: 12px;
+    .wrapper  { width: 100%; background-color: #09090b; padding: 48px 16px; }
+    .container { max-width: 560px; margin: 0 auto; background-color: #111113; border: 1px solid #27272a; border-radius: 16px; overflow: hidden; }
+
+    /* ── TEAL TOP BAR ────────────────────────────── */
+    .top-bar { height: 3px; background: linear-gradient(90deg, transparent 0%, #0d9488 25%, #14b8a6 55%, #2dd4bf 80%, transparent 100%); }
+
+    /* ── HEADER ──────────────────────────────────── */
+    .header { padding: 36px 48px 28px; text-align: center; border-bottom: 1px solid #27272a; }
+    .logo-wrap { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
+    .logo-hex  { display: inline-block; width: 36px; height: 36px; background: rgba(20,184,166,.12); border: 1px solid rgba(20,184,166,.25); border-radius: 9px; font-size: 18px; line-height: 36px; text-align: center; color: #2dd4bf; }
+    .logo-name { font-size: 20px; font-weight: 800; letter-spacing: -0.025em; color: #fafafa; text-decoration: none; }
+    .logo-tag  { display: block; margin-top: 7px; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: #52525b; font-family: 'Courier New', monospace; }
+
+    /* ── BODY ────────────────────────────────────── */
+    .body { padding: 40px 48px; }
+    .greeting { font-size: 21px; font-weight: 700; color: #fafafa; margin: 0 0 12px; line-height: 1.3; }
+    .intro    { font-size: 14.5px; color: #71717a; line-height: 1.8; margin: 0 0 32px; }
+    .intro strong { color: #a1a1aa; }
+
+    /* ── OTP BLOCK ───────────────────────────────── */
+    .otp-label { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: #52525b; font-family: 'Courier New', monospace; margin: 0 0 12px; }
+
+    .otp-card {
+      position: relative;
+      background-color: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 14px;
+      padding: 32px 24px 26px;
+      text-align: center;
+      margin-bottom: 10px;
       overflow: hidden;
     }
-
-    /* ── TOP ACCENT BAR ────────────────────────────────── */
-    .accent-bar {
-      height: 3px;
-      background: linear-gradient(90deg, #4f8ef7 0%, #7c5af5 100%);
-    }
-
-    /* ── HEADER ────────────────────────────────────────── */
-    .email-header {
-      padding: 40px 48px 32px;
-      text-align: center;
-      border-bottom: 1px solid #1e2328;
-    }
-
-    .logo-text {
-      font-size: 28px;
-      font-weight: 800;
-      letter-spacing: -0.04em;
-      color: #e8ecf0;
-      text-decoration: none;
-    }
-
-    .logo-text span {
-      color: #4f8ef7;
-    }
-
-    .logo-tag {
-      display: inline-block;
-      margin-top: 6px;
-      font-size: 11px;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      color: #556070;
-      font-family: 'Courier New', Courier, monospace;
-    }
-
-    /* ── BODY ──────────────────────────────────────────── */
-    .email-body {
-      padding: 40px 48px;
-    }
-
-    .greeting {
-      font-size: 22px;
-      font-weight: 700;
-      color: #e8ecf0;
-      margin: 0 0 12px;
-      line-height: 1.3;
-    }
-
-    .intro-text {
-      font-size: 15px;
-      color: #8a95a3;
-      line-height: 1.8;
-      margin: 0 0 36px;
-    }
-
-    .intro-text strong {
-      color: #c8d0da;
-    }
-
-    /* ── OTP BLOCK ─────────────────────────────────────── */
-    .otp-label {
-      font-size: 11px;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      color: #556070;
-      font-family: 'Courier New', Courier, monospace;
-      margin: 0 0 14px;
-      display: block;
-    }
-
-    .otp-box {
-      background-color: #161a1f;
-      border: 1px solid #2a3040;
-      border-radius: 10px;
-      padding: 28px 24px;
-      text-align: center;
-      margin-bottom: 12px;
-      position: relative;
-    }
-
-    .otp-box::before {
+    /* teal shimmer top edge */
+    .otp-card::before {
       content: '';
       position: absolute;
       top: 0; left: 0; right: 0;
       height: 1px;
-      background: linear-gradient(90deg, transparent, #4f8ef7, transparent);
+      background: linear-gradient(90deg, transparent, #0d9488 40%, #2dd4bf 60%, transparent);
+    }
+    /* subtle radial glow */
+    .otp-card::after {
+      content: '';
+      position: absolute;
+      top: -20px; left: 50%;
+      transform: translateX(-50%);
+      width: 220px; height: 80px;
+      background: radial-gradient(ellipse, rgba(20,184,166,.1) 0%, transparent 70%);
+      pointer-events: none;
     }
 
     .otp-digits {
-      display: inline-block;
+      display: block;
       font-family: 'Courier New', Courier, monospace;
-      font-size: 42px;
-      font-weight: 700;
-      letter-spacing: 0.22em;
-      color: #e8ecf0;
-      /* Fallback for email clients that don't support gradient text */
-      color: #4f8ef7;
+      font-size: 48px;
+      font-weight: 800;
+      letter-spacing: 0.26em;
+      color: #2dd4bf;
+      line-height: 1;
+      position: relative;
+      z-index: 1;
     }
-
-    .otp-validity {
+    .otp-meta {
+      margin: 14px 0 0;
       font-size: 12px;
-      color: #556070;
-      font-family: 'Courier New', Courier, monospace;
-      letter-spacing: 0.08em;
-      margin: 0;
+      color: #52525b;
+      font-family: 'Courier New', monospace;
+      letter-spacing: 0.06em;
+      position: relative;
+      z-index: 1;
     }
+    .otp-meta strong { color: #71717a; }
 
-    /* ── DIVIDER ───────────────────────────────────────── */
-    .divider {
-      border: none;
-      border-top: 1px solid #1e2328;
-      margin: 36px 0;
-    }
+    /* ── DIVIDER ─────────────────────────────────── */
+    .divider { border: none; border-top: 1px solid #27272a; margin: 32px 0; }
 
-    /* ── INFO ROWS ─────────────────────────────────────── */
-    .info-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 14px;
-      margin-bottom: 16px;
-    }
-
+    /* ── INFO ROWS ───────────────────────────────── */
     .info-icon {
-      flex-shrink: 0;
-      width: 32px;
-      height: 32px;
-      background-color: #161a1f;
-      border: 1px solid #2a3040;
-      border-radius: 6px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 15px;
-      line-height: 32px;
-      text-align: center;
-    }
-
-    .info-text {
-      padding-top: 4px;
-    }
-
-    .info-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: #c8d0da;
-      margin: 0 0 2px;
-    }
-
-    .info-desc {
-      font-size: 13px;
-      color: #556070;
-      margin: 0;
-      line-height: 1.6;
-    }
-
-    /* ── WARNING BOX ───────────────────────────────────── */
-    .warning-box {
-      background-color: #1a1510;
-      border: 1px solid #3a2a10;
-      border-left: 3px solid #f7944f;
+      width: 36px; height: 36px;
+      background-color: #18181b;
+      border: 1px solid #27272a;
       border-radius: 8px;
-      padding: 16px 18px;
-      margin-top: 32px;
-    }
-
-    .warning-box p {
-      font-size: 13px;
-      color: #8a7060;
-      margin: 0;
-      line-height: 1.7;
-    }
-
-    .warning-box p strong {
-      color: #f7944f;
-    }
-
-    /* ── FOOTER ────────────────────────────────────────── */
-    .email-footer {
-      padding: 24px 48px 36px;
-      border-top: 1px solid #1e2328;
+      font-size: 16px;
+      line-height: 36px;
       text-align: center;
-    }
-
-    .footer-text {
-      font-size: 12px;
-      color: #3a4855;
-      line-height: 1.8;
-      margin: 0 0 8px;
-    }
-
-    .footer-text a {
-      color: #4f8ef7;
-      text-decoration: none;
-    }
-
-    .footer-divider {
       display: inline-block;
-      margin: 0 8px;
-      color: #2a3040;
     }
+    .info-title { font-size: 13px; font-weight: 600; color: #a1a1aa; margin: 0 0 2px; }
+    .info-desc  { font-size: 13px; color: #52525b; margin: 0; line-height: 1.6; }
+    .info-desc .hl { color: #2dd4bf; }
 
-    .footer-brand {
-      font-size: 11px;
-      color: #2a3040;
-      letter-spacing: 0.15em;
-      font-family: 'Courier New', Courier, monospace;
-      margin: 12px 0 0;
+    /* ── WARNING ─────────────────────────────────── */
+    .warning {
+      background-color: #1a1209;
+      border: 1px solid #3a2a10;
+      border-left: 3px solid #f59e0b;
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-top: 28px;
     }
+    .warning p { font-size: 13px; color: #78716c; margin: 0; line-height: 1.7; }
+    .warning p strong { color: #f59e0b; }
 
-    /* ── RESPONSIVE ────────────────────────────────────── */
+    /* ── FOOTER ──────────────────────────────────── */
+    .footer { padding: 22px 48px 32px; border-top: 1px solid #27272a; text-align: center; }
+    .footer-text  { font-size: 12px; color: #3f3f46; line-height: 1.8; margin: 0 0 6px; }
+    .footer-text a { color: #3f3f46; text-decoration: none; }
+    .footer-text a:hover { color: #71717a; }
+    .footer-sep   { display: inline-block; margin: 0 8px; color: #27272a; }
+    .footer-brand { font-size: 10.5px; color: #27272a; letter-spacing: 0.16em; font-family: 'Courier New', monospace; margin: 14px 0 0; }
+
     @media only screen and (max-width: 600px) {
-      .email-header,
-      .email-body,
-      .email-footer {
-        padding-left: 28px !important;
-        padding-right: 28px !important;
-      }
-
-      .otp-digits {
-        font-size: 34px !important;
-        letter-spacing: 0.16em !important;
-      }
-
-      .greeting {
-        font-size: 20px !important;
-      }
+      .header, .body, .footer { padding-left: 28px !important; padding-right: 28px !important; }
+      .otp-digits { font-size: 36px !important; letter-spacing: 0.18em !important; }
+      .greeting   { font-size: 19px !important; }
     }
   </style>
 </head>
-
 <body>
-  <div class="email-wrapper">
-    <div class="email-container">
+<div class="wrapper">
+  <div class="container">
 
-      <!-- TOP ACCENT BAR -->
-      <div class="accent-bar"></div>
+    <!-- TEAL TOP BAR -->
+    <div class="top-bar"></div>
 
-      <!-- ── HEADER ───────────────────────────────────── -->
-      <div class="email-header">
-        <div>
-          <a class="logo-text" href="#" style="text-decoration:none;">
-            Nex<span>o</span>ra
-          </a>
-        </div>
-        <div class="logo-tag">Where Knowledge Meets Mentorship</div>
-      </div>
+    <!-- HEADER -->
+    <div class="header">
+      <a class="logo-wrap" href="#" style="text-decoration:none;display:inline-block;">
+        <span class="logo-hex">⬡</span>
+        <span class="logo-name">Nexora</span>
+      </a>
+      <span class="logo-tag">Where Knowledge Meets Mentorship</span>
+    </div>
 
-      <!-- ── BODY ─────────────────────────────────────── -->
-      <div class="email-body">
+    <!-- BODY -->
+    <div class="body">
 
-        <h1 class="greeting">Hey <%= name %>, verify your email</h1>
+      <h1 class="greeting">Verify your email, <%= name %></h1>
 
-        <p class="intro-text">
-          Hi <strong><%= name %></strong>, welcome to <strong>Nexora</strong>. To complete your account registration,
-          please use the one-time verification code below. Enter it on the
-          verification screen to activate your account.
-        </p>
+      <p class="intro">
+        Welcome to <strong>Nexora</strong>. To complete your registration,
+        enter the one-time verification code below on the verification screen.
+        It confirms you own this email address.
+      </p>
 
-        <!-- OTP BLOCK -->
-        <span class="otp-label">Your verification code</span>
-
-        <div class="otp-box">
-          <div class="otp-digits"><%= otp %></div>
-        </div>
-
-        <p class="otp-validity">
-          &#x23F1;&nbsp; This code expires in
-          <strong style="color:#8a95a3;"><%= expiresIn || '10 minutes' %></strong>
+      <!-- OTP -->
+      <span class="otp-label">Your verification code</span>
+      <div class="otp-card">
+        <span class="otp-digits"><%= otp %></span>
+        <p class="otp-meta">
+          &#x23F1;&nbsp; Expires in <strong><%= expiresIn || '10 minutes' %></strong>
           &nbsp;&bull;&nbsp; One-time use only
         </p>
-
-        <hr class="divider" />
-
-        <!-- INFO ROWS -->
-        <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
-          <tr>
-            <td style="padding-bottom:16px;">
-              <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
-                <tr>
-                  <td width="46" valign="top">
-                    <div class="info-icon">&#128274;</div>
-                  </td>
-                  <td style="padding-left:14px;padding-top:4px;">
-                    <p class="info-title">Single use only</p>
-                    <p class="info-desc">
-                      This code becomes invalid immediately after it is used.
-                      Request a new one if needed.
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding-bottom:16px;">
-              <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
-                <tr>
-                  <td width="46" valign="top">
-                    <div class="info-icon">&#128336;</div>
-                  </td>
-                  <td style="padding-left:14px;padding-top:4px;">
-                    <p class="info-title">Code expires in <%= expiresIn || '10 minutes' %></p>
-                    <p class="info-desc">
-                      Return to the Nexora verification page and enter the
-                      code before it expires.
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td>
-              <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
-                <tr>
-                  <td width="46" valign="top">
-                    <div class="info-icon">&#128100;</div>
-                  </td>
-                  <td style="padding-left:14px;padding-top:4px;">
-                    <p class="info-title">Registering as: <span style="color:#4f8ef7;"><%= name %></span></p>
-                    <p class="info-desc">
-                      Verification will be sent to <span style="color:#8a95a3;"><%= email %></span>. If this is not you,
-                      ignore this email safely.
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-
-        <!-- WARNING BOX -->
-        <div class="warning-box">
-          <p>
-            <strong>&#9888;&nbsp; Never share this code</strong> &mdash;
-            Nexora will never ask for your verification code via phone, chat,
-            or any other channel. If you did not create a Nexora account,
-            please ignore this email. No action is required.
-          </p>
-        </div>
-
-      </div><!-- /email-body -->
-
-      <!-- ── FOOTER ────────────────────────────────────── -->
-      <div class="email-footer">
-        <p class="footer-text">
-          This is an automated message from Nexora.
-          Please do not reply to this email.
-        </p>
-        <p class="footer-text">
-          <a href="#">Privacy Policy</a>
-          <span class="footer-divider">&bull;</span>
-          <a href="#">Terms of Service</a>
-          <span class="footer-divider">&bull;</span>
-          <a href="#">Help Centre</a>
-        </p>
-        <p class="footer-brand">NEXORA &nbsp;&bull;&nbsp; WHERE KNOWLEDGE MEETS MENTORSHIP</p>
       </div>
 
-    </div><!-- /email-container -->
-  </div><!-- /email-wrapper -->
+      <hr class="divider" />
+
+      <!-- INFO ROWS -->
+      <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+        <tr><td style="padding-bottom:16px;">
+          <table width="100%" cellpadding="0" cellspacing="0" role="presentation"><tr>
+            <td width="46" valign="top"><div class="info-icon">&#128274;</div></td>
+            <td style="padding-left:14px;padding-top:4px;">
+              <p class="info-title">Single use only</p>
+              <p class="info-desc">This code is invalidated immediately after use. Request a new one if needed.</p>
+            </td>
+          </tr></table>
+        </td></tr>
+
+        <tr><td style="padding-bottom:16px;">
+          <table width="100%" cellpadding="0" cellspacing="0" role="presentation"><tr>
+            <td width="46" valign="top"><div class="info-icon">&#128336;</div></td>
+            <td style="padding-left:14px;padding-top:4px;">
+              <p class="info-title">Code expires in <%= expiresIn || '10 minutes' %></p>
+              <p class="info-desc">Return to the Nexora verification page and enter the code before it expires.</p>
+            </td>
+          </tr></table>
+        </td></tr>
+
+        <tr><td>
+          <table width="100%" cellpadding="0" cellspacing="0" role="presentation"><tr>
+            <td width="46" valign="top"><div class="info-icon">&#128100;</div></td>
+            <td style="padding-left:14px;padding-top:4px;">
+              <p class="info-title">Registering as <span style="color:#2dd4bf;"><%= name %></span></p>
+              <p class="info-desc">Verifying <span class="hl"><%= email %></span>. Not you? Ignore this email safely.</p>
+            </td>
+          </tr></table>
+        </td></tr>
+      </table>
+
+      <!-- WARNING -->
+      <div class="warning">
+        <p><strong>&#9888;&nbsp; Never share this code</strong> &mdash;
+        Nexora will never ask for your verification code by phone, chat, or any other channel.
+        If you did not create a Nexora account, no action is required.</p>
+      </div>
+
+    </div><!-- /body -->
+
+    <!-- FOOTER -->
+    <div class="footer">
+      <p class="footer-text">This is an automated message from Nexora. Please do not reply.</p>
+      <p class="footer-text">
+        <a href="#">Privacy Policy</a>
+        <span class="footer-sep">&bull;</span>
+        <a href="#">Terms of Service</a>
+        <span class="footer-sep">&bull;</span>
+        <a href="#">Help Centre</a>
+      </p>
+      <p class="footer-brand">NEXORA &nbsp;&bull;&nbsp; WHERE KNOWLEDGE MEETS MENTORSHIP</p>
+    </div>
+
+  </div><!-- /container -->
+</div><!-- /wrapper -->
 </body>
 </html>

@@ -19,13 +19,12 @@ model User {
   isDeleted Boolean? 
 
   organization         Organization?        @relation(fields: [organizationId], references: [id])
-  teacherClusters      Cluster[]            @relation("ClusterTeacher")
+
   memberships          ClusterMember[]
   coTeacherOf          CoTeacher[]
-  tasks                Task[]
-  submissions          TaskSubmission[]
   resources            Resource[]
-  announcements        Announcement[]
+  announcements        Announcement[]       @relation("AnnouncementAuthor")
+  personalNotices      Announcement[]       @relation("PersonalNotices")
   notifications        Notification[]
   enrollments          CourseEnrollment[]
   badges               UserBadge[]
@@ -38,10 +37,15 @@ model User {
   studyGroups          StudyGroupMember[]
   // createdStudySessions StudySession[]       @relation("SessionCreator")
   impersonatedLogs     AuditLog[]           @relation("ImpersonatorLog")
+  announcementReads    AnnouncementRead[]
+   payments  Payment[]
 
   teacherProfile TeacherProfile?
   studentProfile StudentProfile?
+   adminProfile   AdminProfile? 
   planTier       PlanTier        @default(FREE)
+
+  accountSettings UserAccountSettings?
 
   @@unique([email])
   @@index([email, role])

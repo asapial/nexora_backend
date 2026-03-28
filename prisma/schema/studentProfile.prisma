@@ -1,34 +1,46 @@
 model StudentProfile {
     id String @id @default(cuid())
-    
 
     userId String @unique
     user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+    // ── Personal information ──────────────────────────────
     studentType MemberSubtype @default(EMERGING)
+    phone       String?
+    address     String?
+    bio         String?
+    nationality String?                   
 
     // ── Academic information ──────────────────────────────
-    institution String?
-    batch       String?
-    programme   String?
-    bio         String?
-    linkedinUrl String?
-    githubUrl   String?
+    institution        String?
+    department         String?
+    batch              String?
+    programme          String?
+    cgpa               Float?            
+    enrollmentYear     String?
+    expectedGraduation String?           
+
+    // ── Skills ────────────────────────────────────────────
+    skills String[]                   
+
+    // ── Social & portfolio ────────────────────────────────
+    linkedinUrl  String?
+    githubUrl    String?
+    website      String?
+    portfolioUrl String?                 
 
     // ── Timestamps ────────────────────────────────────────
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
 
     // ── Activity relations ────────────────────────────────
-
     clusterMembers ClusterMember[]
     tasks          Task[]
     attendances    Attendance[]
-    //   milestones     StudentMilestone[] 
     readingLists   ReadingList[]
-    //   homeworks      Homework[]         
     studyGroups    StudyGroupMember[]
     goals          MemberGoal[]
+    taskSubmission TaskSubmission[]
 
     @@map("student_profile")
 }

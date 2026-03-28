@@ -1,6 +1,6 @@
 model Announcement {
   id            String              @id @default(uuid())
-  authorId      String
+  authorId      String?
   title         String
   body          String
   urgency       AnnouncementUrgency @default(INFO)
@@ -9,10 +9,13 @@ model Announcement {
   publishedAt   DateTime?
   isGlobal      Boolean             @default(false)
   targetRole    Role?
+  targetUserId  String?
   createdAt     DateTime            @default(now())
 
-  author   User                  @relation(fields: [authorId], references: [id])
-  clusters AnnouncementCluster[]
+  author     User?                 @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  targetUser User?                 @relation("PersonalNotices", fields: [targetUserId], references: [id], onDelete: SetNull)
+  clusters   AnnouncementCluster[]
+  reads      AnnouncementRead[]
 }
 
 model AnnouncementCluster {
@@ -23,4 +26,16 @@ model AnnouncementCluster {
   cluster      Cluster      @relation(fields: [clusterId], references: [id])
 
   @@id([announcementId, clusterId])
+}
+
+model AnnouncementRead {
+  id             String   @id @default(uuid())
+  announcementId String
+  userId         String
+  readAt         DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id])
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
 }
