@@ -50,14 +50,14 @@ const getPlatformAnalytics = async () => {
 
 const getGlobalAnnouncements = async (page = 1, limit = 20) => {
   const skip = (page - 1) * limit;
+  // Return both global announcements AND personal notices sent by admins
   const [data, total] = await Promise.all([
     prisma.announcement.findMany({
-      where: { isGlobal: true },
       include: { author: { select: { id: true, name: true, email: true } } },
       orderBy: { createdAt: "desc" },
       skip, take: limit,
     }),
-    prisma.announcement.count({ where: { isGlobal: true } }),
+    prisma.announcement.count(),
   ]);
   return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
 };
@@ -206,7 +206,7 @@ const generateCertificate = async (enrollmentId: string) => {
   });
   if (existing) throw new AppError(status.CONFLICT, "Certificate already issued for this enrollment");
 
-  return prisma.certificate.create({
+  const cert = await prisma.certificate.create({
     data: {
       userId: enrollment.userId,
       courseId: enrollment.courseId ?? undefined,
@@ -214,9 +214,12 @@ const generateCertificate = async (enrollmentId: string) => {
     },
     include: {
       user: { select: { id: true, name: true, email: true } },
-      course: { select: { id: true, title: true } },
     },
   });
+  return {
+    ...cert,
+    course: enrollment.course ? { id: enrollment.course.id, title: enrollment.course.title } : null,
+  };
 };
 
 const getCertificates = async (page = 1, limit = 20) => {
@@ -225,14 +228,28 @@ const getCertificates = async (page = 1, limit = 20) => {
     prisma.certificate.findMany({
       include: {
         user: { select: { id: true, name: true, email: true } },
-        course: { select: { id: true, title: true } },
       },
       orderBy: { issuedAt: "desc" },
       skip, take: limit,
     }),
     prisma.certificate.count(),
   ]);
-  return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+
+  // Manually enrich with course titles
+  const courseIds = [...new Set(data.map(c => c.courseId).filter(Boolean))] as string[];
+  const courses = courseIds.length
+    ? await prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+    : [];
+  const courseMap = Object.fromEntries(courses.map(c => [c.id, c.title]));
+
+  return {
+    data: data.map(c => ({
+      ...c,
+      verificationCode: c.verifyCode, // alias to match frontend expectation
+      course: c.courseId ? { id: c.courseId, title: courseMap[c.courseId] ?? c.courseId } : null,
+    })),
+    total, page, limit, totalPages: Math.ceil(total / limit),
+  };
 };
 
 // ─── Enrollment Management ───────────────────────────────────────────────────

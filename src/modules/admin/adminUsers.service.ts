@@ -7,36 +7,39 @@ import AppError from "../../errorHelpers/AppError";
 import status from "http-status";
 
 const getUsers = async (params: {
-  page?: number;
-  limit?: number;
+  page?: number | string;
+  limit?: number | string;
   search?: string;
   role?: string;
 }) => {
-  const { page = 1, limit = 20, search, role } = params;
-  const skip = (page - 1) * limit;
+  const page  = parseInt(String(params.page  ?? 1)) || 1;
+  const limit = parseInt(String(params.limit ?? 20)) || 20;
+  const search = params.search || undefined;
+  const role   = params.role   || undefined;
+  const skip   = (page - 1) * limit;
 
   const where: any = { isDeleted: { not: true } };
-  if (role) where.role = role;
+  if (role)   where.role = role;
   if (search) {
     where.OR = [
-      { name: { contains: search, mode: "insensitive" } },
+      { name:  { contains: search, mode: "insensitive" } },
       { email: { contains: search, mode: "insensitive" } },
     ];
   }
 
   const [data, total] = await Promise.all([
     prisma.user.findMany({
-      // where,
+      where,
       select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        image: true,
-        createdAt: true,
-        emailVerified: true,
+        id:                 true,
+        name:               true,
+        email:              true,
+        role:               true,
+        image:              true,
+        createdAt:          true,
+        emailVerified:      true,
         needPasswordChange: true,
-        isDeleted: true,
+        isDeleted:          true,
       },
       orderBy: { createdAt: "desc" },
       skip,
@@ -47,7 +50,6 @@ const getUsers = async (params: {
 
   return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
 };
-
 const getUserById = async (id: string) => {
   const user = await prisma.user.findUnique({
     where: { id },
