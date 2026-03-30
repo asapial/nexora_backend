@@ -14,6 +14,39 @@ import {
 
 const router = Router();
 
+/* ── Static / literal-prefix routes FIRST ─────────────────────────────────── */
+
+// These must come before any /:id routes to avoid Express treating
+// "students", "attendance-warning-config", "create" as an :id param.
+
+// POST /sessions/create   — teacher only
+router.post(
+  "/create",
+  checkAuth(Role.TEACHER),
+  validateRequest(createSessionSchema),
+  studySessionController.createSession
+);
+
+// Attendance history per student (literal prefix "/students/...")
+router.get(
+  "/students/:studentProfileId/attendance-history",
+  checkAuth(Role.TEACHER),
+  studySessionController.getStudentAttendanceHistory
+);
+
+// Attendance warning config (literal prefix "/attendance-warning-config")
+router.get(
+  "/attendance-warning-config",
+  checkAuth(Role.TEACHER),
+  studySessionController.getAttendanceWarningConfig
+);
+
+router.put(
+  "/attendance-warning-config",
+  checkAuth(Role.TEACHER),
+  studySessionController.saveAttendanceWarningConfig
+);
+
 /* ── Session CRUD ─────────────────────────────────────────────────────────── */
 
 // GET  /sessions   — teacher or student (role-aware in service)
@@ -21,14 +54,6 @@ router.get(
   "/",
   checkAuth(Role.TEACHER, Role.STUDENT),
   studySessionController.listSessions
-);
-
-// POST /sessions   — teacher only
-router.post(
-  "/create",
-  checkAuth(Role.TEACHER),
-  validateRequest(createSessionSchema),
-  studySessionController.createSession
 );
 
 // GET  /sessions/:id
@@ -68,24 +93,6 @@ router.get(
   "/:id/attendance",
   checkAuth(Role.TEACHER),
   studySessionController.getAttendance
-);
-
-router.get(
-  "/students/:studentProfileId/attendance-history",
-  checkAuth(Role.TEACHER),
-  studySessionController.getStudentAttendanceHistory
-);
-
-router.get(
-  "/attendance-warning-config",
-  checkAuth(Role.TEACHER),
-  studySessionController.getAttendanceWarningConfig
-);
-
-router.put(
-  "/attendance-warning-config",
-  checkAuth(Role.TEACHER),
-  studySessionController.saveAttendanceWarningConfig
 );
 
 /* ── Agenda ───────────────────────────────────────────────────────────────── */

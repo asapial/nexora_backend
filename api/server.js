@@ -1557,7 +1557,7 @@ var auth = betterAuth({
             }
           });
           if (user) {
-            sendEmail({
+            await sendEmail({
               to: email,
               subject: "Password Reset OTP",
               templateName: "forgetPasswordOtp",
