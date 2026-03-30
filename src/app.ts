@@ -33,6 +33,7 @@ import { teacherAnalyticsRouter } from "./modules/teacherDashboard/analytics/tea
 import { adminPlatformRouter } from "./modules/admin/adminPlatform.route";
 import { adminUsersRouter } from "./modules/admin/adminUsers.route";
 import { teacherNoticeRouter } from "./modules/teacherDashboard/notice/teacherNotice.route";
+import { homePageRouter } from "./modules/homePage/homePage.route";
 
 
 
@@ -123,6 +124,7 @@ app.use("/api/courses", courseRouter);
 app.use("/api/missions", missionRouter);
 app.use("/api/payments", paymentRouter);
 app.use("/api/settings", settingsRouter);
+app.use("/api/homePage",homePageRouter );
 
 
 // ── Teacher Dashboard APIs ───────────────────────────────────────────────────

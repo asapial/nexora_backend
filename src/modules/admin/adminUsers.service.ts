@@ -18,7 +18,7 @@ const getUsers = async (params: {
   const role   = params.role   || undefined;
   const skip   = (page - 1) * limit;
 
-  const where: any = { isDeleted: { not: true } };
+  const where: any = { };
   if (role)   where.role = role;
   if (search) {
     where.OR = [
@@ -26,6 +26,7 @@ const getUsers = async (params: {
       { email: { contains: search, mode: "insensitive" } },
     ];
   }
+
 
   const [data, total] = await Promise.all([
     prisma.user.findMany({
@@ -50,6 +51,7 @@ const getUsers = async (params: {
 
   return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
 };
+
 const getUserById = async (id: string) => {
   const user = await prisma.user.findUnique({
     where: { id },
