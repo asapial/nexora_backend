@@ -16,7 +16,7 @@ model User {
   lastLoginAt     DateTime?
   organizationId  String?
   needPasswordChange Boolean @default(false)
-  isDeleted Boolean? 
+  isDeleted Boolean @default(false)
 
   organization         Organization?        @relation(fields: [organizationId], references: [id])
 

@@ -265,7 +265,7 @@ const getClusterById = async (
       }
     );
 
-    console.log("cluster data :", clusterData);
+    // console.log("cluster data :", clusterData);
     return clusterData;
   } else if (userRole === Role.ADMIN) {
     return await prisma.cluster.findMany(

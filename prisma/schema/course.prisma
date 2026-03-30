@@ -1,5 +1,5 @@
 model Course {
-  id           String       @id @default(uuid())
+  id           String   @id @default(uuid())
   teacherId    String
   title        String
   description  String?
@@ -7,19 +7,19 @@ model Course {
   tags         String[]
 
   // ── Pricing ───────────────────────────────────────────
-  price                  Float               @default(0)
-  isFree                 Boolean             @default(true)
-  priceApprovalStatus    PriceApprovalStatus @default(PENDING)
-  priceApprovalNote      String?             // admin note on rejection
-  requestedPrice         Float?              // teacher's latest submitted price
-  teacherRevenuePercent  Float               @default(70)  // admin-set per course
+  price                 Float               @default(0)
+  isFree                Boolean             @default(true)
+  priceApprovalStatus   PriceApprovalStatus @default(PENDING)
+  priceApprovalNote     String? // admin note on rejection
+  requestedPrice        Float? // teacher's latest submitted price
+  teacherRevenuePercent Float               @default(70) // admin-set per course
 
   // ── Status ────────────────────────────────────────────
-  status      CourseStatus @default(DRAFT)
-  isFeatured  Boolean      @default(false)
+  status     CourseStatus @default(DRAFT)
+  isFeatured Boolean      @default(false)
 
   // ── Approval metadata ─────────────────────────────────
-  submittedAt  DateTime?   // when teacher submitted for approval
+  submittedAt  DateTime? // when teacher submitted for approval
   approvedAt   DateTime?
   approvedById String?
   rejectedAt   DateTime?
@@ -30,18 +30,16 @@ model Course {
   updatedAt DateTime @updatedAt
 
   // ── Relations ─────────────────────────────────────────
-  teacher     TeacherProfile     @relation(fields: [teacherId], references: [id])
-  approvedBy  AdminProfile?      @relation("CourseApprover", fields: [approvedById], references: [id])
-  missions    CourseMission[]
-  enrollments CourseEnrollment[]
+  teacher       TeacherProfile       @relation(fields: [teacherId], references: [id])
+  approvedBy    AdminProfile?        @relation("CourseApprover", fields: [approvedById], references: [id])
+  missions      CourseMission[]
+  enrollments   CourseEnrollment[]
   priceRequests CoursePriceRequest[]
-    payments  Payment[]
-
+  payments      Payment[]
 
   @@index([status, isFeatured])
   @@map("course")
 }
-
 
 model CourseMission {
   id          String        @id @default(uuid())
@@ -63,59 +61,58 @@ model CourseMission {
   updatedAt DateTime @updatedAt
 
   // ── Relations ─────────────────────────────────────────
-  course      Course             @relation(fields: [courseId], references: [id])
-  approvedBy  AdminProfile?      @relation("MissionApprover", fields: [approvedById], references: [id])
-  contents    MissionContent[]
-  progress    StudentMissionProgress[]
+  course     Course                   @relation(fields: [courseId], references: [id])
+  approvedBy AdminProfile?            @relation("MissionApprover", fields: [approvedById], references: [id])
+  contents   MissionContent[]
+  progress   StudentMissionProgress[]
 
   @@index([courseId, order])
   @@map("course_mission")
 }
 
 model MissionContent {
-  id          String             @id @default(uuid())
-  missionId   String
-  type        MissionContentType
-  title       String
-  order       Int                @default(0)
+  id        String             @id @default(uuid())
+  missionId String
+  type      MissionContentType
+  title     String
+  order     Int                @default(0)
 
   // ── Type-specific fields ──────────────────────────────
-  videoUrl    String?           // for VIDEO
-  duration    Int?              // seconds, for VIDEO
-  textBody    String?           // for TEXT (markdown/html)
-  pdfUrl      String?           // for PDF
-  fileSize    Int?              // bytes, for PDF
+  videoUrl String? // for VIDEO
+  duration Int? // seconds, for VIDEO
+  textBody String? // for TEXT (markdown/html)
+  pdfUrl   String? // for PDF
+  fileSize Int? // bytes, for PDF
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  mission     CourseMission @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  mission CourseMission @relation(fields: [missionId], references: [id], onDelete: Cascade)
 
   @@index([missionId, order])
   @@map("mission_content")
 }
 
-
 model CourseEnrollment {
-  id          String        @id @default(uuid())
+  id          String    @id @default(uuid())
   courseId    String
   userId      String
-  progress    Float         @default(0)   // 0–100 percent
+  progress    Float     @default(0) // 0–100 percent
   completedAt DateTime?
-  enrolledAt  DateTime      @default(now())
+  enrolledAt  DateTime  @default(now())
 
   // ── Payment ───────────────────────────────────────────
   paymentStatus   PaymentStatus @default(FREE)
   paymentId       String?
   amountPaid      Float?
-  teacherEarning  Float?        // calculated at enrollment time
+  teacherEarning  Float? // calculated at enrollment time
   platformEarning Float?
 
   course Course @relation(fields: [courseId], references: [id])
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   missionProgress StudentMissionProgress[]
-    payments  Payment[]
+  payments        Payment[]
 
   @@unique([courseId, userId])
   @@index([courseId, paymentStatus])
@@ -123,11 +120,11 @@ model CourseEnrollment {
 }
 
 model StudentMissionProgress {
-  id           String   @id @default(uuid())
-  enrollmentId String
-  missionId    String
-  isCompleted  Boolean  @default(false)
-  completedAt  DateTime?
+  id             String    @id @default(uuid())
+  enrollmentId   String
+  missionId      String
+  isCompleted    Boolean   @default(false)
+  completedAt    DateTime?
   lastAccessedAt DateTime?
 
   enrollment CourseEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
@@ -138,17 +135,17 @@ model StudentMissionProgress {
 }
 
 model CoursePriceRequest {
-  id         String              @id @default(uuid())
-  courseId   String
-  teacherId  String
+  id             String              @id @default(uuid())
+  courseId       String
+  teacherId      String
   requestedPrice Float
-  note       String?             // teacher's justification
-  status     PriceApprovalStatus @default(PENDING)
-  adminNote  String?
-  reviewedAt DateTime?
-  reviewedById String?
+  note           String? // teacher's justification
+  status         PriceApprovalStatus @default(PENDING)
+  adminNote      String?
+  reviewedAt     DateTime?
+  reviewedById   String?
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 
   course     Course         @relation(fields: [courseId], references: [id])
   teacher    TeacherProfile @relation(fields: [teacherId], references: [id])
@@ -159,20 +156,20 @@ model CoursePriceRequest {
 }
 
 model RevenueTransaction {
-  id            String   @id @default(uuid())
-  enrollmentId  String   @unique
-  courseId      String
-  teacherId     String
-  studentId     String
+  id           String @id @default(uuid())
+  enrollmentId String @unique
+  courseId     String
+  teacherId    String
+  studentId    String
 
   totalAmount     Float
   teacherPercent  Float
   teacherEarning  Float
   platformEarning Float
 
-  transactedAt  DateTime @default(now())
+  transactedAt DateTime @default(now())
 
-  teacher    TeacherProfile   @relation(fields: [teacherId], references: [id])
+  teacher TeacherProfile @relation(fields: [teacherId], references: [id])
 
   @@index([teacherId])
   @@map("revenue_transaction")

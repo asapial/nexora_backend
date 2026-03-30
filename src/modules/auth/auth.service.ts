@@ -265,7 +265,7 @@ const resendVerificationEmail = async (email: string) => {
         select: { id: true, emailVerified: true, isDeleted: true },
     });
 
-    // console.log("resendVerificationEmail :",user);
+
 
     if (!user) {
         throw new AppError(status.NOT_FOUND, "No account found with this email address.");

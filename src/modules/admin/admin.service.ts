@@ -207,7 +207,7 @@ const getAllCourses = async (params: {
   const skip = (page - 1) * limit;
   const where: any = {};
   if (st) where.status = st;
-  if (featured !== undefined) where.isFeatured = featured;
+  if (featured !== undefined) where.isFeatured = featured ? true:false;
   if (teacherId) where.teacherId = teacherId;
   if (search) where.OR = [
     { title: { contains: search, mode: "insensitive" } },
@@ -482,7 +482,7 @@ const getRevenueTransactions = async (params: { page?: number; limit?: number; s
     prisma.revenueTransaction.findMany({
       where,
       orderBy: { transactedAt: "desc" },
-      skip, take: limit,
+      skip, take: Number(limit),
     }),
     prisma.revenueTransaction.count({ where }),
   ]);
@@ -497,7 +497,7 @@ const getRevenueTransactions = async (params: { page?: number; limit?: number; s
   const um = Object.fromEntries(users.map(u => [u.id, u.name]));
   return {
     data: data.map(d => ({ ...d, courseTitle: cm[d.courseId], studentName: um[d.studentId] })),
-    total, page, limit, totalPages: Math.ceil(total / limit),
+    total, page, limit, totalPages: Math.ceil(total / limit)
   };
 };
 
