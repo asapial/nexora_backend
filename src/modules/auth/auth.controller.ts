@@ -77,9 +77,9 @@ const changePasswordController = catchAsync(
     async (req: Request, res: Response, next: NextFunction) => {
 
         const { oldPassword, newPassword } = req.body;
-        const betterAuthSessionToken = req.cookies["better-auth.session_token"];
+        const betterAuthSessionToken = cookieUtils.getBetterAuthSessionToken(req);
 
-        const result = await authService.changePasswordService(newPassword as string, oldPassword as string, betterAuthSessionToken);
+        const result = await authService.changePasswordService(newPassword as string, oldPassword as string, betterAuthSessionToken!);
 
         
 
@@ -101,9 +101,9 @@ const changePasswordController = catchAsync(
 const logoutController=catchAsync(
     async(req:Request,res:Response,next:NextFunction)=>{
 
-                const betterAuthSessionToken = req.cookies["better-auth.session_token"];
+                const betterAuthSessionToken = cookieUtils.getBetterAuthSessionToken(req);
 
-        const result = await authService.logoutService(betterAuthSessionToken);
+        const result = await authService.logoutService(betterAuthSessionToken!);
 
         cookieUtils.clearCookie(res, 'accessToken', {
             httpOnly: true,
@@ -115,7 +115,7 @@ const logoutController=catchAsync(
             secure: true,
             sameSite: "none",
         });
-        cookieUtils.clearCookie(res, 'better-auth.session_token', {
+        cookieUtils.clearCookie(res, cookieUtils.betterAuthSessionCookieName, {
             httpOnly: true,
             secure: true,
             sameSite: "none",
@@ -210,17 +210,13 @@ const googleLogin = catchAsync((req: Request, res: Response) => {
 const googleLoginSuccess = catchAsync(async (req: Request, res: Response) => {
     const redirectPath = req.query.redirect as string || "/dashboard";
 
-    const sessionToken = req.cookies["better-auth.session_token"];
-
-    if(!sessionToken){
-        return res.redirect(`${envVars.FRONTEND_URL}/auth/login?error=oauth_failed`);
-    }
-
+    // Forward the raw Cookie header so BetterAuth resolves its own cookie name
+    // (which is __Secure-better-auth.session_token when useSecureCookies is true).
     const session = await auth.api.getSession({
-        headers:{
-            "Cookie" : `better-auth.session_token=${sessionToken}`
-        }
-    })
+        headers: {
+            "Cookie": req.headers.cookie || "",
+        },
+    });
 
     if (!session) {
         return res.redirect(`${envVars.FRONTEND_URL}/auth/login?error=no_session_found`);

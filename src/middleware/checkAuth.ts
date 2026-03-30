@@ -27,7 +27,7 @@ declare global {
 export const checkAuth = (...authRoles: Role[]) => async (req: Request, res: Response, next: NextFunction) => {
     try {
         // ── 1. Verify session token ───────────────────────────────────────────
-        const sessionToken = cookieUtils.getCookie(req, "better-auth.session_token");
+        const sessionToken = cookieUtils.getBetterAuthSessionToken(req);
 
         // console.log("sessionToken",sessionToken)
 

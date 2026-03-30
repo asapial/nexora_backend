@@ -4,6 +4,7 @@ import { clusterService } from "./cluster.service";
 import { sendResponse } from "../../utils/sendResponse";
 import status from "http-status";
 import { MemberSubtype } from "../../generated/prisma/client";
+import { cookieUtils } from "../../utils/cookie";
 
 
 
@@ -143,12 +144,12 @@ const resendMemberCredentials = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const clusterId = req.params.id as string;
     const userId = req.params.userId as string;
-        const betterAuthSessionToken = req.cookies["better-auth.session_token"];
+        const betterAuthSessionToken = cookieUtils.getBetterAuthSessionToken(req);
 
     const result = await clusterService.resendMemberCredentials(
       clusterId,
       userId,
-      betterAuthSessionToken
+      betterAuthSessionToken!
     );
 
     sendResponse(res, {
