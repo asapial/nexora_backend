@@ -67,8 +67,6 @@ router.post(
 router.get(
   "/:id/enrollments",
   checkAuth(Role.TEACHER),
-//   validateRequest(enrollmentQuerySchema, "query"),
-  validateRequest(enrollmentQuerySchema),
   courseController.getEnrollments
 );
 

@@ -83,12 +83,39 @@ export const auth = betterAuth({
   advanced: {
     useSecureCookies: envVars.NODE_ENV === "production",
 
+    // Fallback for any cookie BetterAuth creates that isn't explicitly listed below.
+    // Ensures OAuth state/PKCE cookies survive the cross-site redirect from Google
+    // back to the .vercel.app public-suffix domain.
+    defaultCookieAttributes: {
+      sameSite: envVars.NODE_ENV === "production" ? "none" : "lax",
+      secure: envVars.NODE_ENV === "production",
+      path: "/",
+    },
+
     cookies: {
       sessionToken: {
         attributes: {
           httpOnly: true,
           sameSite: envVars.NODE_ENV === "production" ? "none" : "lax",
           secure: envVars.NODE_ENV === "production",
+          path: "/",
+        },
+      },
+      // OAuth state cookie – must persist across the Google redirect
+      state: {
+        attributes: {
+          httpOnly: true,
+          sameSite: "none",
+          secure: true,
+          path: "/",
+        },
+      },
+      // PKCE code-verifier cookie
+      pkCodeVerifier: {
+        attributes: {
+          httpOnly: true,
+          sameSite: "none",
+          secure: true,
           path: "/",
         },
       },
@@ -133,7 +160,7 @@ export const auth = betterAuth({
           })
 
           if (user) {
-            sendEmail({
+            await sendEmail({
               to: email,
               subject: "Password Reset OTP",
               templateName: "forgetPasswordOtp",

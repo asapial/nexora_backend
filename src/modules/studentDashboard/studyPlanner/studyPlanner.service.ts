@@ -31,6 +31,7 @@ const createGoal = async (
       clusterId: payload.clusterId ?? "personal",
       title: payload.title,
       target: payload.target,
+      kanbanStatus: payload.kanbanStatus ?? "TODO",
       studentProfileId: studentProfile?.id,
     },
   });
@@ -39,7 +40,7 @@ const createGoal = async (
 const updateGoal = async (
   userId: string,
   goalId: string,
-  payload: { title?: string; target?: string; isAchieved?: boolean }
+  payload: { title?: string; target?: string; isAchieved?: boolean; kanbanStatus?: string }
 ) => {
   const goal = await prisma.memberGoal.findUnique({ where: { id: goalId } });
   if (!goal) throw new AppError(status.NOT_FOUND, "Goal not found");
@@ -50,6 +51,7 @@ const updateGoal = async (
     data: {
       ...(payload.title !== undefined && { title: payload.title }),
       ...(payload.target !== undefined && { target: payload.target }),
+      ...(payload.kanbanStatus !== undefined && { kanbanStatus: payload.kanbanStatus }),
       ...(payload.isAchieved !== undefined && {
         isAchieved: payload.isAchieved,
         achievedAt: payload.isAchieved ? new Date() : null,
