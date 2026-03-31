@@ -3,8 +3,9 @@ model MemberGoal {
   userId     String
   clusterId  String
   title      String
-  target     String?
-  isAchieved Boolean   @default(false)
+  target       String?
+  kanbanStatus String    @default("TODO")
+  isAchieved   Boolean   @default(false)
   achievedAt DateTime?
   createdAt  DateTime  @default(now())
 
