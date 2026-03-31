@@ -24,7 +24,7 @@
 | Service  | URL                                      |
 | -------- | ---------------------------------------- |
 | API Base | [nexora-backend-rust.vercel.app](https://nexora-backend-rust.vercel.app) |
-| Frontend | [nexora-frontend.vercel.app](https://nexora-frontend.vercel.app) |
+| Frontend | [https://nexorafrontend-one.vercel.app](https://nexorafrontend-one.vercel.app) |
 
 ---
 
@@ -421,10 +421,11 @@ The database schema is split across 26 `.prisma` files in `prisma/schema/` for m
 
 ## 👤 Author
 
-**Abu Syeed Sazzad**
+**Md Abu Syeed Abdullah**
 
 - 📧 Email: [abusyeed2001@gmail.com](mailto:abusyeed2001@gmail.com)
-- 🔗 GitHub: [github.com/abusyeed](https://github.com/abusyeed)
+- 🔗 GitHub: [github.com/asapial](https://github.com/asapial)
+
 
 ---
 
