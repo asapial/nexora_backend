@@ -65,11 +65,38 @@ const registerService = async (data: IRegisterData) => {
 
 }
 
-const loginService = async (data: ILoginData) => {
+const loginService = async (data: ILoginData, cookieHeader?: string) => {
 
-    const result = await auth.api.signInEmail({
-        body: data
-    })
+    const reqHeaders = new Headers();
+    if (cookieHeader) reqHeaders.set("cookie", cookieHeader);
+
+    // Use asResponse to capture BetterAuth's Set-Cookie headers
+    // (critical for 2FA pending session cookie)
+    const response = await auth.api.signInEmail({
+        body: data,
+        headers: reqHeaders,
+        asResponse: true,
+    });
+
+    // Extract Set-Cookie headers to forward to the client
+    const responseCookies: string[] = [];
+    response.headers.forEach((value, key) => {
+        if (key.toLowerCase() === "set-cookie") {
+            responseCookies.push(value);
+        }
+    });
+
+    const result = await response.json() as any;
+
+    // ── 2FA required: BetterAuth returns { twoFactorRedirect: true } ──
+    // Guard: if there's no `user` on the response, treat it as a 2FA redirect
+    if (result.twoFactorRedirect || !result.user) {
+        return {
+            twoFactorRedirect: true,
+            message: "Two-factor authentication required",
+            _responseCookies: responseCookies,
+        };
+    }
 
     if (result.user.isActive === false) {
         throw new AppError(status.FORBIDDEN, "User is not active");
@@ -107,9 +134,56 @@ const loginService = async (data: ILoginData) => {
     return {
         ...result,
         accessToken,
-        refreshToken
+        refreshToken,
+        _responseCookies: responseCookies,
     };
 }
+
+
+const verifyLoginTOTP = async (code: string, cookieHeader: string) => {
+    // BetterAuth's verify-totp during login needs the pending 2FA session cookie
+    const result = await (auth.api as any).verifyTOTP({
+        body: { code },
+        headers: new Headers({
+            Cookie: cookieHeader,
+        }),
+    });
+
+    if (!result || !result.user) {
+        throw new AppError(status.UNAUTHORIZED, "Invalid TOTP code");
+    }
+
+    if (result.user.isActive === false) {
+        throw new AppError(status.FORBIDDEN, "User is not active");
+    }
+
+    const accessToken = tokenUtils.createAccessToken({
+        userId: result.user.id,
+        role: result.user.role,
+        name: result.user.name,
+        email: result.user.email,
+        isActive: result.user.isActive,
+        oneTimePassword: result.user.oneTimePassword,
+        emailVerified: result.user.emailVerified,
+    });
+
+    const refreshToken = tokenUtils.createRefreshToken({
+        userId: result.user.id,
+        role: result.user.role,
+        name: result.user.name,
+        email: result.user.email,
+        isActive: result.user.isActive,
+        oneTimePassword: result.user.oneTimePassword,
+        emailVerified: result.user.emailVerified,
+    });
+
+    return {
+        ...result,
+        accessToken,
+        refreshToken,
+    };
+}
+
 
 const getMyData = async (userId: string, email: string) => {
     const isUserExists = await prisma.user.findUnique({
@@ -514,6 +588,7 @@ const updateProfileService = async (
 export const authService = {
     registerService,
     loginService,
+    verifyLoginTOTP,
     getMyData,
     changePasswordService,
     logoutService,
@@ -525,3 +600,4 @@ export const authService = {
     googleLoginSuccess,
     updateProfileService
 }
+

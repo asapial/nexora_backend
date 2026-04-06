@@ -240,10 +240,10 @@ const generateCertificate = async (enrollmentId: string) => {
     completionDate: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
   });
 
-  // Upload to Cloudinary
+  // Upload to Cloudinary (certificates subfolder)
   const { uploadFileToCloudinary } = await import("../../config/cloudinary.config");
   const fileName = `certificate-${enrollment.userId}-${enrollment.courseId ?? "cluster"}.pdf`;
-  const uploadResult = await uploadFileToCloudinary(pdfBuffer, fileName);
+  const uploadResult = await uploadFileToCloudinary(pdfBuffer, fileName, "certificates");
   const pdfUrl = uploadResult.secure_url;
 
   // Create certificate record with PDF URL and verify code

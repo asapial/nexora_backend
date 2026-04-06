@@ -38,10 +38,29 @@ const registerController = catchAsync(
 const loginController = catchAsync(
     async (req: Request, res: Response, next: NextFunction) => {
 
-        const data = req.body;
-        const result = await authService.loginService(data);
 
-        const { accessToken, refreshToken, token, ...rest } = result
+        const data = req.body;
+        const cookieHeader = req.headers.cookie || "";
+        const result = await authService.loginService(data, cookieHeader);
+
+        // Forward BetterAuth Set-Cookie headers (2FA pending session cookie, etc.)
+        if (result._responseCookies?.length) {
+            for (const c of result._responseCookies) {
+                res.appendHeader("Set-Cookie", c);
+            }
+        }
+
+        // ── 2FA redirect: no tokens, just tell the frontend ──
+        if (result.twoFactorRedirect) {
+            return sendResponse(res, {
+                status: status.OK,
+                success: true,
+                message: result.message || "Two-factor authentication required",
+                data: { twoFactorRedirect: true },
+            });
+        }
+
+        const { accessToken, refreshToken, _responseCookies, token, ...rest } = result
 
         tokenUtils.setAccessTokenCookie(res, accessToken);
         tokenUtils.setRefreshTokenCookie(res, refreshToken);
@@ -275,11 +294,43 @@ const updateProfileController = catchAsync(
 );
  
 
+const verifyLoginTOTPController = catchAsync(
+    async (req: Request, res: Response, next: NextFunction) => {
+        const { code } = req.body;
+        if (!code) {
+            return sendResponse(res, {
+                status: status.BAD_REQUEST,
+                success: false,
+                message: "TOTP code is required",
+            });
+        }
+
+        // Forward the raw Cookie header so BetterAuth can resolve
+        // its pending 2FA session cookie
+        const cookieHeader = req.headers.cookie || "";
+
+        const result = await authService.verifyLoginTOTP(code, cookieHeader);
+
+        const { accessToken, refreshToken, token, ...rest } = result;
+
+        tokenUtils.setAccessTokenCookie(res, accessToken);
+        tokenUtils.setRefreshTokenCookie(res, refreshToken);
+        tokenUtils.setBetterAuthSessionCookie(res, token as string);
+
+        sendResponse(res, {
+            status: status.OK,
+            success: true,
+            message: "Two-factor authentication verified successfully",
+            data: result,
+        });
+    }
+);
 
 
 export const authController = {
     registerController,
     loginController,
+    verifyLoginTOTPController,
     getMyDataController,
     changePasswordController,
     logoutController,

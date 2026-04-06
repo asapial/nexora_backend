@@ -89,6 +89,7 @@ app.use((req, res, next) => {
     p.startsWith("/api/auth/sign-in/") ||
     p.startsWith("/api/auth/sign-up/") ||
     p.startsWith("/api/auth/callback/") ||
+    p.startsWith("/api/auth/two-factor/") ||
     p === "/api/auth/get-session";
   if (isBetterAuthRoute) {
 
