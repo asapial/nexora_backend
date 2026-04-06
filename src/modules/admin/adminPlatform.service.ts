@@ -188,6 +188,20 @@ const warnUser = async (userId: string, reason: string) => {
   return { warned: true, userId };
 };
 
+const getWarnings = async (userId: string) => {
+  return prisma.notification.findMany({
+    where: { userId, type: "SYSTEM", title: "Warning from Admin" },
+    orderBy: { createdAt: "desc" },
+  });
+};
+
+const removeWarning = async (warningId: string) => {
+  const warning = await prisma.notification.findUnique({ where: { id: warningId } });
+  if (!warning) throw new AppError(status.NOT_FOUND, "Warning not found");
+  await prisma.notification.delete({ where: { id: warningId } });
+  return { removed: true, id: warningId };
+};
+
 // ─── Certificates ────────────────────────────────────────────────────────────
 
 const generateCertificate = async (enrollmentId: string) => {
@@ -382,7 +396,7 @@ export const adminPlatformService = {
   getPlatformAnalytics,
   getGlobalAnnouncements, createGlobalAnnouncement, deleteGlobalAnnouncement,
   getClusterOversight,
-  getFlaggedContent, removeCourse, removeResource, warnUser,
+  getFlaggedContent, removeCourse, removeResource, warnUser, getWarnings, removeWarning,
   generateCertificate, getCertificates,
   manualEnroll, manualUnenroll,
   getEmailTemplates, createEmailTemplate, updateEmailTemplate, deleteEmailTemplate,

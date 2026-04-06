@@ -115,6 +115,35 @@ app.use("/api/student/homework", homeworkRouter);
 app.use("/api/student/leaderboard", leaderboardRouter);
 app.use("/api/student/study-planner", studyPlannerRouter);
 app.use("/api/student/annotations", annotationRouter);
+
+// ── Student Certificates (inline — no separate router file needed) ───────────
+import { catchAsync } from "./utils/catchAsync";
+import { sendResponse } from "./utils/sendResponse";
+import httpStatus from "http-status";
+import { checkAuth as certCheckAuth } from "./middleware/checkAuth";
+import { Role as CertRole } from "./generated/prisma/enums";
+import { prisma as certPrisma } from "./lib/prisma";
+
+app.get("/api/student/certificates", certCheckAuth(CertRole.STUDENT), catchAsync(async (req: any, res: any) => {
+  const userId = req.user.userId;
+  const certs = await certPrisma.certificate.findMany({
+    where: { userId },
+    orderBy: { issuedAt: "desc" },
+  });
+  // Enrich with course titles
+  const courseIds = [...new Set(certs.map(c => c.courseId).filter(Boolean))] as string[];
+  const courses = courseIds.length
+    ? await certPrisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+    : [];
+  const courseMap = Object.fromEntries(courses.map(c => [c.id, c.title]));
+  const enriched = certs.map(c => ({
+    ...c,
+    verificationCode: c.verifyCode,
+    course: c.courseId ? { id: c.courseId, title: courseMap[c.courseId] ?? c.courseId } : null,
+  }));
+  sendResponse(res, { status: httpStatus.OK, success: true, message: "Student certificates", data: enriched });
+}));
+
 app.use("/api/student", studentRouter);
 app.use("/api/teacher", teacherRouter);
 app.use("/api/admin", adminRouter);

@@ -138,7 +138,7 @@ model AnnouncementRead {
   userId         String
   readAt         DateTime @default(now())
 
-  announcement Announcement @relation(fields: [announcementId], references: [id])
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([announcementId, userId])
