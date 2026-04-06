@@ -477,13 +477,36 @@ const getAttendance = async (sessionId: string, userId: string) => {
   };
 };
 
-const getStudentAttendanceHistory = async (teacherUserId: string, studentProfileId: string) => {
+const getStudentAttendanceHistory = async (teacherUserId: string, studentProfileId: string, clusterId?: string) => {
   const teacherProfile = await prisma.teacherProfile.findFirst({
     where: { userId: teacherUserId },
     select: { id: true },
   });
   if (!teacherProfile) throw new AppError(status.NOT_FOUND, "Teacher not found.");
 
+  // If a specific clusterId is provided, scope to that cluster only
+  if (clusterId) {
+    // Verify the teacher owns this cluster
+    const cluster = await prisma.cluster.findFirst({
+      where: { id: clusterId, teacherId: teacherProfile.id },
+      select: { id: true },
+    });
+    if (!cluster) return [];
+
+    return prisma.attendance.findMany({
+      where: {
+        studentProfileId,
+        session: { clusterId },
+      },
+      select: {
+        status: true,
+        session: { select: { title: true, scheduledAt: true } },
+      },
+      orderBy: { markedAt: "desc" },
+    });
+  }
+
+  // Otherwise, return history across all teacher-owned clusters
   const memberships = await prisma.clusterMember.findMany({
     where: { studentProfileId },
     select: { clusterId: true },
@@ -501,11 +524,11 @@ const getStudentAttendanceHistory = async (teacherUserId: string, studentProfile
   return prisma.attendance.findMany({
     where: {
       studentProfileId,
-      StudySession: { clusterId: { in: allowedClusterIds } },
+      session: { clusterId: { in: allowedClusterIds } },
     },
     select: {
       status: true,
-      StudySession: { select: { title: true, scheduledAt: true } },
+      session: { select: { title: true, scheduledAt: true } },
     },
     orderBy: { markedAt: "desc" },
   });

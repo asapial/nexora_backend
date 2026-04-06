@@ -114,7 +114,8 @@ const getAttendance = catchAsync(async (req: Request, res: Response) => {
 const getStudentAttendanceHistory = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user.userId;
   const { studentProfileId } = req.params as { studentProfileId: string };
-  const data = await studySessionService.getStudentAttendanceHistory(userId, studentProfileId);
+  const clusterId = (req.query as Record<string, string>).clusterId;
+  const data = await studySessionService.getStudentAttendanceHistory(userId, studentProfileId, clusterId);
   sendResponse(res, {
     status: status.OK,
     success: true,

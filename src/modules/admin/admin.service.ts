@@ -384,10 +384,12 @@ const rejectPriceRequest = async (requestId: string, note: string, adminId: stri
 // ─────────────────────────────────────────────────────────
 
 const getAllEnrollments = async (params: {
-  page?: number; limit?: number; search?: string;
+  page?: number | string; limit?: number | string; search?: string;
   courseId?: string; paymentStatus?: string; from?: string; to?: string;
 }) => {
-  const { page = 1, limit = 25, search, courseId, paymentStatus, from, to } = params;
+  const page = Math.max(1, Number(params.page ?? 1));
+  const limit = Math.max(1, Math.min(100, Number(params.limit ?? 25)));
+  const { search, courseId, paymentStatus, from, to } = params;
   const skip = (page - 1) * limit;
   const where: any = {};
   if (courseId) where.courseId = courseId;
@@ -408,7 +410,7 @@ const getAllEnrollments = async (params: {
       where,
       include: {
         user: { select: { id: true, name: true, email: true, image: true } },
-        course: { select: { id: true, title: true, price: true } },
+        course: { select: { id: true, title: true, price: true, status: true } },
       },
       orderBy: { enrolledAt: "desc" },
       skip, take: limit,

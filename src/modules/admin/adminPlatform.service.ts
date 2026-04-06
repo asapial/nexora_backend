@@ -208,11 +208,21 @@ const generateCertificate = async (enrollmentId: string) => {
   const enrollment = await prisma.courseEnrollment.findUnique({
     where: { id: enrollmentId },
     include: {
-      user: { select: { id: true, name: true } },
-      course: { select: { id: true, title: true } },
+      user: { select: { id: true, name: true, email: true } },
+      course: { select: { id: true, title: true, status: true } },
     },
   });
   if (!enrollment) throw new AppError(status.NOT_FOUND, "Enrollment not found");
+
+  // Validate course is FINISHED
+  if (enrollment.course?.status !== "FINISHED") {
+    throw new AppError(status.BAD_REQUEST, "Certificates can only be generated for FINISHED courses. Current status: " + (enrollment.course?.status ?? "unknown"));
+  }
+
+  // Validate student has completed the course (progress >= 100 or completedAt is set)
+  if (!enrollment.completedAt && enrollment.progress < 100) {
+    throw new AppError(status.BAD_REQUEST, `Student has not completed this course yet (progress: ${enrollment.progress}%). Only students who completed all missions are eligible for certificates.`);
+  }
 
   // Check if certificate already exists
   const existing = await prisma.certificate.findFirst({
@@ -220,18 +230,52 @@ const generateCertificate = async (enrollmentId: string) => {
   });
   if (existing) throw new AppError(status.CONFLICT, "Certificate already issued for this enrollment");
 
+  // Generate PDF
+  const { generateCertificatePDF } = await import("../../utils/generateCertificate");
+  const pdfBuffer = await generateCertificatePDF({
+    recipientName: enrollment.user?.name ?? "Student",
+    email: enrollment.user?.email ?? "",
+    courseId: enrollment.course?.id ?? "",
+    courseName: enrollment.course?.title ?? "Course",
+    completionDate: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
+  });
+
+  // Upload to Cloudinary
+  const { uploadFileToCloudinary } = await import("../../config/cloudinary.config");
+  const fileName = `certificate-${enrollment.userId}-${enrollment.courseId ?? "cluster"}.pdf`;
+  const uploadResult = await uploadFileToCloudinary(pdfBuffer, fileName);
+  const pdfUrl = uploadResult.secure_url;
+
+  // Create certificate record with PDF URL and verify code
+  const verifyCode = `NEXORA-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
   const cert = await prisma.certificate.create({
     data: {
       userId: enrollment.userId,
       courseId: enrollment.courseId ?? undefined,
       title: `${enrollment.course?.title ?? "Course"} — Certificate of Completion`,
+      pdfUrl,
+      verifyCode,
     },
     include: {
       user: { select: { id: true, name: true, email: true } },
     },
   });
+
+  // Notify the student
+  await prisma.notification.create({
+    data: {
+      userId: enrollment.userId,
+      type: "CERTIFICATE_ISSUED",
+      title: "Certificate Issued! 🎓",
+      body: `Your certificate for "${enrollment.course?.title ?? "Course"}" has been issued. You can download it from your certificates page.`,
+      link: "/dashboard/student/certificates",
+    },
+  });
+
   return {
     ...cert,
+    verificationCode: cert.verifyCode,
     course: enrollment.course ? { id: enrollment.course.id, title: enrollment.course.title } : null,
   };
 };

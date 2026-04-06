@@ -34,6 +34,7 @@ import { adminPlatformRouter } from "./modules/admin/adminPlatform.route";
 import { adminUsersRouter } from "./modules/admin/adminUsers.route";
 import { teacherNoticeRouter } from "./modules/teacherDashboard/notice/teacherNotice.route";
 import { homePageRouter } from "./modules/homePage/homePage.route";
+import { dashboardRouter } from "./modules/dashboard/dashboard.route";
 
 
 
@@ -154,6 +155,7 @@ app.use("/api/missions", missionRouter);
 app.use("/api/payments", paymentRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/homePage",homePageRouter );
+app.use("/api/dashboard", dashboardRouter);
 
 
 // ── Teacher Dashboard APIs ───────────────────────────────────────────────────
