@@ -125,6 +125,7 @@ import httpStatus from "http-status";
 import { checkAuth as certCheckAuth } from "./middleware/checkAuth";
 import { Role as CertRole } from "./generated/prisma/enums";
 import { prisma as certPrisma } from "./lib/prisma";
+import { aiRouter } from "./modules/ai/ai.route";
 
 app.get("/api/student/certificates", certCheckAuth(CertRole.STUDENT), catchAsync(async (req: any, res: any) => {
   const userId = req.user.userId;
@@ -165,6 +166,11 @@ app.use("/api/teacher/announcements", teacherAnnouncementRouter);
 app.use("/api/teacher/categories", categoryRouter);
 app.use("/api/teacher/tasks", teacherTaskRouter);
 app.use("/api/teacher", teacherAnalyticsRouter);
+
+
+// ── Ai APIs ───────────────────────────────────────────────────
+
+app.use("/api/ai", aiRouter);
 
 
 
