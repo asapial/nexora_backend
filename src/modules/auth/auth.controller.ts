@@ -255,7 +255,7 @@ const googleLoginSuccess = catchAsync(async (req: Request, res: Response) => {
 
     const result = await authService.googleLoginSuccess(session);
 
-    const {accessToken, refreshToken} = result;
+    const {accessToken, refreshToken, sessionToken} = result;
 
     const isValidRedirectPath = redirectPath.startsWith("/") && !redirectPath.startsWith("//");
     const finalRedirectPath = isValidRedirectPath ? redirectPath : "/dashboard";
@@ -266,6 +266,11 @@ const googleLoginSuccess = catchAsync(async (req: Request, res: Response) => {
     const setTokensUrl = new URL(`${envVars.FRONTEND_URL}/auth/google/callback`);
     setTokensUrl.searchParams.set("accessToken", accessToken);
     setTokensUrl.searchParams.set("refreshToken", refreshToken);
+    // sessionToken is the raw BetterAuth session token. It must be carried to the
+    // frontend callback route so Next.js can set it as a cookie on the frontend
+    // domain — in production, backend and frontend are on different domains so
+    // BetterAuth's own cookie never reaches the frontend cookie jar.
+    setTokensUrl.searchParams.set("sessionToken", sessionToken);
     setTokensUrl.searchParams.set("redirect", finalRedirectPath);
 
     res.redirect(setTokensUrl.toString());

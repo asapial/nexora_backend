@@ -353,15 +353,24 @@ const changePasswordService = async (newPassword: string, oldPassword: string, s
 }
 
 
-const logoutService = async (sessionToken: string) => {
+const logoutService = async (sessionToken?: string) => {
+    // BetterAuth session sign-out is best-effort.
+    // In production, Google OAuth users never have the BetterAuth session
+    // cookie on the frontend domain, so sessionToken will be undefined.
+    // We still clear the JWT cookies on the frontend — that's sufficient.
+    if (sessionToken) {
+        try {
+            await auth.api.signOut({
+                headers: new Headers({
+                    Authorization: `Bearer ${sessionToken}`
+                })
+            });
+        } catch {
+            // Ignore — session may already be expired or on another domain.
+        }
+    }
 
-    const result = await auth.api.signOut({
-        headers: new Headers({
-            Authorization: `Bearer ${sessionToken}`
-        })
-    })
-
-    return result;
+    return { success: true };
 }
 
 const verifyEmail = async (email: string, otp: string) => {
@@ -531,6 +540,11 @@ const googleLoginSuccess= async (session: Record<string, any>)=>{
     return {
         accessToken,
         refreshToken,
+        // The raw BetterAuth session token (session.session.token)
+        // This must be forwarded to the frontend callback route so it can be set
+        // as a cookie on the frontend domain. Without this, production breaks
+        // because BetterAuth sets the session cookie only on the backend domain.
+        sessionToken: session.session.token as string,
     }
 }
 

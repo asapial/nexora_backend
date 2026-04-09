@@ -2024,12 +2024,17 @@ var changePasswordService = async (newPassword, oldPassword, sessionToken) => {
   };
 };
 var logoutService = async (sessionToken) => {
-  const result = await auth.api.signOut({
-    headers: new Headers({
-      Authorization: `Bearer ${sessionToken}`
-    })
-  });
-  return result;
+  if (sessionToken) {
+    try {
+      await auth.api.signOut({
+        headers: new Headers({
+          Authorization: `Bearer ${sessionToken}`
+        })
+      });
+    } catch {
+    }
+  }
+  return { success: true };
 };
 var verifyEmail = async (email, otp) => {
   const result = await auth.api.verifyEmailOTP({
@@ -2137,16 +2142,29 @@ var googleLoginSuccess = async (session) => {
   const accessToken = tokenUtils.createAccessToken({
     userId: session.user.id,
     role: session.user.role,
-    name: session.user.name
+    name: session.user.name,
+    email: session.user.email,
+    isActive: session.user.isActive,
+    oneTimePassword: session.user.oneTimePassword,
+    emailVerified: session.user.emailVerified
   });
   const refreshToken = tokenUtils.createRefreshToken({
     userId: session.user.id,
     role: session.user.role,
-    name: session.user.name
+    name: session.user.name,
+    email: session.user.email,
+    isActive: session.user.isActive,
+    oneTimePassword: session.user.oneTimePassword,
+    emailVerified: session.user.emailVerified
   });
   return {
     accessToken,
-    refreshToken
+    refreshToken,
+    // The raw BetterAuth session token (session.session.token)
+    // This must be forwarded to the frontend callback route so it can be set
+    // as a cookie on the frontend domain. Without this, production breaks
+    // because BetterAuth sets the session cookie only on the backend domain.
+    sessionToken: session.session.token
   };
 };
 var USER_TABLE_FIELDS = /* @__PURE__ */ new Set(["name", "email", "image"]);
@@ -2470,12 +2488,13 @@ var googleLoginSuccess2 = catchAsync(async (req, res) => {
     return res.redirect(`${envVars.FRONTEND_URL}/auth/login?error=no_user_found`);
   }
   const result = await authService.googleLoginSuccess(session);
-  const { accessToken, refreshToken } = result;
+  const { accessToken, refreshToken, sessionToken } = result;
   const isValidRedirectPath = redirectPath.startsWith("/") && !redirectPath.startsWith("//");
   const finalRedirectPath = isValidRedirectPath ? redirectPath : "/dashboard";
   const setTokensUrl = new URL(`${envVars.FRONTEND_URL}/auth/google/callback`);
   setTokensUrl.searchParams.set("accessToken", accessToken);
   setTokensUrl.searchParams.set("refreshToken", refreshToken);
+  setTokensUrl.searchParams.set("sessionToken", sessionToken);
   setTokensUrl.searchParams.set("redirect", finalRedirectPath);
   res.redirect(setTokensUrl.toString());
 });
@@ -2550,31 +2569,27 @@ var authController = {
 import status4 from "http-status";
 var checkAuth = (...authRoles) => async (req, res, next) => {
   try {
-    const sessionToken = cookieUtils.getBetterAuthSessionToken(req);
-    if (!sessionToken) {
+    const accessToken = cookieUtils.getCookie(req, "accessToken");
+    if (!accessToken) {
       throw new AppError_default(status4.UNAUTHORIZED, "Unauthorized access! Please log in to continue.");
     }
-    const sessionExists = await prisma.session.findFirst({
-      where: { token: sessionToken },
-      include: { user: true }
-    });
-    if (!sessionExists || !sessionExists.user) {
-      throw new AppError_default(status4.UNAUTHORIZED, "Unauthorized access! Session is invalid or has expired. Please log in again.");
+    const verifiedToken = jwtUtils.vefifyToken(accessToken, envVars.ACCESS_TOKEN_SECRET);
+    if (!verifiedToken.success || !verifiedToken.data) {
+      throw new AppError_default(status4.UNAUTHORIZED, "Unauthorized access! Access token is invalid or expired.");
     }
-    const user = sessionExists.user;
+    const { userId } = verifiedToken.data;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, email: true, isDeleted: true, isActive: true }
+    });
+    if (!user) {
+      throw new AppError_default(status4.UNAUTHORIZED, "Unauthorized access! User account not found.");
+    }
     if (user.isDeleted) {
       throw new AppError_default(status4.UNAUTHORIZED, "Unauthorized access! User account has been deleted.");
     }
-    const now = /* @__PURE__ */ new Date();
-    const expiresAt = new Date(sessionExists.expiresAt);
-    const createdAt = new Date(sessionExists.createdAt);
-    const sessionLifeTime = expiresAt.getTime() - createdAt.getTime();
-    const timeRemaining = expiresAt.getTime() - now.getTime();
-    const percentRemaining = sessionLifeTime > 0 ? timeRemaining / sessionLifeTime * 100 : 100;
-    if (percentRemaining < 20) {
-      res.setHeader("X-Session-Refresh", "true");
-      res.setHeader("X-Session-Expires-At", expiresAt.toISOString());
-      res.setHeader("X-Time-Remaining", timeRemaining.toString());
+    if (user.isActive === false) {
+      throw new AppError_default(status4.FORBIDDEN, "Your account has been deactivated. Please contact support.");
     }
     if (authRoles.length > 0 && !authRoles.includes(user.role)) {
       throw new AppError_default(
@@ -2587,13 +2602,26 @@ var checkAuth = (...authRoles) => async (req, res, next) => {
       role: user.role,
       email: user.email
     };
-    const accessToken = cookieUtils.getCookie(req, "accessToken");
-    if (!accessToken) {
-      throw new AppError_default(status4.UNAUTHORIZED, "Unauthorized access! No access token provided.");
-    }
-    const verifiedToken = jwtUtils.vefifyToken(accessToken, envVars.ACCESS_TOKEN_SECRET);
-    if (!verifiedToken.success) {
-      throw new AppError_default(status4.UNAUTHORIZED, "Unauthorized access! Access token is invalid or expired.");
+    const sessionToken = cookieUtils.getBetterAuthSessionToken(req);
+    if (sessionToken) {
+      const rawSessionToken = sessionToken.includes(".") ? sessionToken.split(".")[0] : sessionToken;
+      const sessionExists = await prisma.session.findFirst({
+        where: { token: rawSessionToken },
+        select: { id: true, expiresAt: true, createdAt: true }
+      });
+      if (sessionExists) {
+        const now = /* @__PURE__ */ new Date();
+        const expiresAt = new Date(sessionExists.expiresAt);
+        const createdAt = new Date(sessionExists.createdAt);
+        const sessionLifeTime = expiresAt.getTime() - createdAt.getTime();
+        const timeRemaining = expiresAt.getTime() - now.getTime();
+        const percentRemaining = sessionLifeTime > 0 ? timeRemaining / sessionLifeTime * 100 : 100;
+        if (percentRemaining < 20) {
+          res.setHeader("X-Session-Refresh", "true");
+          res.setHeader("X-Session-Expires-At", expiresAt.toISOString());
+          res.setHeader("X-Time-Remaining", timeRemaining.toString());
+        }
+      }
     }
     next();
   } catch (error) {
