@@ -512,12 +512,20 @@ const googleLoginSuccess= async (session: Record<string, any>)=>{
         userId: session.user.id,
         role: session.user.role,
         name: session.user.name,
+        email: session.user.email,
+        isActive: session.user.isActive,
+        oneTimePassword: session.user.oneTimePassword,
+        emailVerified: session.user.emailVerified,
     });
 
     const refreshToken = tokenUtils.createRefreshToken({
         userId: session.user.id,
         role: session.user.role,
         name: session.user.name,
+        email: session.user.email,
+        isActive: session.user.isActive,
+        oneTimePassword: session.user.oneTimePassword,
+        emailVerified: session.user.emailVerified,
     });
 
     return {

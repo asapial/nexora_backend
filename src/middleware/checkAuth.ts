@@ -33,8 +33,16 @@ export const checkAuth = (...authRoles: Role[]) => async (req: Request, res: Res
         }
 
         // ── 2. Look up session in database ────────────────────────────────────
+        // When BetterAuth's cookieCache is enabled (auth.ts), the session_token
+        // cookie value is stored as "<rawToken>.<HMACSignature>" (signed format).
+        // Prisma only stores the raw token, so we must strip the signature suffix
+        // before the DB lookup — otherwise every Google OAuth session returns null.
+        const rawSessionToken = sessionToken.includes(".")
+            ? sessionToken.split(".")[0]
+            : sessionToken;
+
         const sessionExists = await prisma.session.findFirst({
-            where: { token: sessionToken },
+            where: { token: rawSessionToken },
             include: { user: true },
         });
 

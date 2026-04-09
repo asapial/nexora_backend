@@ -1301,9 +1301,9 @@ model Testimonial {
   id        String            @id @default(uuid())
   userId    String
   name      String
-  role      String // e.g. "Student", "Teacher"
+  role      String
   quote     String
-  rating    Int               @default(5) // 1-5
+  rating    Int               @default(5)
   status    TestimonialStatus @default(PENDING)
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
@@ -1799,34 +1799,74 @@ var registerService = async (data) => {
   }
 };
 var loginService = async (data, cookieHeader) => {
-  const reqHeaders = new Headers();
-  if (cookieHeader) reqHeaders.set("cookie", cookieHeader);
-  const response = await auth.api.signInEmail({
-    body: data,
-    headers: reqHeaders,
-    asResponse: true
-  });
-  const responseCookies = [];
-  response.headers.forEach((value, key) => {
-    if (key.toLowerCase() === "set-cookie") {
-      responseCookies.push(value);
+  const email = (data.email ?? "").trim().toLowerCase();
+  const dbUser = await prisma.user.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      isDeleted: true,
+      isActive: true,
+      twoFactorEnabled: true,
+      twoFactorSecret: true
     }
   });
-  const result = await response.json();
-  if (result.twoFactorRedirect || !result.user) {
+  if (!dbUser || dbUser.isDeleted) {
+    throw new AppError_default(status2.UNAUTHORIZED, "Invalid email or password.");
+  }
+  if (dbUser.isActive === false) {
+    throw new AppError_default(status2.FORBIDDEN, "Your account has been deactivated. Please contact support.");
+  }
+  const reqHeaders = new Headers();
+  if (cookieHeader) reqHeaders.set("cookie", cookieHeader);
+  let response;
+  try {
+    response = await auth.api.signInEmail({
+      body: { ...data, email },
+      headers: reqHeaders,
+      asResponse: true
+    });
+  } catch {
+    throw new AppError_default(status2.UNAUTHORIZED, "Invalid email or password.");
+  }
+  const responseCookies = [];
+  response.headers.forEach((value, key) => {
+    if (key.toLowerCase() === "set-cookie") responseCookies.push(value);
+  });
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw new AppError_default(status2.UNAUTHORIZED, "Invalid email or password.");
+  }
+  if (!response.ok) {
+    throw new AppError_default(status2.UNAUTHORIZED, "Invalid email or password.");
+  }
+  if (result.twoFactorRedirect) {
+    const hasRealTOTP = dbUser.twoFactorEnabled && dbUser.twoFactorSecret;
+    if (!hasRealTOTP) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorBackupCodes: null }
+      }).catch(() => {
+      });
+      await prisma.twoFactor.deleteMany({ where: { userId: dbUser.id } }).catch(() => {
+      });
+      throw new AppError_default(status2.UNAUTHORIZED, "Invalid email or password.");
+    }
     return {
       twoFactorRedirect: true,
       message: "Two-factor authentication required",
       _responseCookies: responseCookies
     };
   }
+  if (!result.user) {
+    throw new AppError_default(status2.UNAUTHORIZED, "Invalid email or password.");
+  }
   if (result.user.isActive === false) {
     throw new AppError_default(status2.FORBIDDEN, "User is not active");
   }
   const student = await prisma.studentProfile.findFirst({
-    where: {
-      userId: result.user.id
-    }
+    where: { userId: result.user.id }
   });
   const accessToken = tokenUtils.createAccessToken({
     userId: result.user.id,
@@ -2274,12 +2314,10 @@ var loginController = catchAsync(
     const data = req.body;
     const cookieHeader = req.headers.cookie || "";
     const result = await authService.loginService(data, cookieHeader);
-    if (result._responseCookies?.length) {
-      for (const c of result._responseCookies) {
+    if (result.twoFactorRedirect) {
+      for (const c of result._responseCookies ?? []) {
         res.appendHeader("Set-Cookie", c);
       }
-    }
-    if (result.twoFactorRedirect) {
       return sendResponse(res, {
         status: status3.OK,
         success: true,
@@ -2288,14 +2326,16 @@ var loginController = catchAsync(
       });
     }
     const { accessToken, refreshToken, _responseCookies, token, ...rest } = result;
+    if (token) {
+      tokenUtils.setBetterAuthSessionCookie(res, token);
+    }
     tokenUtils.setAccessTokenCookie(res, accessToken);
     tokenUtils.setRefreshTokenCookie(res, refreshToken);
-    tokenUtils.setBetterAuthSessionCookie(res, token);
     sendResponse(res, {
       status: status3.OK,
       success: true,
       message: "User logged in successfully",
-      data: result
+      data: rest
     });
   }
 );
@@ -2512,13 +2552,10 @@ var checkAuth = (...authRoles) => async (req, res, next) => {
   try {
     const sessionToken = cookieUtils.getBetterAuthSessionToken(req);
     if (!sessionToken) {
-      throw new AppError_default(status4.UNAUTHORIZED, "Unauthorized access! No session token provided.");
+      throw new AppError_default(status4.UNAUTHORIZED, "Unauthorized access! Please log in to continue.");
     }
     const sessionExists = await prisma.session.findFirst({
-      where: {
-        token: sessionToken
-        // expiresAt: { gt: new Date() },
-      },
+      where: { token: sessionToken },
       include: { user: true }
     });
     if (!sessionExists || !sessionExists.user) {
@@ -2533,14 +2570,17 @@ var checkAuth = (...authRoles) => async (req, res, next) => {
     const createdAt = new Date(sessionExists.createdAt);
     const sessionLifeTime = expiresAt.getTime() - createdAt.getTime();
     const timeRemaining = expiresAt.getTime() - now.getTime();
-    const percentRemaining = timeRemaining / sessionLifeTime * 100;
+    const percentRemaining = sessionLifeTime > 0 ? timeRemaining / sessionLifeTime * 100 : 100;
     if (percentRemaining < 20) {
       res.setHeader("X-Session-Refresh", "true");
       res.setHeader("X-Session-Expires-At", expiresAt.toISOString());
       res.setHeader("X-Time-Remaining", timeRemaining.toString());
     }
     if (authRoles.length > 0 && !authRoles.includes(user.role)) {
-      throw new AppError_default(status4.FORBIDDEN, `Forbidden! This resource requires one of: [${authRoles.join(", ")}].`);
+      throw new AppError_default(
+        status4.FORBIDDEN,
+        `Forbidden! This resource requires one of: [${authRoles.join(", ")}].`
+      );
     }
     req.user = {
       userId: user.id,
@@ -3905,6 +3945,7 @@ var createSession = async (userId, payload) => {
     if (!tmpl) throw new AppError_default(status10.NOT_FOUND, "Task template not found.");
   }
   const runningMembers = cluster.members;
+  const resolvedMode = payload.taskMode === "individual" ? "individual" : payload.taskMode === "none" ? "none" : "template";
   const session = await prisma.$transaction(async (tx) => {
     const newSession = await tx.studySession.create({
       data: {
@@ -3918,9 +3959,37 @@ var createSession = async (userId, payload) => {
         templateId: payload.templateId ?? null
       }
     });
-    if (runningMembers.length > 0) {
+    if (resolvedMode === "individual") {
+      const customTasks = (payload.individualTasks ?? []).filter((it) => it.studentProfileId && it.title?.trim());
+      if (customTasks.length > 0) {
+        await tx.task.createMany({
+          data: customTasks.map((it) => ({
+            studentProfileId: it.studentProfileId,
+            studySessionId: newSession.id,
+            title: it.title.trim(),
+            description: it.description?.trim() ?? null,
+            deadline: newSession.taskDeadline
+          }))
+        });
+        const profileIds = customTasks.map((t) => t.studentProfileId);
+        const studentProfiles = await tx.studentProfile.findMany({
+          where: { id: { in: profileIds } },
+          select: { id: true, userId: true }
+        });
+        const profileUserMap = Object.fromEntries(studentProfiles.map((p) => [p.id, p.userId]));
+        const notifData = customTasks.map((t) => ({
+          userId: profileUserMap[t.studentProfileId],
+          type: "SESSION_CREATED",
+          title: `New session: ${newSession.title}`,
+          body: `A new session has been created in ${cluster.name}. Your task is ready.`,
+          link: `/sessions/${newSession.id}`
+        })).filter((n) => n.userId);
+        if (notifData.length > 0) {
+          await tx.notification.createMany({ data: notifData });
+        }
+      }
+    } else if (resolvedMode === "template" && runningMembers.length > 0) {
       const template = payload.templateId ? await tx.taskTemplate.findUnique({ where: { id: payload.templateId } }) : null;
-      console.log("Running members :", runningMembers);
       await tx.task.createMany({
         data: runningMembers.map((m) => ({
           studentProfileId: m.studentProfileId,
@@ -3928,7 +3997,6 @@ var createSession = async (userId, payload) => {
           title: template ? template.title : newSession.title,
           description: template?.description ?? null,
           deadline: newSession.taskDeadline
-          // templateId: payload.templateId ?? null,
         }))
       });
       await tx.notification.createMany({
@@ -3940,10 +4008,21 @@ var createSession = async (userId, payload) => {
           link: `/sessions/${newSession.id}`
         }))
       });
+    } else if (resolvedMode === "none" && runningMembers.length > 0) {
+      await tx.notification.createMany({
+        data: runningMembers.map((m) => ({
+          userId: m.userId,
+          type: "SESSION_CREATED",
+          title: `New session: ${newSession.title}`,
+          body: `A new session has been created in ${cluster.name}.`,
+          link: `/sessions/${newSession.id}`
+        }))
+      });
     }
     return newSession;
   });
-  return { session, tasksQueued: runningMembers.length };
+  const tasksQueued = resolvedMode === "individual" ? payload.individualTasks?.filter((it) => it.studentProfileId && it.title?.trim()).length ?? 0 : resolvedMode === "none" ? 0 : runningMembers.length;
+  return { session, tasksQueued };
 };
 var getSessionById = async (sessionId, userId, userRole) => {
   const session = await prisma.studySession.findUnique({
@@ -4561,7 +4640,15 @@ var createSessionSchema = z2.object({
   scheduledAt: z2.string().min(1, "date (scheduledAt) is required").datetime({ message: "date must be a valid ISO 8601 datetime string" }),
   location: z2.string().max(200).optional(),
   taskDeadline: z2.string().datetime({ message: "deadline must be a valid ISO 8601 datetime string" }).optional(),
-  templateId: z2.string().optional()
+  templateId: z2.string().optional(),
+  taskMode: z2.enum(["template", "individual", "none"]).optional(),
+  individualTasks: z2.array(
+    z2.object({
+      studentProfileId: z2.string().min(1),
+      title: z2.string().min(1).max(300),
+      description: z2.string().max(2e3).optional()
+    })
+  ).optional()
 });
 var updateSessionSchema = z2.object({
   title: z2.string().min(3).max(200).optional(),
@@ -6866,10 +6953,40 @@ var getHomeworkManagement = async (teacherId) => {
   });
   return sessions;
 };
+var getClusterMembers = async (teacherUserId, clusterId) => {
+  const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: { userId: teacherUserId }
+  });
+  if (!teacherProfile) throw new AppError_default(status28.NOT_FOUND, "Teacher not found");
+  const cluster = await prisma.cluster.findFirst({
+    where: { id: clusterId, teacherId: teacherProfile.id },
+    include: {
+      members: {
+        where: { subtype: "RUNNING", studentProfileId: { not: null } },
+        include: {
+          studentProfile: {
+            include: {
+              user: { select: { id: true, name: true, email: true, image: true } }
+            }
+          }
+        }
+      }
+    }
+  });
+  if (!cluster) throw new AppError_default(status28.NOT_FOUND, "Cluster not found or not owned by you");
+  return cluster.members.map((m) => ({
+    studentProfileId: m.studentProfileId,
+    userId: m.studentProfile?.user?.id ?? null,
+    name: m.studentProfile?.user?.name ?? "Unknown",
+    email: m.studentProfile?.user?.email ?? "",
+    image: m.studentProfile?.user?.image ?? null
+  }));
+};
 var teacherTaskService = {
   getSessionsWithTasks,
   getSessionMembers,
   getClusterMembersProgress,
+  getClusterMembers,
   assignTaskToMember,
   assignTaskToSession,
   updateTask,
@@ -6894,6 +7011,11 @@ var getClusterMembersProgress2 = catchAsync(async (req, res, _n) => {
   const { clusterId } = req.params;
   const result = await teacherTaskService.getClusterMembersProgress(req.user.userId, clusterId);
   sendResponse(res, { status: status29.OK, success: true, message: "Member progress fetched", data: result });
+});
+var getClusterMembers2 = catchAsync(async (req, res, _n) => {
+  const { clusterId } = req.params;
+  const result = await teacherTaskService.getClusterMembers(req.user.userId, clusterId);
+  sendResponse(res, { status: status29.OK, success: true, message: "Cluster members fetched", data: result });
 });
 var assignTask = catchAsync(async (req, res, _n) => {
   const { sessionId } = req.params;
@@ -6933,6 +7055,7 @@ var teacherTaskController = {
   getSessionsWithTasks: getSessionsWithTasks2,
   getSessionMembers: getSessionMembers2,
   getClusterMembersProgress: getClusterMembersProgress2,
+  getClusterMembers: getClusterMembers2,
   assignTask,
   assignTaskToMember: assignTaskToMember2,
   updateTask: updateTask2,
@@ -6947,6 +7070,7 @@ var router12 = Router12();
 router12.get("/sessions", checkAuth(Role.TEACHER), teacherTaskController.getSessionsWithTasks);
 router12.get("/sessions/:sessionId/members", checkAuth(Role.TEACHER), teacherTaskController.getSessionMembers);
 router12.get("/clusters/:clusterId/members-progress", checkAuth(Role.TEACHER), teacherTaskController.getClusterMembersProgress);
+router12.get("/clusters/:clusterId/members", checkAuth(Role.TEACHER), teacherTaskController.getClusterMembers);
 router12.get("/homework", checkAuth(Role.TEACHER), teacherTaskController.getHomeworkManagement);
 router12.post("/sessions/:sessionId/assign", checkAuth(Role.TEACHER), teacherTaskController.assignTask);
 router12.post("/sessions/:sessionId/members/:studentProfileId/assign", checkAuth(Role.TEACHER), teacherTaskController.assignTaskToMember);
@@ -11069,14 +11193,280 @@ router30.get(
 );
 var dashboardRouter = router30;
 
+// src/modules/testimonial/testimonial.route.ts
+import { Router as Router31 } from "express";
+
+// src/modules/testimonial/testimonial.service.ts
+import status63 from "http-status";
+var getApproved = async () => {
+  return prisma.testimonial.findMany({
+    where: { status: "APPROVED" },
+    orderBy: { createdAt: "desc" },
+    take: 6,
+    include: { user: { select: { id: true, name: true, email: true, image: true } } }
+  });
+};
+var create = async (userId, data) => {
+  const existing = await prisma.testimonial.findFirst({
+    where: { userId, status: { in: ["PENDING", "APPROVED"] } }
+  });
+  if (existing) {
+    throw new AppError_default(
+      status63.CONFLICT,
+      "You already have a testimonial submitted or approved."
+    );
+  }
+  return prisma.testimonial.create({
+    data: { userId, ...data }
+  });
+};
+var getPending = async (page = 1, limit = 20) => {
+  const skip = (page - 1) * limit;
+  const [data, total] = await Promise.all([
+    prisma.testimonial.findMany({
+      where: { status: "PENDING" },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      include: { user: { select: { id: true, name: true, email: true, image: true } } }
+    }),
+    prisma.testimonial.count({ where: { status: "PENDING" } })
+  ]);
+  return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+};
+var getAllApproved = async (page = 1, limit = 20) => {
+  const skip = (page - 1) * limit;
+  const [data, total] = await Promise.all([
+    prisma.testimonial.findMany({
+      where: { status: "APPROVED" },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      include: { user: { select: { id: true, name: true, email: true, image: true } } }
+    }),
+    prisma.testimonial.count({ where: { status: "APPROVED" } })
+  ]);
+  return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+};
+var approve = async (id) => {
+  const testimonial = await prisma.testimonial.findUnique({ where: { id } });
+  if (!testimonial) throw new AppError_default(status63.NOT_FOUND, "Testimonial not found.");
+  return prisma.testimonial.update({
+    where: { id },
+    data: { status: "APPROVED" }
+  });
+};
+var remove = async (id) => {
+  const testimonial = await prisma.testimonial.findUnique({ where: { id } });
+  if (!testimonial) throw new AppError_default(status63.NOT_FOUND, "Testimonial not found.");
+  await prisma.testimonial.delete({ where: { id } });
+  return { message: "Testimonial deleted." };
+};
+var testimonialService = {
+  getApproved,
+  create,
+  getPending,
+  getAllApproved,
+  approve,
+  remove
+};
+
+// src/modules/testimonial/testimonial.controller.ts
+import status64 from "http-status";
+var getApproved2 = catchAsync(async (_req, res) => {
+  const data = await testimonialService.getApproved();
+  sendResponse(res, { status: status64.OK, success: true, message: "Approved testimonials", data });
+});
+var create2 = catchAsync(async (req, res) => {
+  const userId = req.user.userId;
+  const { name, role, quote, rating } = req.body;
+  const data = await testimonialService.create(userId, { name, role, quote, rating });
+  sendResponse(res, { status: status64.CREATED, success: true, message: "Testimonial submitted", data });
+});
+var getPending2 = catchAsync(async (req, res) => {
+  const { page, limit } = req.query;
+  const data = await testimonialService.getPending(+page || 1, +limit || 20);
+  sendResponse(res, { status: status64.OK, success: true, message: "Pending testimonials", data });
+});
+var getAllApproved2 = catchAsync(async (req, res) => {
+  const { page, limit } = req.query;
+  const data = await testimonialService.getAllApproved(+page || 1, +limit || 20);
+  sendResponse(res, { status: status64.OK, success: true, message: "Approved testimonials (admin)", data });
+});
+var approve2 = catchAsync(async (req, res) => {
+  const data = await testimonialService.approve(req.params.id);
+  sendResponse(res, { status: status64.OK, success: true, message: "Testimonial approved", data });
+});
+var remove2 = catchAsync(async (req, res) => {
+  const data = await testimonialService.remove(req.params.id);
+  sendResponse(res, { status: status64.OK, success: true, message: "Testimonial deleted", data });
+});
+var testimonialController = {
+  getApproved: getApproved2,
+  create: create2,
+  getPending: getPending2,
+  getAllApproved: getAllApproved2,
+  approve: approve2,
+  remove: remove2
+};
+
+// src/modules/testimonial/testimonial.route.ts
+var router31 = Router31();
+router31.get("/", testimonialController.getApproved);
+router31.post("/", checkAuth(Role.STUDENT, Role.TEACHER, Role.ADMIN), testimonialController.create);
+router31.get("/admin/pending", checkAuth(Role.ADMIN), testimonialController.getPending);
+router31.get("/admin/approved", checkAuth(Role.ADMIN), testimonialController.getAllApproved);
+router31.post("/admin/:id/approve", checkAuth(Role.ADMIN), testimonialController.approve);
+router31.delete("/admin/:id", checkAuth(Role.ADMIN), testimonialController.remove);
+var testimonialRouter = router31;
+
+// src/modules/teacherApplication/teacherApplication.route.ts
+import { Router as Router32 } from "express";
+
+// src/modules/teacherApplication/teacherApplication.service.ts
+import status65 from "http-status";
+var apply = async (userId, data) => {
+  const existing = await prisma.teacherApplication.findFirst({
+    where: { userId, status: { in: ["PENDING", "APPROVED"] } }
+  });
+  if (existing) {
+    throw new AppError_default(
+      status65.CONFLICT,
+      "You already have a teacher application submitted or approved."
+    );
+  }
+  return prisma.teacherApplication.create({
+    data: { userId, ...data }
+  });
+};
+var getMyApplication = async (userId) => {
+  return prisma.teacherApplication.findFirst({
+    where: { userId },
+    orderBy: { createdAt: "desc" }
+  });
+};
+var getPending3 = async (page = 1, limit = 20) => {
+  const skip = (page - 1) * limit;
+  const [data, total] = await Promise.all([
+    prisma.teacherApplication.findMany({
+      where: { status: "PENDING" },
+      orderBy: { createdAt: "asc" },
+      skip,
+      take: limit,
+      include: { user: { select: { id: true, name: true, email: true, image: true } } }
+    }),
+    prisma.teacherApplication.count({ where: { status: "PENDING" } })
+  ]);
+  return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+};
+var getAll = async (params) => {
+  const { page = 1, limit = 20, status: st } = params;
+  const skip = (page - 1) * limit;
+  const where = {};
+  if (st) where.status = st;
+  const [data, total] = await Promise.all([
+    prisma.teacherApplication.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      include: { user: { select: { id: true, name: true, email: true, image: true } } }
+    }),
+    prisma.teacherApplication.count({ where })
+  ]);
+  return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+};
+var approve3 = async (applicationId, adminId) => {
+  const application = await prisma.teacherApplication.findUnique({
+    where: { id: applicationId },
+    include: { user: true }
+  });
+  if (!application) throw new AppError_default(status65.NOT_FOUND, "Application not found.");
+  if (application.status !== "PENDING")
+    throw new AppError_default(status65.BAD_REQUEST, "Application is not pending.");
+  await adminService.createTeacher([application.email]);
+  return prisma.teacherApplication.update({
+    where: { id: applicationId },
+    data: { status: "APPROVED", reviewedAt: /* @__PURE__ */ new Date(), reviewedById: adminId }
+  });
+};
+var reject = async (applicationId, adminNote, adminId) => {
+  const application = await prisma.teacherApplication.findUnique({ where: { id: applicationId } });
+  if (!application) throw new AppError_default(status65.NOT_FOUND, "Application not found.");
+  return prisma.teacherApplication.update({
+    where: { id: applicationId },
+    data: { status: "REJECTED", adminNote, reviewedAt: /* @__PURE__ */ new Date(), reviewedById: adminId }
+  });
+};
+var teacherApplicationService = {
+  apply,
+  getMyApplication,
+  getPending: getPending3,
+  getAll,
+  approve: approve3,
+  reject
+};
+
+// src/modules/teacherApplication/teacherApplication.controller.ts
+import status66 from "http-status";
+var apply2 = catchAsync(async (req, res) => {
+  const userId = req.user.userId;
+  const data = await teacherApplicationService.apply(userId, req.body);
+  sendResponse(res, { status: status66.CREATED, success: true, message: "Teacher application submitted", data });
+});
+var getMyApplication2 = catchAsync(async (req, res) => {
+  const userId = req.user.userId;
+  const data = await teacherApplicationService.getMyApplication(userId);
+  sendResponse(res, { status: status66.OK, success: true, message: "Your application", data });
+});
+var getPending4 = catchAsync(async (req, res) => {
+  const { page, limit } = req.query;
+  const data = await teacherApplicationService.getPending(+page || 1, +limit || 20);
+  sendResponse(res, { status: status66.OK, success: true, message: "Pending teacher applications", data });
+});
+var getAll2 = catchAsync(async (req, res) => {
+  const data = await teacherApplicationService.getAll(req.query);
+  sendResponse(res, { status: status66.OK, success: true, message: "All teacher applications", data });
+});
+var approve4 = catchAsync(async (req, res) => {
+  const adminUserId = req.user.userId;
+  const adminProfile = await prisma.adminProfile.findFirstOrThrow({ where: { userId: adminUserId } });
+  const data = await teacherApplicationService.approve(req.params.id, adminProfile.id);
+  sendResponse(res, { status: status66.OK, success: true, message: "Application approved, teacher account created", data });
+});
+var reject2 = catchAsync(async (req, res) => {
+  const adminUserId = req.user.userId;
+  const adminProfile = await prisma.adminProfile.findFirstOrThrow({ where: { userId: adminUserId } });
+  const data = await teacherApplicationService.reject(req.params.id, req.body.note || "", adminProfile.id);
+  sendResponse(res, { status: status66.OK, success: true, message: "Application rejected", data });
+});
+var teacherApplicationController = {
+  apply: apply2,
+  getMyApplication: getMyApplication2,
+  getPending: getPending4,
+  getAll: getAll2,
+  approve: approve4,
+  reject: reject2
+};
+
+// src/modules/teacherApplication/teacherApplication.route.ts
+var router32 = Router32();
+router32.post("/apply", checkAuth(Role.STUDENT, Role.TEACHER, Role.ADMIN), teacherApplicationController.apply);
+router32.get("/my", checkAuth(Role.STUDENT, Role.TEACHER, Role.ADMIN), teacherApplicationController.getMyApplication);
+router32.get("/admin/all", checkAuth(Role.ADMIN), teacherApplicationController.getAll);
+router32.get("/admin/pending", checkAuth(Role.ADMIN), teacherApplicationController.getPending);
+router32.post("/admin/:id/approve", checkAuth(Role.ADMIN), teacherApplicationController.approve);
+router32.post("/admin/:id/reject", checkAuth(Role.ADMIN), teacherApplicationController.reject);
+var teacherApplicationRouter = router32;
+
 // src/app.ts
 import httpStatus from "http-status";
 
 // src/modules/ai/ai.route.ts
-import { Router as Router31 } from "express";
+import { Router as Router33 } from "express";
 
 // src/modules/ai/ai.controller.ts
-import status63 from "http-status";
+import status67 from "http-status";
 
 // src/modules/ai/ai.context.ts
 async function buildContext(userId, role) {
@@ -11616,7 +12006,7 @@ var suggestDescription2 = catchAsync(
     const { clusterName } = req.body;
     if (!clusterName || clusterName.trim().length < 3) {
       return sendResponse(res, {
-        status: status63.BAD_REQUEST,
+        status: status67.BAD_REQUEST,
         success: false,
         message: "Cluster name too short",
         data: null
@@ -11626,7 +12016,7 @@ var suggestDescription2 = catchAsync(
       clusterName.trim()
     );
     sendResponse(res, {
-      status: status63.OK,
+      status: status67.OK,
       success: true,
       message: "Suggestions generated successfully",
       data: suggestions
@@ -11640,7 +12030,7 @@ var chat = catchAsync(
     const role = req.user?.role;
     if (!message?.trim()) {
       return sendResponse(res, {
-        status: status63.BAD_REQUEST,
+        status: status67.BAD_REQUEST,
         success: false,
         message: "Message is required",
         data: null
@@ -11648,7 +12038,7 @@ var chat = catchAsync(
     }
     if (!userId || !role) {
       return sendResponse(res, {
-        status: status63.UNAUTHORIZED,
+        status: status67.UNAUTHORIZED,
         success: false,
         message: "Unauthorized",
         data: null
@@ -11667,7 +12057,7 @@ var chat = catchAsync(
       history
     );
     sendResponse(res, {
-      status: status63.OK,
+      status: status67.OK,
       success: true,
       message: "Chat response generated successfully",
       data: { reply }
@@ -11679,7 +12069,7 @@ var guestChat2 = catchAsync(
     const { message, history = [] } = req.body;
     if (!message?.trim()) {
       return sendResponse(res, {
-        status: status63.BAD_REQUEST,
+        status: status67.BAD_REQUEST,
         success: false,
         message: "Message is required",
         data: null
@@ -11687,7 +12077,7 @@ var guestChat2 = catchAsync(
     }
     const reply = await aiService.guestChat(message, history);
     sendResponse(res, {
-      status: status63.OK,
+      status: status67.OK,
       success: true,
       message: "Guest chat response generated successfully",
       data: { reply }
@@ -11701,11 +12091,11 @@ var aiController = {
 };
 
 // src/modules/ai/ai.route.ts
-var router31 = Router31();
-router31.post("/suggest-description", aiController.suggestDescription);
-router31.post("/chat", checkAuth(Role.STUDENT, Role.TEACHER, Role.ADMIN), aiController.chat);
-router31.post("/guest-chat", aiController.guestChat);
-var aiRouter = router31;
+var router33 = Router33();
+router33.post("/suggest-description", aiController.suggestDescription);
+router33.post("/chat", checkAuth(Role.STUDENT, Role.TEACHER, Role.ADMIN), aiController.chat);
+router33.post("/guest-chat", aiController.guestChat);
+var aiRouter = router33;
 
 // src/app.ts
 var app = express2();
@@ -11784,6 +12174,8 @@ app.use("/api/payments", paymentRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/homePage", homePageRouter);
 app.use("/api/dashboard", dashboardRouter);
+app.use("/api/testimonials", testimonialRouter);
+app.use("/api/teacher-applications", teacherApplicationRouter);
 app.use("/api/teacher/notices", teacherNoticeRouter);
 app.use("/api/teacher/announcements", teacherAnnouncementRouter);
 app.use("/api/teacher/categories", categoryRouter);
