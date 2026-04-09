@@ -11897,7 +11897,7 @@ Nexora is a modern educational platform connecting teachers, students, and admin
 ## REGISTRATION & LOGIN
 - Sign Up: [Register Free](https://nexorafrontend-one.vercel.app/auth/signup) \u2014 Fill in Full Name, Email, Password. An OTP is sent to verify your email.
 - Sign In: [Login](https://nexorafrontend-one.vercel.app/auth/signin) \u2014 Email + Password OR [Login with Google](https://nexorafrontend-one.vercel.app/auth/signin).
-- Forgot password? [Reset Password](https://nexorafrontend-one.vercel.app/auth/forgot-password) \u2192 OTP \u2192 new password.
+- Forgot password? [Reset Password](https://nexorafrontend-one.vercel.app/auth/forgetPassword) \u2192 OTP \u2192 new password.
 - 2FA (TOTP) can be enabled from [Security Settings](https://nexorafrontend-one.vercel.app/dashboard/settings/security).
 
 ## PLATFORM PRICING (for Teachers)
@@ -12083,7 +12083,7 @@ Nexora is a modern educational platform connecting teachers, students, and admin
 ## LOGIN (Sign In)
 - [Login](https://nexorafrontend-one.vercel.app/auth/signin) \u2014 Enter Email + Password, or use [Login with Google](https://nexorafrontend-one.vercel.app/auth/signin).
 - Supports Two-Factor Authentication (2FA) \u2014 TOTP code from authenticator app if enabled.
-- Forgot password? [Reset Password](https://nexorafrontend-one.vercel.app/auth/forgot-password) \u2192 OTP \u2192 set new password.
+- Forgot password? [Reset Password](https://nexorafrontend-one.vercel.app/auth/forgetPassword) \u2192 OTP \u2192 set new password.
 - After login you are redirected to your role-specific dashboard.
 
 ---
