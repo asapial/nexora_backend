@@ -172,6 +172,12 @@ const createSession = async (userId: string, payload: ICreateSession) => {
 
   const runningMembers = cluster.members;
 
+  // Resolve task mode: explicit > default "template"
+  const resolvedMode: "template" | "individual" | "none" =
+    payload.taskMode === "individual" ? "individual"
+    : payload.taskMode === "none" ? "none"
+    : "template";
+
   const session = await prisma.$transaction(async (tx) => {
     const newSession = await tx.studySession.create({
       data: {
@@ -179,39 +185,83 @@ const createSession = async (userId: string, payload: ICreateSession) => {
         createdById: teacherProfileId,
         title: payload.title,
         description: payload.description ?? null,
-        scheduledAt: new Date(payload.scheduledAt),    
+        scheduledAt: new Date(payload.scheduledAt),
         location: payload.location ?? null,
-        taskDeadline: payload.taskDeadline               
-          ? new Date(payload.taskDeadline)
-          : null,
+        taskDeadline: payload.taskDeadline ? new Date(payload.taskDeadline) : null,
         templateId: payload.templateId ?? null,
       },
     });
 
-    if (runningMembers.length > 0) {
+    if (resolvedMode === "individual") {
+      // Per-student custom tasks ────────────────────────────────────────────
+      const customTasks = (payload.individualTasks ?? [])
+        .filter(it => it.studentProfileId && it.title?.trim());
+
+      if (customTasks.length > 0) {
+        await tx.task.createMany({
+          data: customTasks.map(it => ({
+            studentProfileId: it.studentProfileId,
+            studySessionId: newSession.id,
+            title: it.title.trim(),
+            description: it.description?.trim() ?? null,
+            deadline: newSession.taskDeadline,
+          })),
+        });
+
+        const profileIds = customTasks.map(t => t.studentProfileId);
+        const studentProfiles = await tx.studentProfile.findMany({
+          where: { id: { in: profileIds } },
+          select: { id: true, userId: true },
+        });
+        const profileUserMap = Object.fromEntries(studentProfiles.map(p => [p.id, p.userId]));
+        const notifData = customTasks
+          .map(t => ({
+            userId: profileUserMap[t.studentProfileId],
+            type: "SESSION_CREATED",
+            title: `New session: ${newSession.title}`,
+            body: `A new session has been created in ${cluster.name}. Your task is ready.`,
+            link: `/sessions/${newSession.id}`,
+          }))
+          .filter(n => n.userId);
+        if (notifData.length > 0) {
+          await tx.notification.createMany({ data: notifData });
+        }
+      }
+
+    } else if (resolvedMode === "template" && runningMembers.length > 0) {
+      // Same task (template or session title) for ALL running members ───────
       const template = payload.templateId
         ? await tx.taskTemplate.findUnique({ where: { id: payload.templateId } })
         : null;
 
-        console.log("Running members :",runningMembers);
-
       await tx.task.createMany({
-        data: runningMembers.map((m) => ({
-          studentProfileId:m.studentProfileId,
+        data: runningMembers.map(m => ({
+          studentProfileId: m.studentProfileId!,
           studySessionId: newSession.id,
           title: template ? template.title : newSession.title,
           description: template?.description ?? null,
           deadline: newSession.taskDeadline,
-          // templateId: payload.templateId ?? null,
         })),
       });
 
       await tx.notification.createMany({
-        data: runningMembers.map((m) => ({
+        data: runningMembers.map(m => ({
           userId: m.userId,
           type: "SESSION_CREATED",
           title: `New session: ${newSession.title}`,
           body: `A new session has been created in ${cluster.name}. Your task is ready.`,
+          link: `/sessions/${newSession.id}`,
+        })),
+      });
+
+    } else if (resolvedMode === "none" && runningMembers.length > 0) {
+      // No tasks — still notify members about the new session ───────────────
+      await tx.notification.createMany({
+        data: runningMembers.map(m => ({
+          userId: m.userId,
+          type: "SESSION_CREATED",
+          title: `New session: ${newSession.title}`,
+          body: `A new session has been created in ${cluster.name}.`,
           link: `/sessions/${newSession.id}`,
         })),
       });
@@ -220,7 +270,14 @@ const createSession = async (userId: string, payload: ICreateSession) => {
     return newSession;
   });
 
-  return { session, tasksQueued: runningMembers.length };
+  const tasksQueued =
+    resolvedMode === "individual"
+      ? (payload.individualTasks?.filter(it => it.studentProfileId && it.title?.trim()).length ?? 0)
+      : resolvedMode === "none"
+      ? 0
+      : runningMembers.length;
+
+  return { session, tasksQueued };
 };
 
 

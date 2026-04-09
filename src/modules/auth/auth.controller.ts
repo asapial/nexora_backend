@@ -38,20 +38,16 @@ const registerController = catchAsync(
 const loginController = catchAsync(
     async (req: Request, res: Response, next: NextFunction) => {
 
-
         const data = req.body;
         const cookieHeader = req.headers.cookie || "";
         const result = await authService.loginService(data, cookieHeader);
 
-        // Forward BetterAuth Set-Cookie headers (2FA pending session cookie, etc.)
-        if (result._responseCookies?.length) {
-            for (const c of result._responseCookies) {
+        // ── 2FA redirect ───────────────────────────────────────────────────────
+        if (result.twoFactorRedirect) {
+            // Forward BetterAuth's pending 2FA session cookie if present
+            for (const c of (result._responseCookies ?? [])) {
                 res.appendHeader("Set-Cookie", c);
             }
-        }
-
-        // ── 2FA redirect: no tokens, just tell the frontend ──
-        if (result.twoFactorRedirect) {
             return sendResponse(res, {
                 status: status.OK,
                 success: true,
@@ -60,19 +56,31 @@ const loginController = catchAsync(
             });
         }
 
-        const { accessToken, refreshToken, _responseCookies, token, ...rest } = result
+        const { accessToken, refreshToken, _responseCookies, token, ...rest } = result;
 
+        // ── BetterAuth session cookie ──────────────────────────────────────────
+        // MUST use result.token (the raw session token from BetterAuth's JSON body)
+        // because when auth.api.signInEmail is called internally (not over HTTP),
+        // _responseCookies may be empty even though the session WAS created in DB.
+        // result.token is always the correct, raw session token that matches
+        // what BetterAuth stored in prisma.session.
+        if (token) {
+            tokenUtils.setBetterAuthSessionCookie(res, token as string);
+        }
+
+        // ── Our custom JWT cookies ─────────────────────────────────────────────
         tokenUtils.setAccessTokenCookie(res, accessToken);
         tokenUtils.setRefreshTokenCookie(res, refreshToken);
-        tokenUtils.setBetterAuthSessionCookie(res, token as string);
+
         sendResponse(res, {
             status: status.OK,
             success: true,
             message: "User logged in successfully",
-            data: result
-        })
+            data: rest,
+        });
     }
 )
+
 
 const getMyDataController = catchAsync(
     async (req: Request, res: Response, next: NextFunction) => {

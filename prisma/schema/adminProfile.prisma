@@ -47,6 +47,7 @@ approvedMissions    CourseMission[]  @relation("MissionApprover")
 reviewedPriceReqs   CoursePriceRequest[]
 
     @@map("admin_profile")
+    teacherApplications TeacherApplication[]
 }
 
 // ── Admin Activity Log ────────────────────────────────────

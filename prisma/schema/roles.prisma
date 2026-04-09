@@ -133,3 +133,15 @@ enum PaymentStatus {
   FAILED
   REFUNDED
 }
+
+enum TestimonialStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TeacherApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}

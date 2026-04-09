@@ -67,30 +67,83 @@ const registerService = async (data: IRegisterData) => {
 
 const loginService = async (data: ILoginData, cookieHeader?: string) => {
 
+    const email = (data.email ?? "").trim().toLowerCase();
+
+    // ── STEP 1: User must exist in OUR DB ────────────────────────────────────
+    // We check this BEFORE calling BetterAuth so BetterAuth's twoFactor plugin
+    // can never intercept a "user not found" case and return twoFactorRedirect.
+    const dbUser = await prisma.user.findUnique({
+        where: { email },
+        select: {
+            id: true,
+            isDeleted: true,
+            isActive: true,
+            twoFactorEnabled: true,
+            twoFactorSecret: true,
+        },
+    });
+
+    if (!dbUser || dbUser.isDeleted) {
+        throw new AppError(status.UNAUTHORIZED, "Invalid email or password.");
+    }
+
+    if (dbUser.isActive === false) {
+        throw new AppError(status.FORBIDDEN, "Your account has been deactivated. Please contact support.");
+    }
+
+    // ── STEP 2: Call BetterAuth to authenticate ───────────────────────────────
     const reqHeaders = new Headers();
     if (cookieHeader) reqHeaders.set("cookie", cookieHeader);
 
-    // Use asResponse to capture BetterAuth's Set-Cookie headers
-    // (critical for 2FA pending session cookie)
-    const response = await auth.api.signInEmail({
-        body: data,
-        headers: reqHeaders,
-        asResponse: true,
-    });
+    let response: Response;
+    try {
+        response = await auth.api.signInEmail({
+            body: { ...data, email },
+            headers: reqHeaders,
+            asResponse: true,
+        }) as unknown as Response;
+    } catch {
+        throw new AppError(status.UNAUTHORIZED, "Invalid email or password.");
+    }
 
-    // Extract Set-Cookie headers to forward to the client
+    // Capture Set-Cookie headers (needed for 2FA pending-session cookie)
     const responseCookies: string[] = [];
     response.headers.forEach((value, key) => {
-        if (key.toLowerCase() === "set-cookie") {
-            responseCookies.push(value);
-        }
+        if (key.toLowerCase() === "set-cookie") responseCookies.push(value);
     });
 
-    const result = await response.json() as any;
+    let result: any;
+    try {
+        result = await response.json();
+    } catch {
+        throw new AppError(status.UNAUTHORIZED, "Invalid email or password.");
+    }
 
-    // ── 2FA required: BetterAuth returns { twoFactorRedirect: true } ──
-    // Guard: if there's no `user` on the response, treat it as a 2FA redirect
-    if (result.twoFactorRedirect || !result.user) {
+    // ── STEP 3: Handle wrong password ────────────────────────────────────────
+    // BetterAuth returns non-2xx for incorrect passwords.
+    // We check this FIRST before twoFactorRedirect so wrong passwords
+    // are always rejected with a clean 401 — never shown the 2FA modal.
+    if (!response.ok) {
+        throw new AppError(status.UNAUTHORIZED, "Invalid email or password.");
+    }
+
+    // ── STEP 4: Handle 2FA redirect ───────────────────────────────────────────
+    // BetterAuth's twoFactor plugin returns { twoFactorRedirect: true } when
+    // the user has 2FA enabled. We cross-check our own DB flag to catch
+    // phantom redirects (e.g., stale TwoFactor table rows).
+    if (result.twoFactorRedirect) {
+        const hasRealTOTP = dbUser.twoFactorEnabled && dbUser.twoFactorSecret;
+
+        if (!hasRealTOTP) {
+            // Stale/phantom 2FA — clear all 2FA data and reject cleanly
+            await prisma.user.update({
+                where: { id: dbUser.id },
+                data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorBackupCodes: null },
+            }).catch(() => {});
+            await prisma.twoFactor.deleteMany({ where: { userId: dbUser.id } }).catch(() => {});
+            throw new AppError(status.UNAUTHORIZED, "Invalid email or password.");
+        }
+
         return {
             twoFactorRedirect: true,
             message: "Two-factor authentication required",
@@ -98,14 +151,17 @@ const loginService = async (data: ILoginData, cookieHeader?: string) => {
         };
     }
 
+    // ── STEP 5: Successful login ──────────────────────────────────────────────
+    if (!result.user) {
+        throw new AppError(status.UNAUTHORIZED, "Invalid email or password.");
+    }
+
     if (result.user.isActive === false) {
         throw new AppError(status.FORBIDDEN, "User is not active");
     }
 
     const student = await prisma.studentProfile.findFirst({
-        where:{
-            userId:result.user.id
-        }
+        where: { userId: result.user.id }
     });
 
     const accessToken = tokenUtils.createAccessToken({
@@ -116,7 +172,7 @@ const loginService = async (data: ILoginData, cookieHeader?: string) => {
         isActive: result.user.isActive,
         oneTimePassword: result.user.oneTimePassword,
         emailVerified: result.user.emailVerified,
-    })
+    });
 
     const refreshToken = tokenUtils.createRefreshToken({
         userId: result.user.id,
@@ -126,10 +182,7 @@ const loginService = async (data: ILoginData, cookieHeader?: string) => {
         isActive: result.user.isActive,
         oneTimePassword: result.user.oneTimePassword,
         emailVerified: result.user.emailVerified,
-    })
-
-
-
+    });
 
     return {
         ...result,

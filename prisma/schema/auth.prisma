@@ -50,6 +50,9 @@ model User {
    adminProfile   AdminProfile? 
   planTier       PlanTier        @default(FREE)
 
+  testimonials        Testimonial[]
+  teacherApplications TeacherApplication[]
+
   accountSettings UserAccountSettings?
 
   @@unique([email])
