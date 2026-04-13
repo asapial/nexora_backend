@@ -2,10 +2,16 @@ export interface ICreateSession {
   clusterId: string;
   title: string;
   description?: string;
-  scheduledAt: string;      // ✅ not `date`
+  scheduledAt: string;      // ISO datetime
   location?: string;
-  taskDeadline?: string;    // ✅ not `deadline`
+  taskDeadline?: string;    // ISO datetime
   templateId?: string;
+  taskMode?: "template" | "individual" | "none"; // default "template" if templateId provided, else "none"
+  individualTasks?: Array<{
+    studentProfileId: string;
+    title: string;
+    description?: string;
+  }>;
 }
 export interface IUpdateSession {
   title?: string;

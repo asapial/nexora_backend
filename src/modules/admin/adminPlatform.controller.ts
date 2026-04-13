@@ -96,11 +96,21 @@ const deleteEmailTemplate = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, { status: status.OK, success: true, message: "Template deleted", data });
 });
 
+const getWarnings = catchAsync(async (req: Request, res: Response) => {
+  const data = await adminPlatformService.getWarnings(req.params.userId as string);
+  sendResponse(res, { status: status.OK, success: true, message: "User warnings", data });
+});
+
+const removeWarning = catchAsync(async (req: Request, res: Response) => {
+  const data = await adminPlatformService.removeWarning(req.params.warningId as string);
+  sendResponse(res, { status: status.OK, success: true, message: "Warning removed", data });
+});
+
 export const adminPlatformController = {
   getPlatformAnalytics,
   getGlobalAnnouncements, createGlobalAnnouncement, deleteGlobalAnnouncement,
   getClusterOversight,
-  getFlaggedContent, removeCourse, removeResource, warnUser,
+  getFlaggedContent, removeCourse, removeResource, warnUser, getWarnings, removeWarning,
   getCertificates, generateCertificate,
   manualEnroll, manualUnenroll,
   getEmailTemplates, createEmailTemplate, updateEmailTemplate, deleteEmailTemplate,

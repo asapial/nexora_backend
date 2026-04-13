@@ -1,6 +1,6 @@
 import { betterAuth, boolean } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { bearer, emailOTP } from "better-auth/plugins";
+import { bearer, emailOTP, twoFactor } from "better-auth/plugins";
 
 import { prisma } from "./prisma";
 import { Role } from "../generated/prisma/enums";
@@ -124,6 +124,10 @@ export const auth = betterAuth({
 
   plugins: [
     bearer(),
+
+    twoFactor({
+      issuer: "Nexora",
+    }),
 
     emailOTP({
       overrideDefaultEmailVerification: true,

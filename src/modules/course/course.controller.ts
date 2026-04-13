@@ -63,6 +63,12 @@ const closeCourse = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, { status: status.OK, success: true, message: "Course closed", data: result });
 });
 
+const finishCourse = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+  const result = await courseService.finishCourse(userId, req.params.id as string);
+  sendResponse(res, { status: status.OK, success: true, message: "Course finished", data: result });
+});
+
 // ─────────────────────────────────────────────────────────
 // ENROLLMENTS
 // ─────────────────────────────────────────────────────────
@@ -141,6 +147,7 @@ export const courseController={
     updateCourse,
     submitCourse,
     closeCourse,
+    finishCourse,
     getEnrollments,
     getEnrollmentStats,
     createPriceRequest,
@@ -150,6 +157,4 @@ export const courseController={
     updateMission,
     deleteMission,
     submitMission
-
-    
 }

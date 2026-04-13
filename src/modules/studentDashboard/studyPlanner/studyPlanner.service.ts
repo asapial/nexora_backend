@@ -23,16 +23,16 @@ const createGoal = async (
     weeklyTarget?: number;
   }
 ) => {
-  const studentProfile = await prisma.studentProfile.findFirst({ where: { userId } });
+  const studentProfile = await prisma.studentProfile.findFirst({ where: { userId } }).catch(() => null);
 
   return prisma.memberGoal.create({
     data: {
       userId,
       clusterId: payload.clusterId ?? "personal",
       title: payload.title,
-      target: payload.target,
+      target: payload.target ?? null,
       kanbanStatus: payload.kanbanStatus ?? "TODO",
-      studentProfileId: studentProfile?.id,
+      ...(studentProfile?.id ? { studentProfileId: studentProfile.id } : {}),
     },
   });
 };

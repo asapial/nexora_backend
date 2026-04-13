@@ -218,6 +218,8 @@ const createPaymentIntent = async (userId: string, courseId: string) => {
   // Get course
   const course = await prisma.course.findUnique({ where: { id: courseId } });
   if (!course) throw new AppError(status.NOT_FOUND, "Course not found.");
+  if (course.status === "CLOSED") throw new AppError(status.BAD_REQUEST, "This course is closed — no new enrollments are allowed.");
+  if (course.status === "FINISHED") throw new AppError(status.BAD_REQUEST, "This course is finished — no new enrollments are allowed.");
   if (course.status !== "PUBLISHED") throw new AppError(status.BAD_REQUEST, "Course is not published.");
   if (course.isFree) throw new AppError(status.BAD_REQUEST, "This course is free — use the free enroll endpoint.");
   if (course.priceApprovalStatus !== "APPROVED") throw new AppError(status.BAD_REQUEST, "Course pricing has not been approved yet.");
@@ -353,6 +355,8 @@ const freeEnroll = async (userId: string, courseId: string) => {
   const course = await prisma.course.findUnique({ where: { id: courseId } });
   if (!course) throw new AppError(status.NOT_FOUND, "Course not found.");
   if (!course.isFree) throw new AppError(status.BAD_REQUEST, "This course is paid — use the payment flow.");
+  if (course.status === "CLOSED") throw new AppError(status.BAD_REQUEST, "This course is closed — no new enrollments are allowed.");
+  if (course.status === "FINISHED") throw new AppError(status.BAD_REQUEST, "This course is finished — no new enrollments are allowed.");
   if (course.status !== "PUBLISHED") throw new AppError(status.BAD_REQUEST, "Course is not published.");
 
   const existing = await prisma.courseEnrollment.findUnique({ where: { courseId_userId: { courseId, userId } } });

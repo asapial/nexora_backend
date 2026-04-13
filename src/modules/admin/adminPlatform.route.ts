@@ -21,6 +21,8 @@ router.get("/moderation",                         checkAuth(Role.ADMIN), adminPl
 router.delete("/moderation/courses/:id",          checkAuth(Role.ADMIN), adminPlatformController.removeCourse);
 router.delete("/moderation/resources/:id",        checkAuth(Role.ADMIN), adminPlatformController.removeResource);
 router.post("/moderation/warn/:userId",           checkAuth(Role.ADMIN), adminPlatformController.warnUser);
+router.get("/moderation/warnings/:userId",         checkAuth(Role.ADMIN), adminPlatformController.getWarnings);
+router.delete("/moderation/warnings/:warningId",   checkAuth(Role.ADMIN), adminPlatformController.removeWarning);
 
 // Certificates
 router.get("/certificates",                       checkAuth(Role.ADMIN), adminPlatformController.getCertificates);

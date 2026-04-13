@@ -8,6 +8,7 @@ const router = Router();
 
 router.post("/register",authController.registerController);
 router.post("/login",authController.loginController);
+router.post("/verify-login-totp", authController.verifyLoginTOTPController);
 router.get("/me",checkAuth(),authController.getMyDataController);
 router.post("/changePassword",checkAuth(),authController.changePasswordController);
 router.post("/logout",authController.logoutController)

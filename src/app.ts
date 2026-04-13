@@ -34,6 +34,9 @@ import { adminPlatformRouter } from "./modules/admin/adminPlatform.route";
 import { adminUsersRouter } from "./modules/admin/adminUsers.route";
 import { teacherNoticeRouter } from "./modules/teacherDashboard/notice/teacherNotice.route";
 import { homePageRouter } from "./modules/homePage/homePage.route";
+import { dashboardRouter } from "./modules/dashboard/dashboard.route";
+import { testimonialRouter } from "./modules/testimonial/testimonial.route";
+import { teacherApplicationRouter } from "./modules/teacherApplication/teacherApplication.route";
 
 
 
@@ -88,6 +91,7 @@ app.use((req, res, next) => {
     p.startsWith("/api/auth/sign-in/") ||
     p.startsWith("/api/auth/sign-up/") ||
     p.startsWith("/api/auth/callback/") ||
+    p.startsWith("/api/auth/two-factor/") ||
     p === "/api/auth/get-session";
   if (isBetterAuthRoute) {
 
@@ -115,6 +119,36 @@ app.use("/api/student/homework", homeworkRouter);
 app.use("/api/student/leaderboard", leaderboardRouter);
 app.use("/api/student/study-planner", studyPlannerRouter);
 app.use("/api/student/annotations", annotationRouter);
+
+// ── Student Certificates (inline — no separate router file needed) ───────────
+import { catchAsync } from "./utils/catchAsync";
+import { sendResponse } from "./utils/sendResponse";
+import httpStatus from "http-status";
+import { checkAuth as certCheckAuth } from "./middleware/checkAuth";
+import { Role as CertRole } from "./generated/prisma/enums";
+import { prisma as certPrisma } from "./lib/prisma";
+import { aiRouter } from "./modules/ai/ai.route";
+
+app.get("/api/student/certificates", certCheckAuth(CertRole.STUDENT), catchAsync(async (req: any, res: any) => {
+  const userId = req.user.userId;
+  const certs = await certPrisma.certificate.findMany({
+    where: { userId },
+    orderBy: { issuedAt: "desc" },
+  });
+  // Enrich with course titles
+  const courseIds = [...new Set(certs.map(c => c.courseId).filter(Boolean))] as string[];
+  const courses = courseIds.length
+    ? await certPrisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true } })
+    : [];
+  const courseMap = Object.fromEntries(courses.map(c => [c.id, c.title]));
+  const enriched = certs.map(c => ({
+    ...c,
+    verificationCode: c.verifyCode,
+    course: c.courseId ? { id: c.courseId, title: courseMap[c.courseId] ?? c.courseId } : null,
+  }));
+  sendResponse(res, { status: httpStatus.OK, success: true, message: "Student certificates", data: enriched });
+}));
+
 app.use("/api/student", studentRouter);
 app.use("/api/teacher", teacherRouter);
 app.use("/api/admin", adminRouter);
@@ -125,6 +159,9 @@ app.use("/api/missions", missionRouter);
 app.use("/api/payments", paymentRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/homePage",homePageRouter );
+app.use("/api/dashboard", dashboardRouter);
+app.use("/api/testimonials", testimonialRouter);
+app.use("/api/teacher-applications", teacherApplicationRouter);
 
 
 // ── Teacher Dashboard APIs ───────────────────────────────────────────────────
@@ -133,6 +170,11 @@ app.use("/api/teacher/announcements", teacherAnnouncementRouter);
 app.use("/api/teacher/categories", categoryRouter);
 app.use("/api/teacher/tasks", teacherTaskRouter);
 app.use("/api/teacher", teacherAnalyticsRouter);
+
+
+// ── Ai APIs ───────────────────────────────────────────────────
+
+app.use("/api/ai", aiRouter);
 
 
 
