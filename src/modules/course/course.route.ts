@@ -59,6 +59,13 @@ router.post(
   courseController.closeCourse
 );
 
+// POST   /api/teacher/courses/:id/finish → mark course as finished
+router.post(
+  "/:id/finish",
+  checkAuth(Role.TEACHER),
+  courseController.finishCourse
+);
+
 // ─────────────────────────────────────────────────────────
 // TEACHER — ENROLLMENTS
 // ─────────────────────────────────────────────────────────

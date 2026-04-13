@@ -460,10 +460,45 @@ const getHomeworkManagement = async (teacherId: string) => {
   return sessions;
 };
 
+// ─── Get running members of a cluster (used in session-creation individual task form) ──
+const getClusterMembers = async (teacherUserId: string, clusterId: string) => {
+  const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: { userId: teacherUserId },
+  });
+  if (!teacherProfile) throw new AppError(status.NOT_FOUND, "Teacher not found");
+
+  const cluster = await prisma.cluster.findFirst({
+    where: { id: clusterId, teacherId: teacherProfile.id },
+    include: {
+      members: {
+        where: { subtype: "RUNNING", studentProfileId: { not: null } },
+        include: {
+          studentProfile: {
+            include: {
+              user: { select: { id: true, name: true, email: true, image: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!cluster) throw new AppError(status.NOT_FOUND, "Cluster not found or not owned by you");
+
+  return cluster.members.map((m) => ({
+    studentProfileId: m.studentProfileId as string,
+    userId: m.studentProfile?.user?.id ?? null,
+    name: m.studentProfile?.user?.name ?? "Unknown",
+    email: m.studentProfile?.user?.email ?? "",
+    image: m.studentProfile?.user?.image ?? null,
+  }));
+};
+
 export const teacherTaskService = {
   getSessionsWithTasks,
   getSessionMembers,
   getClusterMembersProgress,
+  getClusterMembers,
   assignTaskToMember,
   assignTaskToSession,
   updateTask,

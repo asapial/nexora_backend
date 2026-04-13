@@ -13,7 +13,7 @@ const getPublicCourses = async (query: PublicCourseQuery) => {
   const skip = (page - 1) * limit;
 
   const where: Record<string, unknown> = {
-    status: "PUBLISHED",
+    status: { in: ["PUBLISHED", "FINISHED"] },
   };
 
   if (query.search) {
@@ -51,7 +51,7 @@ const getPublicCourses = async (query: PublicCourseQuery) => {
 
 const getPublicCourseById = async (courseId: string) => {
   const course = await prisma.course.findFirst({
-    where: { id: courseId, status: "PUBLISHED" },
+    where: { id: courseId, status: { in: ["PUBLISHED", "FINISHED"] } },
     include: {
       teacher: {
         include: {
@@ -170,6 +170,16 @@ const closeCourse = async (userId: string, courseId: string) => {
   return prisma.course.update({ where: { id: courseId }, data: { status: "CLOSED" } });
 };
 
+const finishCourse = async (userId: string, courseId: string) => {
+  const teacherId = await getTeacherIdByUserId(userId);
+  const course = await prisma.course.findFirst({ where: { id: courseId, teacherId } });
+  if (!course) throw new AppError(status.NOT_FOUND, "Course not found.");
+  if (course.status !== "PUBLISHED" && course.status !== "CLOSED") {
+    throw new AppError(status.BAD_REQUEST, "Only PUBLISHED or CLOSED courses can be finished.");
+  }
+  return prisma.course.update({ where: { id: courseId }, data: { status: "FINISHED" } });
+};
+
 // ─────────────────────────────────────────────────────────
 // ENROLLMENTS
 // ─────────────────────────────────────────────────────────
@@ -179,7 +189,9 @@ const getEnrollments = async (userId: string, courseId: string, query: Enrollmen
   const course = await prisma.course.findFirst({ where: { id: courseId, teacherId } });
   if (!course) throw new AppError(status.NOT_FOUND, "Course not found.");
 
-  const { page = 1, limit = 20, search, paymentStatus } = query;
+  const page = Math.max(1, Number(query.page ?? 1));
+  const limit = Math.max(1, Math.min(100, Number(query.limit ?? 20)));
+  const { search, paymentStatus } = query;
 
   const where: any = { courseId };
   if (paymentStatus) where.paymentStatus = paymentStatus;
@@ -333,6 +345,7 @@ export const courseService = {
   updateCourse,
   submitCourse,
   closeCourse,
+  finishCourse,
   getEnrollments,
   getEnrollmentStats,
   createPriceRequest,

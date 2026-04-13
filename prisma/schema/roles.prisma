@@ -103,6 +103,7 @@ enum CourseStatus {
   PENDING_APPROVAL     // teacher submitted for admin review
   PUBLISHED            // admin approved & active
   CLOSED               // teacher closed — no new missions, no new enrollments
+  FINISHED             // course fully completed — certificates eligible
   REJECTED             // admin rejected
 }
 
@@ -131,4 +132,16 @@ enum PaymentStatus {
   PAID
   FAILED
   REFUNDED
+}
+
+enum TestimonialStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TeacherApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }

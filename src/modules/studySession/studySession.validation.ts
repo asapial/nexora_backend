@@ -15,6 +15,16 @@ export const createSessionSchema = z.object({
     .datetime({ message: "deadline must be a valid ISO 8601 datetime string" })
     .optional(),
   templateId: z.string().optional(),
+  taskMode: z.enum(["template", "individual", "none"]).optional(),
+  individualTasks: z
+    .array(
+      z.object({
+        studentProfileId: z.string().min(1),
+        title: z.string().min(1).max(300),
+        description: z.string().max(2000).optional(),
+      })
+    )
+    .optional(),
 });
 
 /* ── Update Session ───────────────────────────────────────────────────────── */

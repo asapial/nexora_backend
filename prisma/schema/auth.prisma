@@ -18,6 +18,11 @@ model User {
   needPasswordChange Boolean @default(false)
   isDeleted Boolean @default(false)
 
+  twoFactorSecret      String?
+  twoFactorBackupCodes String?
+  twoFactorEnabled     Boolean @default(false)
+  twoFactor            TwoFactor[]
+
   organization         Organization?        @relation(fields: [organizationId], references: [id])
 
   memberships          ClusterMember[]
@@ -44,6 +49,9 @@ model User {
   studentProfile StudentProfile?
    adminProfile   AdminProfile? 
   planTier       PlanTier        @default(FREE)
+
+  testimonials        Testimonial[]
+  teacherApplications TeacherApplication[]
 
   accountSettings UserAccountSettings?
 
