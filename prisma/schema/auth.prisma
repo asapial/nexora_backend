@@ -48,6 +48,7 @@ model User {
   teacherProfile TeacherProfile?
   studentProfile StudentProfile?
    adminProfile   AdminProfile? 
+  heroSectionEntry HeroSectionTeacher?
   planTier       PlanTier        @default(FREE)
 
   testimonials        Testimonial[]

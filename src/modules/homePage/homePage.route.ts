@@ -1,10 +1,18 @@
 import { Router } from "express";
 import { homePageController } from "./homePage.controller";
-
-const router=Router();
-
-
-router.get("/featuredCourse", homePageController.getFeaturedCourse)
+import { checkAuth } from "../../middleware/checkAuth";
+import { Role } from "../../generated/prisma/enums";
 
 
-export const homePageRouter=router;
+const router = Router();
+
+// Public
+router.get("/featuredCourse", homePageController.getFeaturedCourse);
+router.get("/featuredTeachers", homePageController.getFeaturedTeachers);
+
+// Admin only
+router.get("/allTeachersForHeroSelection", checkAuth(Role.ADMIN), homePageController.getAllTeachersForHeroSelection);
+router.post("/heroSectionTeacher", checkAuth(Role.ADMIN), homePageController.upsertHeroSectionTeacher);
+router.delete("/heroSectionTeacher/:userId", checkAuth(Role.ADMIN), homePageController.removeHeroSectionTeacher);
+
+export const homePageRouter = router;

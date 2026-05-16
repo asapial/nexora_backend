@@ -65,7 +65,7 @@ export const uploadFileToCloudinary = async (
 
 
 export const deleteFileFromCloudinary = async (url: string) => {
-
+    if (!url) return; // memory-storage files have no path; nothing to delete
     try {
         const regex = /\/v\d+\/(.+?)(?:\.[a-zA-Z0-9]+)+$/;
 

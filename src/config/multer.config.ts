@@ -30,10 +30,23 @@ const storage = new CloudinaryStorage({
         return {
             folder : `nexora/${folder}`,
             public_id: uniqueName,
-            resource_type : "auto"
+            resource_type: extension === "pdf" ? "raw" : "auto",
         }
     }
 
 })
 
 export const multerUpload = multer({storage})
+
+// Memory storage — for AI analysis routes where we need the raw buffer (no cloud upload)
+export const multerMemory = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB max
+    fileFilter: (_req, file, cb) => {
+        if (file.mimetype === "application/pdf") {
+            cb(null, true);
+        } else {
+            cb(new Error("Only PDF files are allowed for AI analysis"));
+        }
+    },
+})

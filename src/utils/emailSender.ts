@@ -6,17 +6,32 @@ import AppError from "../errorHelpers/AppError";
 import status from "http-status";
 
 
-const transporter= nodemailer.createTransport({
-    host:envVars.EMAIL_SENDER.SMTP_HOST,
-    secure:true,
-    auth:{
-        user:envVars.EMAIL_SENDER.SMTP_USER,
-        pass:envVars.EMAIL_SENDER.SMTP_PASS
+const transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,      // false = STARTTLS on port 587 (port 465 is often blocked by ISPs)
+    auth: {
+        user: envVars.EMAIL_SENDER.SMTP_USER,
+        pass: envVars.EMAIL_SENDER.SMTP_PASS,
     },
-    port: Number(envVars.EMAIL_SENDER.SMTP_PORT)
-})
+    // Force IPv4 — prevents ENETUNREACH when the network has no IPv6 route
+    family: 4,
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    tls: {
+        // Do not fail on invalid certs in dev
+        rejectUnauthorized: false,
+    },
+});
 
-
+// Verify SMTP connection at startup so misconfiguration is caught immediately
+transporter.verify((error) => {
+    if (error) {
+        console.error("[EmailSender] SMTP connection FAILED:", error.message);
+    } else {
+        console.log("[EmailSender] SMTP server is ready ✓");
+    }
+});
 
 
 interface SendEmailOptions {
@@ -28,32 +43,32 @@ interface SendEmailOptions {
         filename: string;
         content: Buffer | string;
         contentType: string;
-    }[]
+    }[];
 }
 
-export const sendEmail = async ({subject, templateData, templateName, to, attachments} : SendEmailOptions) => {
-   
-    
+export const sendEmail = async ({ subject, templateData, templateName, to, attachments }: SendEmailOptions) => {
+
     try {
         const templatePath = path.resolve(process.cwd(), `src/templates/${templateName}.ejs`);
-
         const html = await ejs.renderFile(templatePath, templateData);
 
-        const info = await transporter.sendMail({
+        await transporter.sendMail({
             from: envVars.EMAIL_SENDER.SMTP_FROM,
-            to : to,
-            subject : subject,
-            html : html,
-            attachments: attachments?.map((attachment) => ({
-                filename: attachment.filename,
-                content: attachment.content,
-                contentType: attachment.contentType,
-            }))
-        })
+            to,
+            subject,
+            html,
+            attachments: attachments?.map((a) => ({
+                filename: a.filename,
+                content: a.content,
+                contentType: a.contentType,
+            })),
+        });
 
-        // console.log(`Email sent to ${to} : ${info.messageId}`);
-    } catch (error : any) {
-        // console.log("Email Sending Error", error.message);
-        throw new AppError(status.INTERNAL_SERVER_ERROR, "Failed to send email");
+    } catch (error: any) {
+        console.error("[EmailSender] Failed to send email to", to);
+        console.error("[EmailSender] Error code   :", error?.code);
+        console.error("[EmailSender] Error message:", error?.message);
+        console.error("[EmailSender] SMTP response:", error?.response);
+        throw new AppError(status.INTERNAL_SERVER_ERROR, `Failed to send email: ${error?.message ?? "Unknown SMTP error"}`);
     }
-}
+};

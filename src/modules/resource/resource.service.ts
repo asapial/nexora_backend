@@ -29,6 +29,9 @@ interface ResourceFilter {
   page?: string;
   limit?: string;
   search?: string;
+  author?: string;
+  uploaderId?: string;
+  bookmarked?: string;
 }
 
 const getFilteredResources = async (filters: ResourceFilter, userId?: string) => {
@@ -42,15 +45,23 @@ const getFilteredResources = async (filters: ResourceFilter, userId?: string) =>
   if (filters.fileType) where.fileType = filters.fileType;
   if (filters.visibility) where.visibility = filters.visibility;
   if (filters.clusterId) where.clusterId = filters.clusterId;
+  if ((filters as any).uploaderId) where.uploaderId = (filters as any).uploaderId;
   if (filters.year) where.year = parseInt(filters.year, 10);
   if (filters.tags) {
     where.tags = { hasSome: filters.tags.split(",") };
+  }
+  if (filters.author) {
+    where.authors = { has: filters.author };
   }
   if (filters.search) {
     where.OR = [
       { title: { contains: filters.search, mode: "insensitive" } },
       { description: { contains: filters.search, mode: "insensitive" } },
+      { authors: { hasSome: [filters.search] } },
     ];
+  }
+  if (filters.bookmarked === "true" && userId) {
+    where.bookmarks = { some: { readingList: { userId } } };
   }
 
   const [resources, total] = await prisma.$transaction([
@@ -138,6 +149,35 @@ const getCategories = async () => {
   });
 };
 
+const deleteResource = async (resourceId: string, uploaderId: string) => {
+  const resource = await prisma.resource.findUnique({ where: { id: resourceId } });
+  if (!resource) throw new AppError(status.NOT_FOUND, "Resource not found.");
+  if (resource.uploaderId !== uploaderId)
+    throw new AppError(status.FORBIDDEN, "You can only delete your own resources.");
+
+  // Delete all child records in dependency order (FK constraints)
+  await prisma.$transaction([
+    prisma.readingListItem.deleteMany({ where: { resourceId } }),
+    prisma.resourceAnnotation.deleteMany({ where: { resourceId } }),
+    prisma.resourceQuiz.deleteMany({ where: { resourceId } }),
+    prisma.resourceComment.deleteMany({ where: { resourceId } }),
+    prisma.aiStudySession.deleteMany({ where: { resourceId } }),
+  ]);
+
+  // Now safe to delete the resource itself
+  await prisma.resource.delete({ where: { id: resourceId } });
+
+  // Clean up from Cloudinary (best-effort — don't fail the response if this errors)
+  try {
+    const { deleteFileFromCloudinary } = await import("../../config/cloudinary.config");
+    await deleteFileFromCloudinary(resource.fileUrl);
+  } catch (err) {
+    console.warn("[resource] Cloudinary delete failed (file may already be gone):", err);
+  }
+
+  return { deleted: true };
+};
+
 export const resourceService = {
   uploadResource,
   allResources,
@@ -145,4 +185,5 @@ export const resourceService = {
   bookmarkResource,
   removeBookmark,
   getCategories,
+  deleteResource,
 };

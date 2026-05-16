@@ -16,13 +16,15 @@ export const globalErrorHandler = async (err: any, req: Request, res: Response, 
         console.log("Error from Global Error Handler", err);
     }
 
-    if(req.file){
-        await deleteFileFromCloudinary(req.file.path)
+    // Only delete uploaded files that have a Cloudinary URL (disk storage).
+    // Memory-storage files (multerMemory) set req.file.path = undefined — skip those.
+    if (req.file?.path) {
+        await deleteFileFromCloudinary(req.file.path).catch(() => {});
     }
 
-    if(req.files && Array.isArray(req.files) && req.files.length > 0){
-        const imageUrls = req.files.map((file) => file.path);
-        await Promise.all(imageUrls.map(url => deleteFileFromCloudinary(url))); 
+    if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+        const imageUrls = req.files.map((file) => file.path).filter(Boolean);
+        await Promise.all(imageUrls.map(url => deleteFileFromCloudinary(url).catch(() => {})));
     }
 
     let errorSources: TErrorSources[] = []
@@ -80,12 +82,11 @@ export const globalErrorHandler = async (err: any, req: Request, res: Response, 
     }
 
 
-    const errorResponse: TErrorResponse = {
-        success: false,
-        message: message,
-        errorSources,
-        error: envVars.NODE_ENV === 'development' ? err : undefined,
-        stack: envVars.NODE_ENV === 'development' ? stack : undefined,
+    const isDev = envVars.NODE_ENV === 'development';
+    const errorResponse: TErrorResponse = { success: false, message, errorSources };
+    if (isDev) {
+        errorResponse.error = err as unknown;
+        if (stack) errorResponse.stack = stack;
     }
 
     res.status(statusCode).json(errorResponse);
