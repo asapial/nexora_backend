@@ -299,7 +299,59 @@ const patchClusterById = async (id: string, data: Cluster) => {
 };
 
 const deleteClusterById = async (id: string) => {
-  return await prisma.cluster.delete({ where: { id } });
+  return await prisma.$transaction(async (tx) => {
+    // ── 1. Find all sessions belonging to this cluster ──────────────────────
+    const sessions = await tx.studySession.findMany({
+      where: { clusterId: id },
+      select: { id: true },
+    });
+    const sessionIds = sessions.map((s) => s.id);
+
+    if (sessionIds.length > 0) {
+      // ── 2. Find all tasks in those sessions ────────────────────────────────
+      const tasks = await tx.task.findMany({
+        where: { studySessionId: { in: sessionIds } },
+        select: { id: true },
+      });
+      const taskIds = tasks.map((t) => t.id);
+
+      if (taskIds.length > 0) {
+        // ── 3. Delete task leaf children ────────────────────────────────────
+        await tx.taskSubmission.deleteMany({ where: { taskId: { in: taskIds } } });
+        await tx.taskDraft.deleteMany({ where: { taskId: { in: taskIds } } });
+        await tx.peerReview.deleteMany({ where: { taskId: { in: taskIds } } });
+        // ── 4. Delete tasks ─────────────────────────────────────────────────
+        await tx.task.deleteMany({ where: { studySessionId: { in: sessionIds } } });
+      }
+
+      // ── 5. Delete session leaf children ────────────────────────────────────
+      await tx.attendance.deleteMany({ where: { studySessionId: { in: sessionIds } } });
+      await tx.studySessionFeedback.deleteMany({ where: { studySessionId: { in: sessionIds } } });
+      await tx.studySessionAgenda.deleteMany({ where: { studySessionId: { in: sessionIds } } });
+
+      // ── 6. Delete sessions ─────────────────────────────────────────────────
+      await tx.studySession.deleteMany({ where: { clusterId: id } });
+    }
+
+    // ── 7. Delete study group members then groups ───────────────────────────
+    const groups = await tx.studyGroup.findMany({
+      where: { clusterId: id },
+      select: { id: true },
+    });
+    const groupIds = groups.map((g) => g.id);
+    if (groupIds.length > 0) {
+      await tx.studyGroupMember.deleteMany({ where: { groupId: { in: groupIds } } });
+      await tx.studyGroup.deleteMany({ where: { clusterId: id } });
+    }
+
+    // ── 8. Delete cluster-level relations ──────────────────────────────────
+    await tx.clusterMember.deleteMany({ where: { clusterId: id } });
+    await tx.coTeacher.deleteMany({ where: { clusterId: id } });
+    await tx.announcementCluster.deleteMany({ where: { clusterId: id } });
+
+    // ── 9. Finally delete the cluster itself ───────────────────────────────
+    return await tx.cluster.delete({ where: { id } });
+  });
 };
 
 const addedClusterMemberByEmail = async (

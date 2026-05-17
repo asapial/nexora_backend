@@ -200,9 +200,6 @@ const assignTaskToMember = async (
   if (session.cluster.teacherId !== teacherProfile.id) {
     throw new AppError(status.FORBIDDEN, "Unauthorized");
   }
-  if (session.status === "completed") {
-    throw new AppError(status.BAD_REQUEST, "Cannot assign tasks to a completed session");
-  }
 
   // Check if task already assigned to this member for this session
   const existing = await prisma.task.findFirst({
@@ -319,9 +316,6 @@ const updateTask = async (
   if (task.StudySession.cluster.teacherId !== teacherProfile.id) {
     throw new AppError(status.FORBIDDEN, "Unauthorized");
   }
-  if (task.StudySession.status === "completed") {
-    throw new AppError(status.BAD_REQUEST, "Cannot edit tasks in a completed session");
-  }
 
   return prisma.task.update({
     where: { id: taskId },
@@ -350,9 +344,6 @@ const deleteTask = async (teacherUserId: string, taskId: string) => {
   if (!task) throw new AppError(status.NOT_FOUND, "Task not found");
   if (task.StudySession.cluster.teacherId !== teacherProfile.id) {
     throw new AppError(status.FORBIDDEN, "Unauthorized");
-  }
-  if (task.StudySession.status === "completed") {
-    throw new AppError(status.BAD_REQUEST, "Cannot delete tasks from a completed session");
   }
 
   // Delete submission and drafts first

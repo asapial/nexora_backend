@@ -226,6 +226,77 @@ General rules:
 ${roleHints[role] ?? ""}`;
 }
 
+// ── Shared LLM caller with retry ─────────────────────────────────────────────
+// Tries every model in FREE_MODELS in order. Each model is retried up to
+// RETRY_ATTEMPTS times with exponential back-off before moving to the next.
+const FREE_MODELS = [
+  "google/gemma-4-26b-a4b-it:free",
+  "baidu/cobuddy:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "poolside/laguna-xs.2:free",
+  "poolside/laguna-m.1:free",
+  "deepseek/deepseek-v4-flash:free",
+  "google/gemma-4-31b-it:free",
+  "arcee-ai/trinity-large-thinking:free",
+];
+
+const RETRY_ATTEMPTS = 2;       // retries per model before moving to next
+const RETRY_DELAY_MS = 600;     // base backoff (doubles each retry)
+
+async function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function callLLM(prompt: string): Promise<string> {
+  for (const model of FREE_MODELS) {
+    for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+      try {
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${envVars.OpenRouter_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.5,
+          }),
+        });
+
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({})) as { error?: { message?: string } };
+          const msg = errBody?.error?.message ?? `HTTP ${response.status}`;
+          console.warn(`[chatLLM] ${model} attempt ${attempt} failed: ${msg}`);
+          if (attempt < RETRY_ATTEMPTS) await sleep(RETRY_DELAY_MS * attempt);
+          continue;
+        }
+
+        const result = await response.json();
+        const content = result.choices?.[0]?.message;
+        // Support standard content + reasoning-model fields
+        const reply = (
+          content?.content ||
+          content?.reasoning_content ||
+          content?.thinking ||
+          ""
+        ).trim();
+
+        if (reply) {
+          console.info(`[chatLLM] ${model} responded OK (attempt ${attempt})`);
+          return reply;
+        }
+        // Empty reply — try next attempt
+        if (attempt < RETRY_ATTEMPTS) await sleep(RETRY_DELAY_MS * attempt);
+      } catch (err) {
+        console.warn(`[chatLLM] ${model} attempt ${attempt} threw:`, err);
+        if (attempt < RETRY_ATTEMPTS) await sleep(RETRY_DELAY_MS * attempt);
+      }
+    }
+  }
+  throw new Error("All AI models are currently unavailable. Please try again in a moment.");
+}
+
 // ── Authenticated chat ────────────────────────────────────────────────────────
 const chatWithAI = async (
   userId: string, role: string, userName: string, message: string, history: Message[]
@@ -248,30 +319,7 @@ ${trimmedHistory.map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.cont
 User: ${message}
 Assistant:`;
 
-  const MODELS = [
-    "google/gemma-3-4b-it:free",
-    "meta-llama/llama-3.2-3b-instruct:free",
-    "nvidia/nemotron-nano-9b-v2:free",
-  ];
-
-  for (const model of MODELS) {
-    try {
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${envVars.OpenRouter_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ model, messages: [{ role: "user", content: fullPrompt }] }),
-      });
-      if (!response.ok) continue;
-      const result = await response.json();
-      const content = result.choices?.[0]?.message;
-      const reply = content?.content || content?.reasoning_content || content?.thinking || "";
-      if (reply.trim()) return reply.trim();
-    } catch { continue; }
-  }
-  throw new Error("AI service unavailable. Please try again shortly.");
+  return callLLM(fullPrompt);
 };
 
 // ── Guest chat ────────────────────────────────────────────────────────────────
@@ -298,30 +346,7 @@ ${trimmedHistory.map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.cont
 User: ${message}
 Assistant:`;
 
-  const MODELS = [
-    "google/gemma-3-4b-it:free",
-    "meta-llama/llama-3.2-3b-instruct:free",
-    "nvidia/nemotron-nano-9b-v2:free",
-  ];
-
-  for (const model of MODELS) {
-    try {
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${envVars.OpenRouter_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ model, messages: [{ role: "user", content: fullPrompt }] }),
-      });
-      if (!response.ok) continue;
-      const result = await response.json();
-      const content = result.choices?.[0]?.message;
-      const reply = content?.content || content?.reasoning_content || content?.thinking || "";
-      if (reply.trim()) return reply.trim();
-    } catch { continue; }
-  }
-  throw new Error("AI service unavailable.");
+  return callLLM(fullPrompt);
 };
 
 export const aiService = { suggestDescription, chatWithAI, guestChat };
