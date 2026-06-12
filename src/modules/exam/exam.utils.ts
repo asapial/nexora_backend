@@ -1,5 +1,6 @@
 export type ScoringQuestion = {
   id: string;
+  type?: "MCQ" | "CQ";
   marks: number;
   options: { id: string; isCorrect: boolean }[];
 };
@@ -16,7 +17,9 @@ export const seededShuffle = <T>(items: T[], seed: string): T[] => {
   for (let index = copy.length - 1; index > 0; index -= 1) {
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
     const target = state % (index + 1);
-    [copy[index], copy[target]] = [copy[target], copy[index]];
+    const current = copy[index]!;
+    copy[index] = copy[target]!;
+    copy[target] = current;
   }
   return copy;
 };
@@ -28,7 +31,7 @@ export const scoreAnswers = (
   const selected = new Map(answers.map((answer) => [answer.questionId, answer.optionId]));
   const rows = questions.map((question) => {
     const optionId = selected.get(question.id) ?? null;
-    const isCorrect = question.options.some((option) => option.id === optionId && option.isCorrect);
+    const isCorrect = question.type !== "CQ" && question.options.some((option) => option.id === optionId && option.isCorrect);
     return { questionId: question.id, optionId, isCorrect, awardedMarks: isCorrect ? question.marks : 0 };
   });
   const score = rows.reduce((sum, row) => sum + row.awardedMarks, 0);

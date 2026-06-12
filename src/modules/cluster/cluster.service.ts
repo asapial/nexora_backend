@@ -356,7 +356,9 @@ const deleteClusterById = async (id: string) => {
 
 const addedClusterMemberByEmail = async (
   clusterId: string,
-  emails: string[]
+  emails: string[],
+  actorUserId: string,
+  actorRole: Role,
 ) => {
   const result: AddMembersResult = {
     added: [],
@@ -366,8 +368,11 @@ const addedClusterMemberByEmail = async (
 
   const cluster = await prisma.cluster.findUniqueOrThrow({
     where: { id: clusterId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, teacher: { select: { userId: true } } },
   });
+  if (actorRole !== Role.ADMIN && cluster.teacher.userId !== actorUserId) {
+    throw new AppError(status.FORBIDDEN, "You cannot add members to another teacher's cluster.");
+  }
 
   for (const rawEmail of emails) {
     const email = rawEmail.trim().toLowerCase();

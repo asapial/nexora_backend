@@ -1,13 +1,20 @@
-enum ExamAudience {
-  CLUSTER
-  PLATFORM
-}
-
 enum ExamStatus {
   DRAFT
-  PUBLISHED
-  RESULT_PUBLISHED
-  CLOSED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ExamType {
+  MCQ
+  CQ
+  MIXED
+}
+
+enum ExamQuestionType {
+  MCQ
+  CQ
 }
 
 enum ExamAttemptStatus {
@@ -26,22 +33,27 @@ enum ExamProctorEventType {
 }
 
 model Exam {
-  id                String       @id @default(cuid())
-  teacherId         String
-  clusterId         String?
-  title             String
-  description       String?
-  audience          ExamAudience
-  status            ExamStatus   @default(DRAFT)
-  deadline          DateTime?
-  durationMinutes   Int?
-  accessGranted     Boolean      @default(false)
-  resultPublishedAt DateTime?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  id              String     @id @default(cuid())
+  teacherId       String
+  clusterId       String?
+  title           String
+  description     String?
+  type            ExamType
+  status          ExamStatus @default(DRAFT)
+  startTime       DateTime
+  endTime         DateTime
+  durationMinutes Int?
+  rejectionReason String?
+  approvedAt      DateTime?
+  approvedById    String?
+  questionsDueAt  DateTime
+  reminderSentAt  DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
   teacher     TeacherProfile   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   cluster     Cluster?         @relation(fields: [clusterId], references: [id], onDelete: SetNull)
+  approvedBy  User?            @relation("ExamApprover", fields: [approvedById], references: [id], onDelete: SetNull)
   questions   ExamQuestion[]
   assignments ExamAssignment[]
   attempts    ExamAttempt[]
@@ -51,11 +63,12 @@ model Exam {
 }
 
 model ExamQuestion {
-  id          String   @id @default(cuid())
+  id          String           @id @default(cuid())
   examId      String
   prompt      String
+  type        ExamQuestionType
   explanation String?
-  marks       Float    @default(1)
+  marks       Float            @default(1)
   order       Int
 
   exam    Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
@@ -121,6 +134,7 @@ model ExamAnswer {
   attemptId        String
   questionId       String
   selectedOptionId String?
+  textAnswer       String?
   isCorrect        Boolean @default(false)
   awardedMarks     Float   @default(0)
 

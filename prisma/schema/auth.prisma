@@ -9,47 +9,47 @@ model User {
   sessions      Session[]
   accounts      Account[]
 
-  role            Role      @default(STUDENT)
-  isActive        Boolean   @default(true)
-  oneTimePassword String?
-  oneTimeExpiry   DateTime?
-  lastLoginAt     DateTime?
-  organizationId  String?
-  needPasswordChange Boolean @default(false)
-  isDeleted Boolean @default(false)
+  role               Role      @default(STUDENT)
+  isActive           Boolean   @default(true)
+  oneTimePassword    String?
+  oneTimeExpiry      DateTime?
+  lastLoginAt        DateTime?
+  organizationId     String?
+  needPasswordChange Boolean   @default(false)
+  isDeleted          Boolean   @default(false)
 
   twoFactorSecret      String?
   twoFactorBackupCodes String?
-  twoFactorEnabled     Boolean @default(false)
+  twoFactorEnabled     Boolean     @default(false)
   twoFactor            TwoFactor[]
 
-  organization         Organization?        @relation(fields: [organizationId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
 
-  memberships          ClusterMember[]
-  coTeacherOf          CoTeacher[]
-  resources            Resource[]
-  announcements        Announcement[]       @relation("AnnouncementAuthor")
-  personalNotices      Announcement[]       @relation("PersonalNotices")
-  notifications        Notification[]
-  enrollments          CourseEnrollment[]
-  badges               UserBadge[]
-  certificates         Certificate[]
-  supportTickets       SupportTicket[]
-  auditLogs            AuditLog[]
-  readingLists         ReadingList[]
-  annotations          ResourceAnnotation[]
-  goals                MemberGoal[]
-  studyGroups          StudyGroupMember[]
+  memberships       ClusterMember[]
+  coTeacherOf       CoTeacher[]
+  resources         Resource[]
+  announcements     Announcement[]       @relation("AnnouncementAuthor")
+  personalNotices   Announcement[]       @relation("PersonalNotices")
+  notifications     Notification[]
+  enrollments       CourseEnrollment[]
+  badges            UserBadge[]
+  certificates      Certificate[]
+  supportTickets    SupportTicket[]
+  auditLogs         AuditLog[]
+  readingLists      ReadingList[]
+  annotations       ResourceAnnotation[]
+  goals             MemberGoal[]
+  studyGroups       StudyGroupMember[]
   // createdStudySessions StudySession[]       @relation("SessionCreator")
-  impersonatedLogs     AuditLog[]           @relation("ImpersonatorLog")
-  announcementReads    AnnouncementRead[]
-   payments  Payment[]
+  impersonatedLogs  AuditLog[]           @relation("ImpersonatorLog")
+  announcementReads AnnouncementRead[]
+  payments          Payment[]
 
-  teacherProfile TeacherProfile?
-  studentProfile StudentProfile?
-   adminProfile   AdminProfile? 
+  teacherProfile   TeacherProfile?
+  studentProfile   StudentProfile?
+  adminProfile     AdminProfile?
   heroSectionEntry HeroSectionTeacher?
-  planTier       PlanTier        @default(FREE)
+  planTier         PlanTier            @default(FREE)
 
   testimonials        Testimonial[]
   teacherApplications TeacherApplication[]
@@ -57,6 +57,7 @@ model User {
   accountSettings UserAccountSettings?
   examAssignments ExamAssignment[]
   examAttempts    ExamAttempt[]
+  approvedExams   Exam[]               @relation("ExamApprover")
 
   @@unique([email])
   @@index([email, role])
@@ -64,15 +65,15 @@ model User {
 }
 
 model Session {
-  id               String          @id
+  id               String   @id
   expiresAt        DateTime
   token            String
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
   ipAddress        String?
   userAgent        String?
   userId           String
-  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   teacherProfileId String?
 
   @@unique([token])

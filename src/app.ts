@@ -37,6 +37,7 @@ import { homePageRouter } from "./modules/homePage/homePage.route";
 import { dashboardRouter } from "./modules/dashboard/dashboard.route";
 import { testimonialRouter } from "./modules/testimonial/testimonial.route";
 import { teacherApplicationRouter } from "./modules/teacherApplication/teacherApplication.route";
+import { examRouter } from "./modules/exam/exam.route";
 
 
 
@@ -162,6 +163,7 @@ app.use("/api/homePage",homePageRouter );
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/testimonials", testimonialRouter);
 app.use("/api/teacher-applications", teacherApplicationRouter);
+app.use("/api/exams", examRouter);
 
 
 // ── Teacher Dashboard APIs ───────────────────────────────────────────────────

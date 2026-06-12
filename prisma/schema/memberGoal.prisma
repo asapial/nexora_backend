@@ -1,13 +1,13 @@
 model MemberGoal {
-  id         String    @id @default(uuid())
-  userId     String
-  clusterId  String
-  title      String
+  id           String    @id @default(uuid())
+  userId       String
+  clusterId    String
+  title        String
   target       String?
   kanbanStatus String    @default("TODO")
   isAchieved   Boolean   @default(false)
-  achievedAt DateTime?
-  createdAt  DateTime  @default(now())
+  achievedAt   DateTime?
+  createdAt    DateTime  @default(now())
 
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   studentProfile   StudentProfile? @relation(fields: [studentProfileId], references: [id])

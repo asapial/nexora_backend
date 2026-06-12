@@ -84,7 +84,9 @@ const addedClusterMemberByEmail = catchAsync(
     const clusterId = req.params.id as string;
     const result = await clusterService.addedClusterMemberByEmail(
       clusterId,
-      data as string[]
+      data as string[],
+      req.user.userId,
+      req.user.role,
     );
     sendResponse(res, {
       status: status.OK,

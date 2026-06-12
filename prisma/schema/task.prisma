@@ -27,17 +27,17 @@ model Task {
 }
 
 model TaskSubmission {
-  id               String   @id @default(uuid())
-  taskId           String   @unique
+  id               String @id @default(uuid())
+  taskId           String @unique
   studentProfileId String
   body             String
-  
-  videoUrl         String? // for VIDEO
-  duration         Int? // seconds, for VIDEO
-  textBody         String? // for TEXT (markdown/html)
-  pdfUrl           String? // for PDF
-  fileSize         Int? // bytes, for PDF
-  submittedAt      DateTime @default(now())
+
+  videoUrl    String? // for VIDEO
+  duration    Int? // seconds, for VIDEO
+  textBody    String? // for TEXT (markdown/html)
+  pdfUrl      String? // for PDF
+  fileSize    Int? // bytes, for PDF
+  submittedAt DateTime @default(now())
 
   task           Task           @relation(fields: [taskId], references: [id])
   studentProfile StudentProfile @relation(fields: [studentProfileId], references: [id], onDelete: SetNull)

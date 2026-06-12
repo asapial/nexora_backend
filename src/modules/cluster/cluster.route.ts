@@ -30,7 +30,7 @@ router.delete("/:id", checkAuth(), clusterController.deleteClusterById);
 
 
 // Add members by email (existing)
-router.post("/:id/member", clusterController.addedClusterMemberByEmail);
+router.post("/:id/member", checkAuth(Role.TEACHER, Role.ADMIN), clusterController.addedClusterMemberByEmail);
 
 // PATCH /clusters/:id/members/:userId — change member subtype
 router.patch(

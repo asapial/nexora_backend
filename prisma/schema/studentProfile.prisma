@@ -1,46 +1,46 @@
 model StudentProfile {
-    id String @id @default(cuid())
+  id String @id @default(cuid())
 
-    userId String @unique
-    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    // ── Personal information ──────────────────────────────
-    studentType MemberSubtype @default(EMERGING)
-    phone       String?
-    address     String?
-    bio         String?
-    nationality String?                   
+  // ── Personal information ──────────────────────────────
+  studentType MemberSubtype @default(EMERGING)
+  phone       String?
+  address     String?
+  bio         String?
+  nationality String?
 
-    // ── Academic information ──────────────────────────────
-    institution        String?
-    department         String?
-    batch              String?
-    programme          String?
-    cgpa               Float?            
-    enrollmentYear     String?
-    expectedGraduation String?           
+  // ── Academic information ──────────────────────────────
+  institution        String?
+  department         String?
+  batch              String?
+  programme          String?
+  cgpa               Float?
+  enrollmentYear     String?
+  expectedGraduation String?
 
-    // ── Skills ────────────────────────────────────────────
-    skills String[]                   
+  // ── Skills ────────────────────────────────────────────
+  skills String[]
 
-    // ── Social & portfolio ────────────────────────────────
-    linkedinUrl  String?
-    githubUrl    String?
-    website      String?
-    portfolioUrl String?                 
+  // ── Social & portfolio ────────────────────────────────
+  linkedinUrl  String?
+  githubUrl    String?
+  website      String?
+  portfolioUrl String?
 
-    // ── Timestamps ────────────────────────────────────────
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  // ── Timestamps ────────────────────────────────────────
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    // ── Activity relations ────────────────────────────────
-    clusterMembers ClusterMember[]
-    tasks          Task[]
-    attendances    Attendance[]
-    readingLists   ReadingList[]
-    studyGroups    StudyGroupMember[]
-    goals          MemberGoal[]
-    taskSubmission TaskSubmission[]
+  // ── Activity relations ────────────────────────────────
+  clusterMembers ClusterMember[]
+  tasks          Task[]
+  attendances    Attendance[]
+  readingLists   ReadingList[]
+  studyGroups    StudyGroupMember[]
+  goals          MemberGoal[]
+  taskSubmission TaskSubmission[]
 
-    @@map("student_profile")
+  @@map("student_profile")
 }
