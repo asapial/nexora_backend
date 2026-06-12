@@ -16,7 +16,7 @@ const question = z.object({
   }
 });
 
-export const createExamSchema = z.object({
+const examFieldsSchema = z.object({
   title: z.string().trim().min(3).max(160),
   description: z.string().trim().max(2000).optional(),
   clusterId: z.string().min(1),
@@ -25,16 +25,33 @@ export const createExamSchema = z.object({
   endTime: z.string().datetime(),
   durationMinutes: z.number().int().min(1).max(1440).optional().nullable(),
   questions: z.array(question).default([]),
-}).superRefine((data, ctx) => {
-  if (new Date(data.endTime) <= new Date(data.startTime)) {
-    ctx.addIssue({ code: "custom", message: "End time must be after start time", path: ["endTime"] });
-  }
-  const kinds = new Set(data.questions.map((item) => item.type));
-  if (data.type === "MCQ" && kinds.has("CQ")) ctx.addIssue({ code: "custom", message: "MCQ exams cannot contain CQ questions", path: ["questions"] });
-  if (data.type === "CQ" && kinds.has("MCQ")) ctx.addIssue({ code: "custom", message: "CQ exams cannot contain MCQ questions", path: ["questions"] });
 });
 
-export const updateExamSchema = createExamSchema.partial().omit({ questions: true });
+const validateExamFields = (
+  data: {
+    type?: "MCQ" | "CQ" | "MIXED" | undefined;
+    startTime?: string | undefined;
+    endTime?: string | undefined;
+    questions?: z.infer<typeof question>[] | undefined;
+  },
+  ctx: z.RefinementCtx,
+) => {
+  if (data.startTime && data.endTime && new Date(data.endTime) <= new Date(data.startTime)) {
+    ctx.addIssue({ code: "custom", message: "End time must be after start time", path: ["endTime"] });
+  }
+  const kinds = new Set((data.questions ?? []).map((item) => item.type));
+  if (data.type === "MCQ" && kinds.has("CQ")) ctx.addIssue({ code: "custom", message: "MCQ exams cannot contain CQ questions", path: ["questions"] });
+  if (data.type === "CQ" && kinds.has("MCQ")) ctx.addIssue({ code: "custom", message: "CQ exams cannot contain MCQ questions", path: ["questions"] });
+};
+
+export const createExamSchema = examFieldsSchema.superRefine((data, ctx) => {
+  validateExamFields(data, ctx);
+});
+
+export const updateExamSchema = examFieldsSchema
+  .omit({ questions: true })
+  .partial()
+  .superRefine(validateExamFields);
 export const questionsSchema = z.object({ questions: z.array(question).min(1) });
 export const rejectExamSchema = z.object({ reason: z.string().trim().min(3).max(1000) });
 

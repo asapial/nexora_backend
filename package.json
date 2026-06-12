@@ -9,6 +9,7 @@
     "seeding": "npx tsx src/scripts/seedingAdmin.ts",
     "seed:demo-users": "npx tsx src/scripts/seedingDemoUsers.ts",
     "seed:courses": "npx tsx src/scripts/seedingCourses.ts",
+    "seed:test-exam": "npx tsx src/scripts/seedingTestExam.ts",
     "migrate": "npx prisma migrate dev",
     "generate": "npx prisma generate",
     "postinstall": "prisma generate",

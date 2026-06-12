@@ -47,11 +47,11 @@ const reorderContents = async (missionId: string, input: ReorderContentsInput) =
 
 
 
-export const missionService={
-    getContents,
-createContent,
-updateContent,
-deleteContent,
-reorderContents
+export const missionService = {
+  getContents,
+  createContent,
+  updateContent,
+  deleteContent,
+  reorderContents
 
-}
+};

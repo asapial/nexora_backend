@@ -15,12 +15,12 @@ const createGoal = catchAsync(async (req: Request, res: Response) => {
 });
 
 const updateGoal = catchAsync(async (req: Request, res: Response) => {
-  const result = await studyPlannerService.updateGoal(req.user.userId, req.params.id, req.body);
+  const result = await studyPlannerService.updateGoal(req.user.userId, req.params.id as string, req.body);
   sendResponse(res, { status: status.OK, success: true, message: "Goal updated", data: result });
 });
 
 const deleteGoal = catchAsync(async (req: Request, res: Response) => {
-  const result = await studyPlannerService.deleteGoal(req.user.userId, req.params.id);
+  const result = await studyPlannerService.deleteGoal(req.user.userId, req.params.id as string);
   sendResponse(res, { status: status.OK, success: true, message: "Goal deleted", data: result });
 });
 

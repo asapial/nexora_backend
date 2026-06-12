@@ -9,7 +9,7 @@ const getSessionsWithTasks = async (teacherUserId: string) => {
     where: {
       userId: teacherUserId
     }
-  })
+  });
 
   if (!teacherProfile) {
     throw new AppError(status.NOT_FOUND, "Teacher is not found");
@@ -85,16 +85,16 @@ const getSessionMembers = async (teacherUserId: string, sessionId: string) => {
       image: m.studentProfile?.user?.image ?? null,
       task: task
         ? {
-            id: task.id,
-            title: task.title,
-            description: task.description,
-            homework: task.homework,
-            status: task.status,
-            deadline: task.deadline,
-            finalScore: task.finalScore,
-            reviewNote: task.reviewNote,
-            submission: task.submission,
-          }
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          homework: task.homework,
+          status: task.status,
+          deadline: task.deadline,
+          finalScore: task.finalScore,
+          reviewNote: task.reviewNote,
+          submission: task.submission,
+        }
         : null,
     };
   });
@@ -391,7 +391,7 @@ const getSubmissionDetail = async (teacherUserId: string, taskId: string) => {
 const reviewSubmission = async (
   teacherId: string,
   taskId: string,
-  payload: { finalScore: number; reviewNote?: string }
+  payload: { finalScore: number; reviewNote?: string; }
 ) => {
   if (payload.finalScore < 0 || payload.finalScore > 10) {
     throw new AppError(status.BAD_REQUEST, "Score must be between 0 and 10");

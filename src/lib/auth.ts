@@ -25,22 +25,22 @@ export const auth = betterAuth({
     autoSignInAfterVerification: true,
   },
 
-    socialProviders:{
-        google:{
-            clientId: envVars.GOOGLE_CLIENT_ID,
-            clientSecret: envVars.GOOGLE_CLIENT_SECRET,
-            // callbackUrl: envVars.GOOGLE_CALLBACK_URL,
-            mapProfileToUser: ()=>{
-                return {
-                    role : Role.STUDENT,
-                    needPasswordChange : false,
-                    emailVerified : true,
-                    isDeleted : false,
-                    deletedAt : null,
-                }
-            }
-        }
-    },
+  socialProviders: {
+    google: {
+      clientId: envVars.GOOGLE_CLIENT_ID,
+      clientSecret: envVars.GOOGLE_CLIENT_SECRET,
+      // callbackUrl: envVars.GOOGLE_CALLBACK_URL,
+      mapProfileToUser: () => {
+        return {
+          role: Role.STUDENT,
+          needPasswordChange: false,
+          emailVerified: true,
+          isDeleted: false,
+          deletedAt: null,
+        };
+      }
+    }
+  },
 
   user: {
     additionalFields: {
@@ -58,13 +58,13 @@ export const auth = betterAuth({
         type: "string",
         required: false,
       },
-      needPasswordChange:{
-        type:"boolean",
-        required:false
+      needPasswordChange: {
+        type: "boolean",
+        required: false
       }
     },
-    deleteUser:{
-      enabled:true
+    deleteUser: {
+      enabled: true
     }
   },
 
@@ -161,7 +161,7 @@ export const auth = betterAuth({
             where: {
               email,
             }
-          })
+          });
 
           if (user) {
             await sendEmail({
@@ -174,7 +174,7 @@ export const auth = betterAuth({
                 email,
                 expiresIn: "5 minutes",
               }
-            })
+            });
           }
         }
       },

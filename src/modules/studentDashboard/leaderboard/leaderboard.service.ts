@@ -4,7 +4,7 @@ import status from "http-status";
 
 const getLeaderboard = async (
   userId: string,
-  params: { clusterId?: string; period?: "weekly" | "all-time" }
+  params: { clusterId?: string; period?: "weekly" | "all-time"; }
 ) => {
   const { clusterId, period = "all-time" } = params;
 
@@ -70,7 +70,7 @@ const getLeaderboard = async (
   ]);
 
   // Build score map: studentProfileId → { taskScore, attendanceCount }
-  const scoreMap: Record<string, { taskScore: number; taskCount: number; attendanceCount: number; userId: string; name: string; image: string | null }> = {};
+  const scoreMap: Record<string, { taskScore: number; taskCount: number; attendanceCount: number; userId: string; name: string; image: string | null; }> = {};
 
   for (const m of members) {
     if (!m.studentProfileId) continue;
@@ -88,13 +88,13 @@ const getLeaderboard = async (
 
   for (const t of taskAgg) {
     if (!scoreMap[t.studentProfileId]) continue;
-    scoreMap[t.studentProfileId].taskScore += t.finalScore ?? 0;
-    scoreMap[t.studentProfileId].taskCount += 1;
+    scoreMap[t.studentProfileId]!.taskScore += t.finalScore ?? 0;
+    scoreMap[t.studentProfileId]!.taskCount += 1;
   }
 
   for (const a of attendanceAgg) {
     if (!a.studentProfileId || !scoreMap[a.studentProfileId]) continue;
-    scoreMap[a.studentProfileId].attendanceCount += 1;
+    scoreMap[a.studentProfileId]!.attendanceCount += 1;
   }
 
   // Compute composite score: avg task score * 60% + attendance * 40% (max 10 each)

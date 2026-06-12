@@ -6,6 +6,8 @@ import {
   updateClusterSchema,
   updateMemberSubtypeSchema,
   addCoTeacherSchema,
+  addClusterMembersSchema,
+  createClusterSchema,
 } from "./cluster.validation";
 import { Role } from "../../generated/prisma/enums";
 
@@ -14,23 +16,23 @@ const router = Router();
 
 //    Cluster CRUD
 
-router.get("/", checkAuth("TEACHER","ADMIN"), clusterController.getCluster);
-router.post("/create",checkAuth("TEACHER","ADMIN"), clusterController.createCluster);
-router.get("/:id", checkAuth(), clusterController.getClusterById);
+router.get("/", checkAuth("TEACHER", "ADMIN"), clusterController.getCluster);
+router.post("/create", checkAuth("TEACHER", "ADMIN"), validateRequest(createClusterSchema), clusterController.createCluster);
+router.get("/:id", checkAuth(Role.TEACHER, Role.ADMIN), clusterController.getClusterById);
 router.patch(
   "/:id",
-  checkAuth(),
+  checkAuth(Role.TEACHER, Role.ADMIN),
   validateRequest(updateClusterSchema),
   clusterController.patchClusterById
 );
-router.delete("/:id", checkAuth(), clusterController.deleteClusterById);
+router.delete("/:id", checkAuth(Role.TEACHER, Role.ADMIN), clusterController.deleteClusterById);
 
 
 //    Member management
 
 
 // Add members by email (existing)
-router.post("/:id/member", checkAuth(Role.TEACHER, Role.ADMIN), clusterController.addedClusterMemberByEmail);
+router.post("/:id/member", checkAuth(Role.TEACHER, Role.ADMIN), validateRequest(addClusterMembersSchema), clusterController.addedClusterMemberByEmail);
 
 // PATCH /clusters/:id/members/:userId — change member subtype
 router.patch(
@@ -59,7 +61,7 @@ router.post(
 
 
 // GET /clusters/:id/health — health score with breakdown
-router.get("/:id/health", checkAuth(), clusterController.getClusterHealth);
+router.get("/:id/health", checkAuth(Role.TEACHER, Role.ADMIN), clusterController.getClusterHealth);
 
 
 //    Co-teacher management

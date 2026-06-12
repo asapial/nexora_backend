@@ -6,7 +6,7 @@ export interface iCreateCluster {
   batchTag?: string;
   teacherId: string;
   organizationId?: string;
-  emails?:string[];
+  emails?: string[];
 }
 
 export interface AddMembersResult {

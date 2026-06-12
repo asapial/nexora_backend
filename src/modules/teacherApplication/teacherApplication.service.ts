@@ -60,7 +60,7 @@ const getPending = async (page = 1, limit = 20) => {
 };
 
 // Admin: get all applications
-const getAll = async (params: { page?: number; limit?: number; status?: string }) => {
+const getAll = async (params: { page?: number; limit?: number; status?: string; }) => {
   const { page = 1, limit = 20, status: st } = params;
   const skip = (page - 1) * limit;
   const where: any = {};
@@ -95,10 +95,10 @@ const approve = async (applicationId: string, adminId: string | null) => {
   // Update application status
   return prisma.teacherApplication.update({
     where: { id: applicationId },
-    data: { 
-      status: "APPROVED", 
-      reviewedAt: new Date(), 
-      ...(adminId && { reviewedById: adminId }) 
+    data: {
+      status: "APPROVED",
+      reviewedAt: new Date(),
+      ...(adminId && { reviewedById: adminId })
     },
   });
 };
@@ -109,10 +109,10 @@ const reject = async (applicationId: string, adminNote: string, adminId: string 
   if (!application) throw new AppError(status.NOT_FOUND, "Application not found.");
   return prisma.teacherApplication.update({
     where: { id: applicationId },
-    data: { 
-      status: "REJECTED", 
-      adminNote, 
-      reviewedAt: new Date(), 
+    data: {
+      status: "REJECTED",
+      adminNote,
+      reviewedAt: new Date(),
       ...(adminId && { reviewedById: adminId })
     },
   });

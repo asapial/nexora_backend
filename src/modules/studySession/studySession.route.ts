@@ -7,7 +7,8 @@ import {
   createSessionSchema,
   updateSessionSchema,
   submitAttendanceSchema,
-  createAgendaSchema,
+  saveAgendaSchema,
+  attendanceWarningConfigSchema,
   submitFeedbackSchema,
   attachReplaySchema,
 } from "./studySession.validation";
@@ -44,6 +45,7 @@ router.get(
 router.put(
   "/attendance-warning-config",
   checkAuth(Role.TEACHER),
+  validateRequest(attendanceWarningConfigSchema),
   studySessionController.saveAttendanceWarningConfig
 );
 
@@ -101,7 +103,7 @@ router.get(
 router.post(
   "/:id/agenda",
   checkAuth(Role.TEACHER),
-  // validateRequest(createAgendaSchema),
+  validateRequest(saveAgendaSchema),
   studySessionController.saveAgenda
 );
 

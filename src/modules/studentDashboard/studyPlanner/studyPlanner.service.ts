@@ -40,7 +40,7 @@ const createGoal = async (
 const updateGoal = async (
   userId: string,
   goalId: string,
-  payload: { title?: string; target?: string; isAchieved?: boolean; kanbanStatus?: string }
+  payload: { title?: string; target?: string; isAchieved?: boolean; kanbanStatus?: string; }
 ) => {
   const goal = await prisma.memberGoal.findUnique({ where: { id: goalId } });
   if (!goal) throw new AppError(status.NOT_FOUND, "Goal not found");

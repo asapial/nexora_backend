@@ -5,13 +5,13 @@ import { sendResponse } from "../../../utils/sendResponse";
 import status from "http-status";
 
 const getAnnotations = catchAsync(async (req: Request, res: Response) => {
-  const { resourceId } = req.query as { resourceId: string };
+  const { resourceId } = req.query as { resourceId: string; };
   const result = await annotationService.getAnnotations(req.user.userId, resourceId);
   sendResponse(res, { status: status.OK, success: true, message: "Annotations fetched", data: result });
 });
 
 const getSharedAnnotations = catchAsync(async (req: Request, res: Response) => {
-  const { resourceId } = req.query as { resourceId: string };
+  const { resourceId } = req.query as { resourceId: string; };
   const result = await annotationService.getSharedAnnotations(resourceId, req.user.userId);
   sendResponse(res, { status: status.OK, success: true, message: "Shared annotations fetched", data: result });
 });
@@ -22,12 +22,12 @@ const createAnnotation = catchAsync(async (req: Request, res: Response) => {
 });
 
 const updateAnnotation = catchAsync(async (req: Request, res: Response) => {
-  const result = await annotationService.updateAnnotation(req.user.userId, req.params.id, req.body);
+  const result = await annotationService.updateAnnotation(req.user.userId, req.params.id as string, req.body);
   sendResponse(res, { status: status.OK, success: true, message: "Annotation updated", data: result });
 });
 
 const deleteAnnotation = catchAsync(async (req: Request, res: Response) => {
-  const result = await annotationService.deleteAnnotation(req.user.userId, req.params.id);
+  const result = await annotationService.deleteAnnotation(req.user.userId, req.params.id as string);
   sendResponse(res, { status: status.OK, success: true, message: "Annotation deleted", data: result });
 });
 

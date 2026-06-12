@@ -6,7 +6,7 @@ import status from "http-status";
 
 const getFeaturedCourse = catchAsync(async (req: Request, res: Response) => {
   const result = await homePageService.getFeaturedCourse();
- 
+
   sendResponse(res, {
     status: status.OK,
     success: true,
@@ -17,7 +17,7 @@ const getFeaturedCourse = catchAsync(async (req: Request, res: Response) => {
 
 const getAllTeachersForHeroSelection = catchAsync(async (req: Request, res: Response) => {
   const result = await homePageService.getAllTeachersForHeroSelection();
- 
+
   sendResponse(res, {
     status: status.OK,
     success: true,
@@ -28,7 +28,7 @@ const getAllTeachersForHeroSelection = catchAsync(async (req: Request, res: Resp
 
 const getFeaturedTeachers = catchAsync(async (req: Request, res: Response) => {
   const result = await homePageService.getFeaturedTeachers();
- 
+
   sendResponse(res, {
     status: status.OK,
     success: true,
@@ -39,7 +39,7 @@ const getFeaturedTeachers = catchAsync(async (req: Request, res: Response) => {
 
 const upsertHeroSectionTeacher = catchAsync(async (req: Request, res: Response) => {
   const result = await homePageService.upsertHeroSectionTeacher(req.body);
- 
+
   sendResponse(res, {
     status: status.OK,
     success: true,
@@ -50,8 +50,8 @@ const upsertHeroSectionTeacher = catchAsync(async (req: Request, res: Response) 
 
 const removeHeroSectionTeacher = catchAsync(async (req: Request, res: Response) => {
   const { userId } = req.params;
-  const result = await homePageService.removeHeroSectionTeacher(userId);
- 
+  const result = await homePageService.removeHeroSectionTeacher(userId as string);
+
   sendResponse(res, {
     status: status.OK,
     success: true,
@@ -60,10 +60,10 @@ const removeHeroSectionTeacher = catchAsync(async (req: Request, res: Response) 
   });
 });
 
-export const homePageController={
-    getFeaturedCourse,
-    getAllTeachersForHeroSelection,
-    getFeaturedTeachers,
-    upsertHeroSectionTeacher,
-    removeHeroSectionTeacher,
-}
+export const homePageController = {
+  getFeaturedCourse,
+  getAllTeachersForHeroSelection,
+  getFeaturedTeachers,
+  upsertHeroSectionTeacher,
+  removeHeroSectionTeacher,
+};

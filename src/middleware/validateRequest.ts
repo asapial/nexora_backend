@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 
-type RequestSource = "body" | "query";
+type RequestSource = "body" | "query" | "params";
 
 export const validateRequest = (schema: z.ZodTypeAny, source: RequestSource = "body") => {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -12,10 +12,12 @@ export const validateRequest = (schema: z.ZodTypeAny, source: RequestSource = "b
         }
         const parsedData = schema.parse(req.body ?? {});
         req.body = parsedData;
-      } else {
+      } else if (source === "query") {
         const raw = { ...req.query } as Record<string, unknown>;
         const parsedData = schema.parse(raw);
-        (req as Request & { validatedQuery: unknown }).validatedQuery = parsedData;
+        (req as Request & { validatedQuery: unknown; }).validatedQuery = parsedData;
+      } else {
+        req.params = schema.parse(req.params ?? {}) as Request["params"];
       }
 
       next();

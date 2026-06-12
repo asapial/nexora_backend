@@ -12,7 +12,7 @@ const uploadResource = async (resourcePayload: any) => {
 
   const data = {
     ...resourcePayload,
-    clusterId:  clusterIds[0] ?? null,   // primary FK (first selected)
+    clusterId: clusterIds[0] ?? null,   // primary FK (first selected)
     clusterIds: clusterIds,              // all selected
   };
   const result = await prisma.resource.create({ data });
@@ -62,9 +62,9 @@ const getFilteredResources = async (
     // Find all clusters the requesting user belongs to (as student or teacher)
     const memberClusterIds = userId
       ? (await prisma.clusterMember.findMany({
-          where: { userId },
-          select: { clusterId: true },
-        })).map((m) => m.clusterId)
+        where: { userId },
+        select: { clusterId: true },
+      })).map((m) => m.clusterId)
       : [];
 
     where.OR = [
@@ -115,7 +115,7 @@ const getFilteredResources = async (
       include: {
         category: { select: { id: true, name: true } },
         uploader: { select: { name: true, email: true } },
-        cluster:  { select: { id: true, name: true } },
+        cluster: { select: { id: true, name: true } },
         bookmarks: userId
           ? { where: { readingList: { userId } }, select: { id: true } }
           : false,
@@ -241,24 +241,24 @@ const updateResource = async (
     throw new AppError(status.FORBIDDEN, "You can only edit your own resources.");
 
   const clusterIds = payload.clusterIds ?? resource.clusterIds ?? [];
-  const clusterId  = clusterIds[0] ?? resource.clusterId ?? null;
+  const clusterId = clusterIds[0] ?? resource.clusterId ?? null;
 
   const updated = await prisma.resource.update({
     where: { id: resourceId },
     data: {
-      ...(payload.title       !== undefined && { title: payload.title }),
+      ...(payload.title !== undefined && { title: payload.title }),
       ...(payload.description !== undefined && { description: payload.description }),
-      ...(payload.authors     !== undefined && { authors: payload.authors }),
-      ...(payload.tags        !== undefined && { tags: payload.tags }),
-      ...(payload.year        !== undefined && { year: payload.year }),
-      ...(payload.categoryId  !== undefined && { categoryId: payload.categoryId }),
-      ...(payload.visibility  !== undefined && { visibility: payload.visibility as any }),
+      ...(payload.authors !== undefined && { authors: payload.authors }),
+      ...(payload.tags !== undefined && { tags: payload.tags }),
+      ...(payload.year !== undefined && { year: payload.year }),
+      ...(payload.categoryId !== undefined && { categoryId: payload.categoryId }),
+      ...(payload.visibility !== undefined && { visibility: payload.visibility as any }),
       clusterIds,
       clusterId,
     },
     include: {
       category: { select: { id: true, name: true } },
-      cluster:  { select: { id: true, name: true } },
+      cluster: { select: { id: true, name: true } },
     },
   });
   return updated;
@@ -273,4 +273,4 @@ export const resourceService = {
   getCategories,
   deleteResource,
   updateResource,
-};
+};

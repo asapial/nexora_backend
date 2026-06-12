@@ -94,10 +94,10 @@ JSON output:`;
   // Models are tried in order; first successful JSON response wins.
   const FREE_MODELS = [
     "google/gemma-4-26b-a4b-it:free",
-    "baidu/cobuddy:free",      
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",          
-    "poolside/laguna-xs.2:free",             
-    "poolside/laguna-m.1:free",             
+    "baidu/cobuddy:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "poolside/laguna-xs.2:free",
+    "poolside/laguna-m.1:free",
     "deepseek/deepseek-v4-flash:free",
     "google/gemma-4-31b-it:free",
     "arcee-ai/trinity-large-thinking:free",
@@ -122,7 +122,7 @@ JSON output:`;
       });
 
       if (!response.ok) {
-        const errBody = await response.json().catch(() => ({})) as { error?: { message?: string } };
+        const errBody = await response.json().catch(() => ({})) as { error?: { message?: string; }; };
         lastError = errBody?.error?.message ?? `HTTP ${response.status}`;
         console.warn(`[pdfRag] ${model} failed: ${lastError}`);
         continue;
@@ -180,10 +180,10 @@ JSON output:`;
   };
 
   return {
-    titles:      ensure4Strings(meta.titles, ""),
-    descriptions:ensure4Strings(meta.descriptions, ""),
-    authorSets:  ensure4Arrays(meta.authorSets),
-    years:       ensure4Strings(meta.years, ""),
-    tagSets:     ensure4Arrays(meta.tagSets),
+    titles: ensure4Strings(meta.titles, ""),
+    descriptions: ensure4Strings(meta.descriptions, ""),
+    authorSets: ensure4Arrays(meta.authorSets),
+    years: ensure4Strings(meta.years, ""),
+    tagSets: ensure4Arrays(meta.tagSets),
   };
 };

@@ -96,9 +96,9 @@ const KNOWLEDGE_SECTIONS = PLATFORM_KNOWLEDGE
   .filter(s => s.length > 30);
 
 const STOP_WORDS = new Set([
-  "what","how","the","is","are","can","does","do","i","my","a","an","to",
-  "for","of","and","or","in","on","at","this","that","tell","show","list",
-  "about","find","give","get","me","us","please","just","which","where","when",
+  "what", "how", "the", "is", "are", "can", "does", "do", "i", "my", "a", "an", "to",
+  "for", "of", "and", "or", "in", "on", "at", "this", "that", "tell", "show", "list",
+  "about", "find", "give", "get", "me", "us", "please", "just", "which", "where", "when",
 ]);
 
 function scoreSection(section: string, query: string): number {
@@ -265,7 +265,7 @@ async function callLLM(prompt: string): Promise<string> {
         });
 
         if (!response.ok) {
-          const errBody = await response.json().catch(() => ({})) as { error?: { message?: string } };
+          const errBody = await response.json().catch(() => ({})) as { error?: { message?: string; }; };
           const msg = errBody?.error?.message ?? `HTTP ${response.status}`;
           console.warn(`[chatLLM] ${model} attempt ${attempt} failed: ${msg}`);
           if (attempt < RETRY_ATTEMPTS) await sleep(RETRY_DELAY_MS * attempt);

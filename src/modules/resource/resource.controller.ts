@@ -33,15 +33,15 @@ const uploadResource = catchAsync(
       uploaderId,
       fileUrl,
       fileType,
-      title:       bodyData.title         ?? "",
-      description: bodyData.description   ?? undefined,
-      visibility:  bodyData.visibility    ?? "PUBLIC",
-      tags:        Array.isArray(bodyData.tags) ? bodyData.tags : [],
-      authors:     Array.isArray(bodyData.authors) ? bodyData.authors : [],
-      year:        bodyData.year ? Number(bodyData.year) : undefined,
-      isFeatured:  bodyData.isFeatured    ?? false,
-      categoryId:  bodyData.categoryId    ?? undefined,
-      clusterId:   bodyData.clusterId     ?? undefined,
+      title: bodyData.title ?? "",
+      description: bodyData.description ?? undefined,
+      visibility: bodyData.visibility ?? "PUBLIC",
+      tags: Array.isArray(bodyData.tags) ? bodyData.tags : [],
+      authors: Array.isArray(bodyData.authors) ? bodyData.authors : [],
+      year: bodyData.year ? Number(bodyData.year) : undefined,
+      isFeatured: bodyData.isFeatured ?? false,
+      categoryId: bodyData.categoryId ?? undefined,
+      clusterId: bodyData.clusterId ?? undefined,
     };
 
     const result = await resourceService.uploadResource(payload);
@@ -109,7 +109,7 @@ const myResources = catchAsync(
 const bookmarkResource = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user!.userId;
-    const { resourceId } = req.params as { resourceId: string };
+    const { resourceId } = req.params as { resourceId: string; };
     const result = await resourceService.bookmarkResource(userId, resourceId);
     sendResponse(res, { status: status.CREATED, success: true, message: "Bookmarked", data: result });
   }
@@ -118,7 +118,7 @@ const bookmarkResource = catchAsync(
 const removeBookmark = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user!.userId;
-    const { resourceId } = req.params as { resourceId: string };
+    const { resourceId } = req.params as { resourceId: string; };
     const result = await resourceService.removeBookmark(userId, resourceId);
     sendResponse(res, { status: status.OK, success: true, message: "Bookmark removed", data: result });
   }
@@ -167,7 +167,7 @@ const suggestMetadata = catchAsync(
 const deleteResource = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user!.userId;
-    const { resourceId } = req.params as { resourceId: string };
+    const { resourceId } = req.params as { resourceId: string; };
     const result = await resourceService.deleteResource(resourceId, userId);
     sendResponse(res, { status: status.OK, success: true, message: "Resource deleted", data: result });
   }
@@ -186,7 +186,7 @@ const deleteResource = catchAsync(
 //  Streaming gives us 100% control over Content-Disposition.
 const cloudinarySign = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
-    const { url, inline, filename } = req.query as { url?: string; inline?: string; filename?: string };
+    const { url, inline, filename } = req.query as { url?: string; inline?: string; filename?: string; };
 
     if (!url || !url.startsWith("https://res.cloudinary.com/")) {
       return sendResponse(res, { status: status.BAD_REQUEST, success: false, message: "Valid Cloudinary url param required", data: null });
@@ -195,7 +195,7 @@ const cloudinarySign = catchAsync(
     // ── Detect resource_type ─────────────────────────────────────────────────
     const resourceType: "image" | "raw" | "video" =
       url.includes("/raw/upload/") ? "raw" :
-      url.includes("/video/upload/") ? "video" : "image";
+        url.includes("/video/upload/") ? "video" : "image";
 
     // ── Extract public_id ────────────────────────────────────────────────────
     const uploadMatch = url.match(/\/upload\/(?:v\d+\/)?(.+)$/);
@@ -208,7 +208,7 @@ const cloudinarySign = catchAsync(
     // Safe format extraction — only use the part after the LAST dot if it looks
     // like a real extension (≤5 chars).  Fallback to "pdf" for extensionless ids.
     const extMatch = rawPublicId.match(/\.([a-zA-Z0-9]{1,5})$/);
-    const format = extMatch ? extMatch[1] : "pdf";
+    const format = extMatch?.[1] ?? "pdf";
 
     // For image/video Cloudinary strips the extension from public_id
     const publicId = resourceType === "raw" ? rawPublicId : rawPublicId.replace(/\.[^.]+$/, "");
@@ -265,21 +265,21 @@ const cloudinarySign = catchAsync(
 const updateResource = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user!.userId;
-    const { resourceId } = req.params as { resourceId: string };
+    const { resourceId } = req.params as { resourceId: string; };
     const body = req.body as {
       title?: string; description?: string; authors?: string[];
       tags?: string[]; year?: string; categoryId?: string;
       clusterIds?: string[]; visibility?: string;
     };
     const result = await resourceService.updateResource(resourceId, userId, {
-      title:       body.title,
-      description: body.description,
-      authors:     Array.isArray(body.authors) ? body.authors : undefined,
-      tags:        Array.isArray(body.tags)    ? body.tags    : undefined,
-      year:        body.year !== undefined ? (body.year ? Number(body.year) : null) : undefined,
-      categoryId:  body.categoryId,
-      clusterIds:  Array.isArray(body.clusterIds) ? body.clusterIds : undefined,
-      visibility:  body.visibility,
+      ...(body.title !== undefined && { title: body.title }),
+      ...(body.description !== undefined && { description: body.description }),
+      ...(Array.isArray(body.authors) && { authors: body.authors }),
+      ...(Array.isArray(body.tags) && { tags: body.tags }),
+      ...(body.year !== undefined && { year: body.year ? Number(body.year) : null }),
+      ...(body.categoryId !== undefined && { categoryId: body.categoryId }),
+      ...(Array.isArray(body.clusterIds) && { clusterIds: body.clusterIds }),
+      ...(body.visibility !== undefined && { visibility: body.visibility }),
     });
     sendResponse(res, { status: status.OK, success: true, message: "Resource updated", data: result });
   }

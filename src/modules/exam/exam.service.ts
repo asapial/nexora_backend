@@ -5,7 +5,7 @@ import { scoreAnswers, seededShuffle } from "./exam.utils";
 
 type QuestionInput = {
   type: "MCQ" | "CQ"; prompt: string; explanation?: string; marks: number;
-  options: { text: string; isCorrect: boolean }[];
+  options: { text: string; isCorrect: boolean; }[];
 };
 
 const teacher = async (userId: string) => {
@@ -177,7 +177,7 @@ const violation = async (userId: string, examId: string, payload: any) => {
   return event;
 };
 
-const gradeAttempt = async (userId: string, examId: string, attemptId: string, grades: { answerId: string; awardedMarks: number }[]) => {
+const gradeAttempt = async (userId: string, examId: string, attemptId: string, grades: { answerId: string; awardedMarks: number; }[]) => {
   await ownedExam(userId, examId);
   const attempt = await prisma.examAttempt.findFirst({ where: { id: attemptId, examId }, include: { answers: { include: { question: true } } } });
   if (!attempt) throw new AppError(status.NOT_FOUND, "Attempt not found");
@@ -215,7 +215,7 @@ const adminAnalytics = async () => {
       violationCount: exam.attempts.reduce((s, a) => s + a.proctorEvents.length, 0),
     };
   });
-  const clusterMap = new Map<string, { id: string; name: string; exams: number; assigned: number; participated: number; scoreTotal: number; scored: number; violations: number }>();
+  const clusterMap = new Map<string, { id: string; name: string; exams: number; assigned: number; participated: number; scoreTotal: number; scored: number; violations: number; }>();
   for (const row of examRows) {
     if (!row.cluster) continue;
     const item = clusterMap.get(row.cluster.id) ?? { id: row.cluster.id, name: row.cluster.name, exams: 0, assigned: 0, participated: 0, scoreTotal: 0, scored: 0, violations: 0 };

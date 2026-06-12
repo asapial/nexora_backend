@@ -3,6 +3,7 @@ import { checkAuth } from "../../middleware/checkAuth";
 import { validateRequest } from "../../middleware/validateRequest";
 import { settingsController } from "./settings.controller";
 import { updateAccountSettingsSchema } from "./settings.validation";
+import { apiKeySchema, deleteAccountSchema, passwordSchema, totpSchema } from "../../validation/requestSchemas";
 
 const router = Router();
 
@@ -22,7 +23,7 @@ router.post("/sessions/:sessionId/revoke", checkAuth(), settingsController.revok
 
 // Danger zone
 router.post("/deactivate", checkAuth(), settingsController.deactivateAccount);
-router.post("/delete-account", checkAuth(), settingsController.deleteAccount);
+router.post("/delete-account", checkAuth(), validateRequest(deleteAccountSchema), settingsController.deleteAccount);
 router.post("/export-data", checkAuth(), settingsController.exportData);
 router.get("/export-data-pdf", checkAuth(), settingsController.exportDataPDF);
 
@@ -30,13 +31,13 @@ router.get("/export-data-pdf", checkAuth(), settingsController.exportDataPDF);
 router.get("/two-factor-status", checkAuth(), settingsController.getTwoFactorStatus);
 
 // Two-factor authentication operations
-router.post("/two-factor/enable", checkAuth(), settingsController.enableTwoFactor);
-router.post("/two-factor/verify-totp", checkAuth(), settingsController.verifyTOTP);
-router.post("/two-factor/disable", checkAuth(), settingsController.disableTwoFactor);
+router.post("/two-factor/enable", checkAuth(), validateRequest(passwordSchema), settingsController.enableTwoFactor);
+router.post("/two-factor/verify-totp", checkAuth(), validateRequest(totpSchema), settingsController.verifyTOTP);
+router.post("/two-factor/disable", checkAuth(), validateRequest(passwordSchema), settingsController.disableTwoFactor);
 
 // API Key management
 router.get("/api-keys", checkAuth(), settingsController.getApiKeys);
-router.post("/api-keys", checkAuth(), settingsController.generateApiKey);
+router.post("/api-keys", checkAuth(), validateRequest(apiKeySchema), settingsController.generateApiKey);
 router.delete("/api-keys/:keyId", checkAuth(), settingsController.deleteApiKey);
 router.post("/api-keys/revoke-all", checkAuth(), settingsController.revokeAllApiKeys);
 

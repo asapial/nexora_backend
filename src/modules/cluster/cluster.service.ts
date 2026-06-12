@@ -8,6 +8,7 @@ import { generatePassword } from "../../utils/generatePassword";
 import { AddMembersResult, ClusterHealthBreakdown, iCreateCluster } from "./cluster.type";
 import AppError from "../../errorHelpers/AppError";
 import status from "http-status";
+import { authService } from "../auth/auth.service";
 
 
 
@@ -33,7 +34,7 @@ const createCluster = async (clusterPayload: iCreateCluster, teacherUserId: stri
     where: {
       userId: teacherUserId
     }
-  })
+  });
 
   if (!teacherProfile) {
     throw new AppError(status.CONTINUE, "Teacher is not found");
@@ -179,7 +180,7 @@ const getCluster = async (teacherUserId: string, userRole: string) => {
     where: {
       userId: teacherUserId
     }
-  })
+  });
 
   if (!teacherProfile) {
     throw new AppError(status.CONTINUE, "Teacher is not found");
@@ -228,7 +229,7 @@ const getClusterById = async (
     where: {
       userId: teacherUserId
     }
-  })
+  });
 
   if (!teacherProfile) {
     throw new AppError(status.CONTINUE, "Teacher is not found");
@@ -294,11 +295,25 @@ const getClusterById = async (
   }
 };
 
-const patchClusterById = async (id: string, data: Cluster) => {
+const assertClusterOwnerOrAdmin = async (clusterId: string, actorUserId: string, actorRole: Role) => {
+  const cluster = await prisma.cluster.findUnique({
+    where: { id: clusterId },
+    select: { id: true, teacher: { select: { userId: true } } },
+  });
+  if (!cluster) throw new AppError(status.NOT_FOUND, "Cluster not found.");
+  if (actorRole !== Role.ADMIN && cluster.teacher.userId !== actorUserId) {
+    throw new AppError(status.FORBIDDEN, "You cannot modify another teacher's cluster.");
+  }
+  return cluster;
+};
+
+const patchClusterById = async (id: string, data: Cluster, actorUserId: string, actorRole: Role) => {
+  await assertClusterOwnerOrAdmin(id, actorUserId, actorRole);
   return await prisma.cluster.update({ where: { id }, data });
 };
 
-const deleteClusterById = async (id: string) => {
+const deleteClusterById = async (id: string, actorUserId: string, actorRole: Role) => {
+  await assertClusterOwnerOrAdmin(id, actorUserId, actorRole);
   return await prisma.$transaction(async (tx) => {
     // ── 1. Find all sessions belonging to this cluster ──────────────────────
     const sessions = await tx.studySession.findMany({
@@ -470,13 +485,11 @@ const addedClusterMemberByEmail = async (
 const updateMemberSubtype = async (
   clusterId: string,
   userId: string,
-  subtype: MemberSubtype
+  subtype: MemberSubtype,
+  actorUserId: string,
+  actorRole: Role,
 ) => {
-  // Verify cluster exists
-  const cluster = await prisma.cluster.findUnique({ where: { id: clusterId } });
-  if (!cluster) {
-    throw new AppError(status.NOT_FOUND, "Cluster not found.");
-  }
+  await assertClusterOwnerOrAdmin(clusterId, actorUserId, actorRole);
 
   // Verify membership exists
   const membership = await prisma.clusterMember.findUnique({
@@ -498,12 +511,8 @@ const updateMemberSubtype = async (
   return updated;
 };
 
-const removeMember = async (clusterId: string, userId: string) => {
-  // Verify cluster exists
-  const cluster = await prisma.cluster.findUnique({ where: { id: clusterId } });
-  if (!cluster) {
-    throw new AppError(status.NOT_FOUND, "Cluster not found.");
-  }
+const removeMember = async (clusterId: string, userId: string, actorUserId: string, actorRole: Role) => {
+  await assertClusterOwnerOrAdmin(clusterId, actorUserId, actorRole);
 
   // Verify membership exists
   const membership = await prisma.clusterMember.findUnique({
@@ -527,8 +536,10 @@ const removeMember = async (clusterId: string, userId: string) => {
 const resendMemberCredentials = async (
   clusterId: string,
   userId: string,
-  sessionToken: string
+  actorUserId: string,
+  actorRole: Role,
 ) => {
+  await assertClusterOwnerOrAdmin(clusterId, actorUserId, actorRole);
   const cluster = await prisma.cluster.findUnique({
     where: { id: clusterId },
     select: { id: true, name: true },
@@ -547,35 +558,9 @@ const resendMemberCredentials = async (
   });
   if (!user) throw new AppError(status.NOT_FOUND, "User account not found.");
 
-  const newPassword = generatePassword(12);
+  await authService.forgetPassword(user.email);
 
   // ✅ Use setUserPassword — no currentPassword check, targets the member not the caller
-  await auth.api.setPassword({
-    body: {
-      newPassword,
-    },
-    headers: new Headers({
-      Authorization: `Bearer ${sessionToken}`,
-    }),
-  });
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: { needPasswordChange: true },
-  });
-
-  await sendEmail({
-    to: user.email,
-    subject: `Your new credentials for ${cluster.name} on Nexora`,
-    templateName: "sendCredentialEmail",
-    templateData: {
-      email: user.email,
-      password: newPassword,
-      clusterName: cluster.name,
-      loginUrl: `${envVars.FRONTEND_URL}/login`,
-    },
-  });
-
   return { emailSentTo: user.email, userId: user.id };
 };
 
@@ -687,12 +672,12 @@ const addCoTeacher = async (
   // Verify cluster exists and requesting user is the owner
   const cluster = await prisma.cluster.findUnique({
     where: { id: clusterId },
-    select: { id: true, name: true, teacherId: true },
+    select: { id: true, name: true, teacher: { select: { userId: true } } },
   });
   if (!cluster) {
     throw new AppError(status.NOT_FOUND, "Cluster not found.");
   }
-  if (cluster.teacherId !== requestingUserId) {
+  if (cluster.teacher.userId !== requestingUserId) {
     throw new AppError(
       status.FORBIDDEN,
       "Only the cluster owner can invite co-teachers."
@@ -715,7 +700,7 @@ const addCoTeacher = async (
   }
 
   // Prevent adding the cluster owner as co-teacher
-  if (coTeacherUserId === cluster.teacherId) {
+  if (coTeacherUserId === cluster.teacher.userId) {
     throw new AppError(
       status.BAD_REQUEST,
       "The cluster owner cannot be added as a co-teacher."
@@ -755,12 +740,12 @@ const removeCoTeacher = async (
   // Verify cluster exists and requesting user is the owner
   const cluster = await prisma.cluster.findUnique({
     where: { id: clusterId },
-    select: { id: true, teacherId: true },
+    select: { id: true, teacher: { select: { userId: true } } },
   });
   if (!cluster) {
     throw new AppError(status.NOT_FOUND, "Cluster not found.");
   }
-  if (cluster.teacherId !== requestingUserId) {
+  if (cluster.teacher.userId !== requestingUserId) {
     throw new AppError(
       status.FORBIDDEN,
       "Only the cluster owner can revoke co-teacher access."

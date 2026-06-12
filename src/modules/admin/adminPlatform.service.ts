@@ -96,7 +96,7 @@ const deleteGlobalAnnouncement = async (id: string) => {
 
 // ─── Cluster Oversight ───────────────────────────────────────────────────────
 
-const getClusterOversight = async (params: { page?: number; limit?: number; health?: string }) => {
+const getClusterOversight = async (params: { page?: number; limit?: number; health?: string; }) => {
   const { page = 1, limit = 25, health } = params;
   const skip = (page - 1) * limit;
   const where: any = {};

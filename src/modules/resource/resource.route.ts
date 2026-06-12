@@ -3,6 +3,8 @@ import { resourceController } from "./resource.controller";
 import { multerUpload, multerMemory } from "../../config/multer.config";
 import { checkAuth, optionalAuth } from "../../middleware/checkAuth";
 import { Role } from "../../generated/prisma/enums";
+import { validateRequest } from "../../middleware/validateRequest";
+import { resourceUpdateSchema } from "../../validation/requestSchemas";
 
 const router = Router();
 
@@ -29,7 +31,7 @@ router.get("/browse", optionalAuth, resourceController.browseResources);
 router.get("/my", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.myResources);
 
 // All resources (admin / raw)
-router.get("/", resourceController.allResources);
+router.get("/", checkAuth(Role.ADMIN), resourceController.allResources);
 
 // Categories
 router.get("/categories", resourceController.getCategories);
@@ -42,7 +44,7 @@ router.post("/:resourceId/bookmark", checkAuth(Role.STUDENT, Role.TEACHER), reso
 router.delete("/:resourceId/bookmark", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.removeBookmark);
 
 // Update resource metadata (uploader only)
-router.patch("/:resourceId", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.updateResource);
+router.patch("/:resourceId", checkAuth(Role.STUDENT, Role.TEACHER), validateRequest(resourceUpdateSchema), resourceController.updateResource);
 
 // Delete resource (uploader only)
 router.delete("/:resourceId", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.deleteResource);

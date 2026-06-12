@@ -20,7 +20,7 @@ export interface IUpdateSession {
   location?: string;
   deadline?: string;
   templateId?: string;
-  status?:string;
+  status?: StudySessionStatus;
 }
 
 export interface IAttendanceRecord {
@@ -45,3 +45,4 @@ export interface IAttachReplay {
   recordingUrl: string;
   notes?: IReplayNote[];
 }
+import type { StudySessionStatus } from "../../generated/prisma/enums";

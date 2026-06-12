@@ -2,7 +2,7 @@ export type ScoringQuestion = {
   id: string;
   type?: "MCQ" | "CQ";
   marks: number;
-  options: { id: string; isCorrect: boolean }[];
+  options: { id: string; isCorrect: boolean; }[];
 };
 
 const hash = (value: string) => {
@@ -26,7 +26,7 @@ export const seededShuffle = <T>(items: T[], seed: string): T[] => {
 
 export const scoreAnswers = (
   questions: ScoringQuestion[],
-  answers: { questionId: string; optionId?: string | null }[],
+  answers: { questionId: string; optionId?: string | null; }[],
 ) => {
   const selected = new Map(answers.map((answer) => [answer.questionId, answer.optionId]));
   const rows = questions.map((question) => {

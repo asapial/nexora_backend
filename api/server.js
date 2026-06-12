@@ -1620,7 +1620,7 @@ import nodemailer from "nodemailer";
 import path2 from "path";
 import ejs from "ejs";
 import status from "http-status";
-var transporter = nodemailer.createTransport({
+var smtpOptions = {
   host: "smtp.gmail.com",
   port: 587,
   secure: false,
@@ -1637,7 +1637,8 @@ var transporter = nodemailer.createTransport({
     // Do not fail on invalid certs in dev
     rejectUnauthorized: false
   }
-});
+};
+var transporter = nodemailer.createTransport(smtpOptions);
 transporter.verify((error) => {
   if (error) {
     console.error("[EmailSender] SMTP connection FAILED:", error.message);
@@ -2933,20 +2934,199 @@ var optionalAuth = async (req, _res, next) => {
   next();
 };
 
+// src/middleware/validateRequest.ts
+var validateRequest = (schema, source = "body") => {
+  return (req, res, next) => {
+    try {
+      if (source === "body") {
+        if (req.body?.data) {
+          req.body = JSON.parse(req.body.data);
+        }
+        const parsedData = schema.parse(req.body ?? {});
+        req.body = parsedData;
+      } else if (source === "query") {
+        const raw2 = { ...req.query };
+        const parsedData = schema.parse(raw2);
+        req.validatedQuery = parsedData;
+      } else {
+        req.params = schema.parse(req.params ?? {});
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
+
+// src/validation/requestSchemas.ts
+import { z } from "zod";
+var optionalUrl = z.string().trim().url().max(2048).optional().nullable();
+var note = z.string().trim().min(3).max(2e3);
+var emails = z.union([
+  z.array(z.string().trim().toLowerCase().email()).min(1).max(100),
+  z.string().transform((value) => value.split(/[\s,;]+/).filter(Boolean))
+]).pipe(z.array(z.string().trim().toLowerCase().email()).min(1).max(100));
+var createUsersByEmailSchema = z.object({ emails });
+var adminUpdateUserSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  role: z.enum(["ADMIN", "TEACHER", "STUDENT"]).optional()
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+var rejectNoteSchema = z.object({ note });
+var revenuePercentSchema = z.object({ percent: z.number().min(0).max(100) });
+var approvePriceSchema = z.object({ price: z.number().positive().max(1e6) });
+var globalAnnouncementSchema = z.object({
+  title: z.string().trim().min(3).max(200),
+  body: z.string().trim().min(1).max(1e4),
+  urgency: z.enum(["INFO", "IMPORTANT", "CRITICAL"]).optional(),
+  targetRole: z.enum(["ADMIN", "TEACHER", "STUDENT"]).optional(),
+  targetUserId: z.string().min(1).optional(),
+  scheduledAt: z.string().datetime().optional()
+});
+var warningSchema = z.object({ reason: note });
+var manualEnrollmentSchema = z.object({ userId: z.string().min(1), courseId: z.string().min(1) });
+var emailTemplateCreateSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  slug: z.string().trim().min(2).max(120).regex(/^[a-z0-9-]+$/),
+  subject: z.string().trim().min(2).max(200),
+  description: z.string().trim().max(1e3).optional(),
+  body: z.string().min(1).max(1e5)
+});
+var emailTemplateUpdateSchema = emailTemplateCreateSchema.omit({ slug: true }).partial().refine((value) => Object.keys(value).length > 0, "At least one field is required");
+var taskAssignmentSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  description: z.string().trim().max(3e3).optional(),
+  homework: z.string().trim().max(5e3).optional(),
+  deadline: z.string().datetime().optional()
+});
+var taskUpdateSchema = taskAssignmentSchema.partial().refine((value) => Object.keys(value).length > 0, "At least one field is required");
+var taskReviewSchema = z.object({ finalScore: z.number().min(0).max(10), reviewNote: z.string().trim().max(3e3).optional() });
+var taskTemplateCreateSchema = z.object({ title: z.string().trim().min(1).max(200), description: z.string().trim().max(3e3).optional() });
+var taskTemplateUpdateSchema = taskTemplateCreateSchema.partial().refine((value) => Object.keys(value).length > 0, "At least one field is required");
+var teacherAnnouncementSchema = z.object({
+  title: z.string().trim().min(3).max(200),
+  body: z.string().trim().min(1).max(1e4),
+  urgency: z.enum(["INFO", "IMPORTANT", "CRITICAL"]).optional(),
+  clusterIds: z.array(z.string().min(1)).max(100).optional(),
+  isGlobal: z.boolean().optional(),
+  scheduledAt: z.string().datetime().optional()
+});
+var categoryCreateSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  description: z.string().trim().max(1e3).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  clusterId: z.string().min(1).optional(),
+  isGlobal: z.boolean().optional()
+});
+var categoryUpdateSchema = categoryCreateSchema.partial().refine((value) => Object.keys(value).length > 0, "At least one field is required");
+var annotationFields = z.object({
+  resourceId: z.string().min(1),
+  highlight: z.string().max(1e4).optional(),
+  note: z.string().max(1e4).optional(),
+  page: z.number().int().min(1).max(1e5).optional(),
+  isShared: z.boolean().optional()
+});
+var annotationCreateSchema = annotationFields.refine((value) => Boolean(value.highlight?.trim() || value.note?.trim()), "Highlight or note is required");
+var annotationUpdateSchema = annotationFields.omit({ resourceId: true }).partial().refine((value) => Object.keys(value).length > 0, "At least one field is required");
+var goalCreateSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  target: z.string().trim().max(1e3).optional(),
+  clusterId: z.string().min(1).optional(),
+  kanbanStatus: z.enum(["TODO", "IN_PROGRESS", "DONE"]).optional()
+});
+var goalUpdateSchema = z.object({
+  title: z.string().trim().min(1).max(200).optional(),
+  target: z.string().trim().max(1e3).optional(),
+  isAchieved: z.boolean().optional(),
+  kanbanStatus: z.enum(["TODO", "IN_PROGRESS", "DONE"]).optional()
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+var taskSubmissionSchema = z.object({
+  videoUrl: optionalUrl,
+  textBody: z.string().max(5e4).optional().nullable(),
+  pdfUrl: optionalUrl,
+  fileSize: z.number().int().min(0).max(100 * 1024 * 1024).optional().nullable()
+}).refine((value) => Boolean(value.videoUrl || value.pdfUrl || value.textBody?.trim()), "At least one submission field is required");
+var testimonialCreateSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  role: z.string().trim().min(2).max(120),
+  quote: z.string().trim().min(10).max(2e3),
+  rating: z.number().int().min(1).max(5)
+});
+var teacherApplicationSchema = z.object({
+  fullName: z.string().trim().min(2).max(120),
+  email: z.string().trim().toLowerCase().email().max(320),
+  phone: z.string().trim().max(40).optional(),
+  designation: z.string().trim().max(120).optional(),
+  institution: z.string().trim().max(200).optional(),
+  department: z.string().trim().max(120).optional(),
+  specialization: z.string().trim().max(200).optional(),
+  experience: z.number().int().min(0).max(80).optional(),
+  bio: z.string().trim().max(3e3).optional(),
+  linkedinUrl: optionalUrl,
+  website: optionalUrl
+});
+var teacherApplicationRejectSchema = z.object({ note });
+var chatHistoryItem = z.object({ role: z.enum(["user", "assistant", "system"]), content: z.string().max(1e4) });
+var aiChatSchema = z.object({ message: z.string().trim().min(1).max(1e4), history: z.array(chatHistoryItem).max(50).optional().default([]) });
+var aiDescriptionSchema = z.object({ clusterName: z.string().trim().min(3).max(200) });
+var deleteAccountSchema = z.object({ confirmText: z.literal("DELETE") });
+var passwordSchema = z.object({ password: z.string().min(8).max(200) });
+var totpSchema = z.object({ code: z.string().regex(/^\d{6}$/) });
+var apiKeySchema = z.object({ label: z.string().trim().min(1).max(100) });
+var strongPassword = z.string().min(8).max(200).regex(/[a-z]/, "Password must include a lowercase letter").regex(/[A-Z]/, "Password must include an uppercase letter").regex(/\d/, "Password must include a number");
+var registerSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  email: z.string().trim().toLowerCase().email(),
+  password: strongPassword,
+  image: z.string().url().max(2048).optional(),
+  callbackURL: z.string().url().max(2048).optional()
+});
+var loginSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(1).max(200),
+  rememberMe: z.boolean().optional(),
+  callbackURL: z.string().url().max(2048).optional()
+});
+var demoLoginSchema = z.object({ role: z.enum(["ADMIN", "TEACHER", "STUDENT"]) });
+var changePasswordSchema = z.object({ oldPassword: z.string().min(1).max(200), newPassword: strongPassword });
+var emailSchema = z.object({ email: z.string().trim().toLowerCase().email() });
+var otpSchema = emailSchema.extend({ otp: z.string().regex(/^\d{6}$/) });
+var resetPasswordSchema = otpSchema.extend({ newPassword: strongPassword });
+var paymentCourseSchema = z.object({ courseId: z.string().min(1) });
+var paymentIntentSchema = z.object({ paymentIntentId: z.string().trim().min(1).max(255) });
+var resourceUpdateSchema = z.object({
+  title: z.string().trim().min(3).max(200).optional(),
+  description: z.string().trim().max(3e3).optional(),
+  authors: z.array(z.string().trim().min(1).max(120)).max(30).optional(),
+  tags: z.array(z.string().trim().min(1).max(50)).max(30).optional(),
+  year: z.union([z.coerce.number().int().min(1900).max((/* @__PURE__ */ new Date()).getFullYear()), z.literal("").transform(() => null)]).optional(),
+  categoryId: z.string().min(1).optional(),
+  clusterIds: z.array(z.string().min(1)).max(100).optional(),
+  visibility: z.enum(["PUBLIC", "PRIVATE", "CLUSTER"]).optional()
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+var heroTeacherSchema = z.object({
+  userId: z.string().min(1),
+  displayName: z.string().trim().max(120).optional().nullable(),
+  displayDesignation: z.string().trim().max(120).optional().nullable(),
+  displayDepartment: z.string().trim().max(120).optional().nullable(),
+  displayBio: z.string().trim().max(2e3).optional().nullable(),
+  order: z.number().int().min(0).max(1e3).optional(),
+  isActive: z.boolean()
+});
+
 // src/modules/auth/auth.router.ts
 var router = Router();
-router.post("/register", authController.registerController);
-router.post("/login", authController.loginController);
-router.post("/demo-login", authController.demoLoginController);
+router.post("/register", validateRequest(registerSchema), authController.registerController);
+router.post("/login", validateRequest(loginSchema), authController.loginController);
+router.post("/demo-login", validateRequest(demoLoginSchema), authController.demoLoginController);
 router.post("/verify-login-totp", authController.verifyLoginTOTPController);
 router.get("/me", checkAuth(), authController.getMyDataController);
-router.post("/changePassword", checkAuth(), authController.changePasswordController);
+router.post("/changePassword", checkAuth(), validateRequest(changePasswordSchema), authController.changePasswordController);
 router.post("/logout", authController.logoutController);
-router.post("/verify-email", authController.verifyEmail);
-router.post("/resend-verification-email", authController.resendVerificationEmail);
-router.post("/forgetPassword", authController.forgetPassword);
-router.post("/verifyResetOtp", authController.verifyResetOtp);
-router.post("/resetPassword", authController.resetPassword);
+router.post("/verify-email", validateRequest(otpSchema), authController.verifyEmail);
+router.post("/resend-verification-email", validateRequest(emailSchema), authController.resendVerificationEmail);
+router.post("/forgetPassword", validateRequest(emailSchema), authController.forgetPassword);
+router.post("/verifyResetOtp", validateRequest(otpSchema), authController.verifyResetOtp);
+router.post("/resetPassword", validateRequest(resetPasswordSchema), authController.resetPassword);
 router.patch("/updateProfile", checkAuth(), authController.updateProfileController);
 router.get("/login/google", authController.googleLogin);
 router.get("/google/success", authController.googleLoginSuccess);
@@ -2986,7 +3166,7 @@ function generatePassword(length = 12) {
 // src/modules/cluster/cluster.service.ts
 import status5 from "http-status";
 var createCluster = async (clusterPayload, teacherUserId) => {
-  const { name, slug, description, batchTag, emails = [] } = clusterPayload;
+  const { name, slug, description, batchTag, emails: emails2 = [] } = clusterPayload;
   const result = {
     added: [],
     invited: [],
@@ -3019,7 +3199,7 @@ var createCluster = async (clusterPayload, teacherUserId) => {
     });
     return { cluster: cluster2 };
   });
-  for (const rawEmail of emails) {
+  for (const rawEmail of emails2) {
     const email = rawEmail.trim().toLowerCase();
     if (!email) continue;
     try {
@@ -3200,10 +3380,23 @@ var getClusterById = async (teacherUserId, userRole, id) => {
     );
   }
 };
-var patchClusterById = async (id, data) => {
+var assertClusterOwnerOrAdmin = async (clusterId, actorUserId, actorRole) => {
+  const cluster = await prisma.cluster.findUnique({
+    where: { id: clusterId },
+    select: { id: true, teacher: { select: { userId: true } } }
+  });
+  if (!cluster) throw new AppError_default(status5.NOT_FOUND, "Cluster not found.");
+  if (actorRole !== Role.ADMIN && cluster.teacher.userId !== actorUserId) {
+    throw new AppError_default(status5.FORBIDDEN, "You cannot modify another teacher's cluster.");
+  }
+  return cluster;
+};
+var patchClusterById = async (id, data, actorUserId, actorRole) => {
+  await assertClusterOwnerOrAdmin(id, actorUserId, actorRole);
   return await prisma.cluster.update({ where: { id }, data });
 };
-var deleteClusterById = async (id) => {
+var deleteClusterById = async (id, actorUserId, actorRole) => {
+  await assertClusterOwnerOrAdmin(id, actorUserId, actorRole);
   return await prisma.$transaction(async (tx) => {
     const sessions = await tx.studySession.findMany({
       where: { clusterId: id },
@@ -3242,7 +3435,7 @@ var deleteClusterById = async (id) => {
     return await tx.cluster.delete({ where: { id } });
   });
 };
-var addedClusterMemberByEmail = async (clusterId, emails, actorUserId, actorRole) => {
+var addedClusterMemberByEmail = async (clusterId, emails2, actorUserId, actorRole) => {
   const result = {
     added: [],
     invited: [],
@@ -3255,7 +3448,7 @@ var addedClusterMemberByEmail = async (clusterId, emails, actorUserId, actorRole
   if (actorRole !== Role.ADMIN && cluster.teacher.userId !== actorUserId) {
     throw new AppError_default(status5.FORBIDDEN, "You cannot add members to another teacher's cluster.");
   }
-  for (const rawEmail of emails) {
+  for (const rawEmail of emails2) {
     const email = rawEmail.trim().toLowerCase();
     if (!email) continue;
     const existingUser = await prisma.user.findUnique({
@@ -3326,11 +3519,8 @@ var addedClusterMemberByEmail = async (clusterId, emails, actorUserId, actorRole
   }
   return result;
 };
-var updateMemberSubtype = async (clusterId, userId, subtype) => {
-  const cluster = await prisma.cluster.findUnique({ where: { id: clusterId } });
-  if (!cluster) {
-    throw new AppError_default(status5.NOT_FOUND, "Cluster not found.");
-  }
+var updateMemberSubtype = async (clusterId, userId, subtype, actorUserId, actorRole) => {
+  await assertClusterOwnerOrAdmin(clusterId, actorUserId, actorRole);
   const membership = await prisma.clusterMember.findUnique({
     where: { clusterId_userId: { clusterId, userId } }
   });
@@ -3347,11 +3537,8 @@ var updateMemberSubtype = async (clusterId, userId, subtype) => {
   });
   return updated;
 };
-var removeMember = async (clusterId, userId) => {
-  const cluster = await prisma.cluster.findUnique({ where: { id: clusterId } });
-  if (!cluster) {
-    throw new AppError_default(status5.NOT_FOUND, "Cluster not found.");
-  }
+var removeMember = async (clusterId, userId, actorUserId, actorRole) => {
+  await assertClusterOwnerOrAdmin(clusterId, actorUserId, actorRole);
   const membership = await prisma.clusterMember.findUnique({
     where: { clusterId_userId: { clusterId, userId } }
   });
@@ -3366,7 +3553,8 @@ var removeMember = async (clusterId, userId) => {
   });
   return { removed: true, userId, clusterId };
 };
-var resendMemberCredentials = async (clusterId, userId, sessionToken) => {
+var resendMemberCredentials = async (clusterId, userId, actorUserId, actorRole) => {
+  await assertClusterOwnerOrAdmin(clusterId, actorUserId, actorRole);
   const cluster = await prisma.cluster.findUnique({
     where: { id: clusterId },
     select: { id: true, name: true }
@@ -3382,30 +3570,7 @@ var resendMemberCredentials = async (clusterId, userId, sessionToken) => {
     select: { id: true, email: true, name: true }
   });
   if (!user) throw new AppError_default(status5.NOT_FOUND, "User account not found.");
-  const newPassword = generatePassword(12);
-  await auth.api.setPassword({
-    body: {
-      newPassword
-    },
-    headers: new Headers({
-      Authorization: `Bearer ${sessionToken}`
-    })
-  });
-  await prisma.user.update({
-    where: { id: userId },
-    data: { needPasswordChange: true }
-  });
-  await sendEmail({
-    to: user.email,
-    subject: `Your new credentials for ${cluster.name} on Nexora`,
-    templateName: "sendCredentialEmail",
-    templateData: {
-      email: user.email,
-      password: newPassword,
-      clusterName: cluster.name,
-      loginUrl: `${envVars.FRONTEND_URL}/login`
-    }
-  });
+  await authService.forgetPassword(user.email);
   return { emailSentTo: user.email, userId: user.id };
 };
 var getClusterHealth = async (clusterId) => {
@@ -3476,12 +3641,12 @@ var getClusterHealth = async (clusterId) => {
 var addCoTeacher = async (clusterId, requestingUserId, coTeacherUserId, canEdit) => {
   const cluster = await prisma.cluster.findUnique({
     where: { id: clusterId },
-    select: { id: true, name: true, teacherId: true }
+    select: { id: true, name: true, teacher: { select: { userId: true } } }
   });
   if (!cluster) {
     throw new AppError_default(status5.NOT_FOUND, "Cluster not found.");
   }
-  if (cluster.teacherId !== requestingUserId) {
+  if (cluster.teacher.userId !== requestingUserId) {
     throw new AppError_default(
       status5.FORBIDDEN,
       "Only the cluster owner can invite co-teachers."
@@ -3500,7 +3665,7 @@ var addCoTeacher = async (clusterId, requestingUserId, coTeacherUserId, canEdit)
       "The specified user is not a registered teacher."
     );
   }
-  if (coTeacherUserId === cluster.teacherId) {
+  if (coTeacherUserId === cluster.teacher.userId) {
     throw new AppError_default(
       status5.BAD_REQUEST,
       "The cluster owner cannot be added as a co-teacher."
@@ -3530,12 +3695,12 @@ var addCoTeacher = async (clusterId, requestingUserId, coTeacherUserId, canEdit)
 var removeCoTeacher = async (clusterId, requestingUserId, coTeacherUserId) => {
   const cluster = await prisma.cluster.findUnique({
     where: { id: clusterId },
-    select: { id: true, teacherId: true }
+    select: { id: true, teacher: { select: { userId: true } } }
   });
   if (!cluster) {
     throw new AppError_default(status5.NOT_FOUND, "Cluster not found.");
   }
-  if (cluster.teacherId !== requestingUserId) {
+  if (cluster.teacher.userId !== requestingUserId) {
     throw new AppError_default(
       status5.FORBIDDEN,
       "Only the cluster owner can revoke co-teacher access."
@@ -3614,7 +3779,7 @@ var patchClusterById2 = catchAsync(
   async (req, res, next) => {
     const data = req.body;
     const clusterId = req.params.id;
-    const result = await clusterService.patchClusterById(clusterId, data);
+    const result = await clusterService.patchClusterById(clusterId, data, req.user.userId, req.user.role);
     sendResponse(res, {
       status: status6.OK,
       success: true,
@@ -3626,7 +3791,7 @@ var patchClusterById2 = catchAsync(
 var deleteClusterById2 = catchAsync(
   async (req, res, next) => {
     const clusterId = req.params.id;
-    const result = await clusterService.deleteClusterById(clusterId);
+    const result = await clusterService.deleteClusterById(clusterId, req.user.userId, req.user.role);
     sendResponse(res, {
       status: status6.OK,
       success: true,
@@ -3661,7 +3826,9 @@ var updateMemberSubtype2 = catchAsync(
     const result = await clusterService.updateMemberSubtype(
       clusterId,
       userId,
-      subtype
+      subtype,
+      req.user.userId,
+      req.user.role
     );
     const subtypeMessages = {
       EMERGING: "Member set to EMERGING \u2014 view-only onboarding access granted.",
@@ -3680,7 +3847,7 @@ var removeMember2 = catchAsync(
   async (req, res, next) => {
     const clusterId = req.params.id;
     const userId = req.params.userId;
-    const result = await clusterService.removeMember(clusterId, userId);
+    const result = await clusterService.removeMember(clusterId, userId, req.user.userId, req.user.role);
     sendResponse(res, {
       status: status6.OK,
       success: true,
@@ -3693,16 +3860,16 @@ var resendMemberCredentials2 = catchAsync(
   async (req, res, next) => {
     const clusterId = req.params.id;
     const userId = req.params.userId;
-    const betterAuthSessionToken = cookieUtils.getBetterAuthSessionToken(req);
     const result = await clusterService.resendMemberCredentials(
       clusterId,
       userId,
-      betterAuthSessionToken
+      req.user.userId,
+      req.user.role
     );
     sendResponse(res, {
       status: status6.OK,
       success: true,
-      message: `Fresh credentials generated and emailed to ${result.emailSentTo}. The member must change their password on next login.`,
+      message: `A secure password-reset OTP was emailed to ${result.emailSentTo}.`,
       data: result
     });
   }
@@ -3772,45 +3939,32 @@ var clusterController = {
   removeCoTeacher: removeCoTeacher2
 };
 
-// src/middleware/validateRequest.ts
-var validateRequest = (schema, source = "body") => {
-  return (req, res, next) => {
-    try {
-      if (source === "body") {
-        if (req.body?.data) {
-          req.body = JSON.parse(req.body.data);
-        }
-        const parsedData = schema.parse(req.body ?? {});
-        req.body = parsedData;
-      } else {
-        const raw2 = { ...req.query };
-        const parsedData = schema.parse(raw2);
-        req.validatedQuery = parsedData;
-      }
-      next();
-    } catch (error) {
-      next(error);
-    }
-  };
-};
-
 // src/modules/cluster/cluster.validation.ts
-import { z } from "zod";
-var updateClusterSchema = z.object({
-  name: z.string().min(3, "Name must be at least 3 characters").max(100).optional(),
-  slug: z.string().min(3).max(100).regex(/^[a-z0-9-]+$/, "Slug must be lowercase and URL-friendly").optional(),
-  description: z.string().max(1e3).optional(),
-  batchTag: z.string().max(100).optional(),
-  isActive: z.boolean().optional()
+import { z as z2 } from "zod";
+var emailList = z2.array(z2.string().trim().toLowerCase().email()).min(1).max(100);
+var createClusterSchema = z2.object({
+  name: z2.string().trim().min(3).max(100),
+  slug: z2.string().trim().min(3).max(100).regex(/^[a-z0-9-]+$/),
+  description: z2.string().trim().max(1e3).optional(),
+  batchTag: z2.string().trim().max(100).optional(),
+  emails: emailList.optional().default([])
 });
-var updateMemberSubtypeSchema = z.object({
-  subtype: z.enum(["EMERGING", "RUNNING", "ALUMNI"]).refine((val) => true, {
+var addClusterMembersSchema = z2.object({ data: emailList });
+var updateClusterSchema = z2.object({
+  name: z2.string().min(3, "Name must be at least 3 characters").max(100).optional(),
+  slug: z2.string().min(3).max(100).regex(/^[a-z0-9-]+$/, "Slug must be lowercase and URL-friendly").optional(),
+  description: z2.string().max(1e3).optional(),
+  batchTag: z2.string().max(100).optional(),
+  isActive: z2.boolean().optional()
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+var updateMemberSubtypeSchema = z2.object({
+  subtype: z2.enum(["EMERGING", "RUNNING", "ALUMNI"]).refine((val) => true, {
     message: "subtype must be one of: EMERGING (view-only onboarding), RUNNING (full participation), or ALUMNI (read-only archive)."
   })
 });
-var addCoTeacherSchema = z.object({
-  userId: z.string().min(1, "userId must not be empty"),
-  canEdit: z.boolean().refine((val) => typeof val === "boolean", {
+var addCoTeacherSchema = z2.object({
+  userId: z2.string().min(1, "userId must not be empty"),
+  canEdit: z2.boolean().refine((val) => typeof val === "boolean", {
     message: "canEdit must be a boolean (true = full permissions, false = read-only)"
   })
 });
@@ -3818,16 +3972,16 @@ var addCoTeacherSchema = z.object({
 // src/modules/cluster/cluster.route.ts
 var router2 = Router2();
 router2.get("/", checkAuth("TEACHER", "ADMIN"), clusterController.getCluster);
-router2.post("/create", checkAuth("TEACHER", "ADMIN"), clusterController.createCluster);
-router2.get("/:id", checkAuth(), clusterController.getClusterById);
+router2.post("/create", checkAuth("TEACHER", "ADMIN"), validateRequest(createClusterSchema), clusterController.createCluster);
+router2.get("/:id", checkAuth(Role.TEACHER, Role.ADMIN), clusterController.getClusterById);
 router2.patch(
   "/:id",
-  checkAuth(),
+  checkAuth(Role.TEACHER, Role.ADMIN),
   validateRequest(updateClusterSchema),
   clusterController.patchClusterById
 );
-router2.delete("/:id", checkAuth(), clusterController.deleteClusterById);
-router2.post("/:id/member", checkAuth(Role.TEACHER, Role.ADMIN), clusterController.addedClusterMemberByEmail);
+router2.delete("/:id", checkAuth(Role.TEACHER, Role.ADMIN), clusterController.deleteClusterById);
+router2.post("/:id/member", checkAuth(Role.TEACHER, Role.ADMIN), validateRequest(addClusterMembersSchema), clusterController.addedClusterMemberByEmail);
 router2.patch(
   "/:id/members/:userId",
   checkAuth(Role.TEACHER, Role.ADMIN),
@@ -3844,7 +3998,7 @@ router2.post(
   checkAuth(Role.TEACHER, Role.ADMIN),
   clusterController.resendMemberCredentials
 );
-router2.get("/:id/health", checkAuth(), clusterController.getClusterHealth);
+router2.get("/:id/health", checkAuth(Role.TEACHER, Role.ADMIN), clusterController.getClusterHealth);
 router2.post(
   "/:id/co-teachers",
   checkAuth(Role.TEACHER),
@@ -4370,7 +4524,7 @@ var cloudinarySign = catchAsync(
     }
     const rawPublicId = uploadMatch[1];
     const extMatch = rawPublicId.match(/\.([a-zA-Z0-9]{1,5})$/);
-    const format = extMatch ? extMatch[1] : "pdf";
+    const format = extMatch?.[1] ?? "pdf";
     const publicId = resourceType === "raw" ? rawPublicId : rawPublicId.replace(/\.[^.]+$/, "");
     const { cloudinaryUpload: cloudinaryUpload2 } = await import("./cloudinary.config-DTO2F5TG.js");
     const signedCloudinaryUrl = cloudinaryUpload2.utils.private_download_url(publicId, format, {
@@ -4411,14 +4565,14 @@ var updateResource2 = catchAsync(
     const { resourceId } = req.params;
     const body = req.body;
     const result = await resourceService.updateResource(resourceId, userId, {
-      title: body.title,
-      description: body.description,
-      authors: Array.isArray(body.authors) ? body.authors : void 0,
-      tags: Array.isArray(body.tags) ? body.tags : void 0,
-      year: body.year !== void 0 ? body.year ? Number(body.year) : null : void 0,
-      categoryId: body.categoryId,
-      clusterIds: Array.isArray(body.clusterIds) ? body.clusterIds : void 0,
-      visibility: body.visibility
+      ...body.title !== void 0 && { title: body.title },
+      ...body.description !== void 0 && { description: body.description },
+      ...Array.isArray(body.authors) && { authors: body.authors },
+      ...Array.isArray(body.tags) && { tags: body.tags },
+      ...body.year !== void 0 && { year: body.year ? Number(body.year) : null },
+      ...body.categoryId !== void 0 && { categoryId: body.categoryId },
+      ...Array.isArray(body.clusterIds) && { clusterIds: body.clusterIds },
+      ...body.visibility !== void 0 && { visibility: body.visibility }
     });
     sendResponse(res, { status: status8.OK, success: true, message: "Resource updated", data: result });
   }
@@ -4485,12 +4639,12 @@ router3.post(
 );
 router3.get("/browse", optionalAuth, resourceController.browseResources);
 router3.get("/my", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.myResources);
-router3.get("/", resourceController.allResources);
+router3.get("/", checkAuth(Role.ADMIN), resourceController.allResources);
 router3.get("/categories", resourceController.getCategories);
 router3.get("/cloudinary-sign", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.cloudinarySign);
 router3.post("/:resourceId/bookmark", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.bookmarkResource);
 router3.delete("/:resourceId/bookmark", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.removeBookmark);
-router3.patch("/:resourceId", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.updateResource);
+router3.patch("/:resourceId", checkAuth(Role.STUDENT, Role.TEACHER), validateRequest(resourceUpdateSchema), resourceController.updateResource);
 router3.delete("/:resourceId", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.deleteResource);
 var resourceRouter = router3;
 
@@ -4710,13 +4864,16 @@ var createSession = async (userId, payload) => {
           select: { id: true, userId: true }
         });
         const profileUserMap = Object.fromEntries(studentProfiles.map((p) => [p.id, p.userId]));
-        const notifData = customTasks.map((t) => ({
-          userId: profileUserMap[t.studentProfileId],
-          type: "SESSION_CREATED",
-          title: `New session: ${newSession.title}`,
-          body: `A new session has been created in ${cluster.name}. Your task is ready.`,
-          link: `/sessions/${newSession.id}`
-        })).filter((n) => n.userId);
+        const notifData = customTasks.flatMap((t) => {
+          const userId2 = profileUserMap[t.studentProfileId];
+          return userId2 ? [{
+            userId: userId2,
+            type: "SESSION_CREATED",
+            title: `New session: ${newSession.title}`,
+            body: `A new session has been created in ${cluster.name}. Your task is ready.`,
+            link: `/sessions/${newSession.id}`
+          }] : [];
+        });
         if (notifData.length > 0) {
           await tx.notification.createMany({ data: notifData });
         }
@@ -4767,6 +4924,7 @@ var getSessionById = async (sessionId, userId, userRole) => {
           title: true,
           status: true,
           deadline: true,
+          studentProfile: { select: { userId: true } },
           submission: {
             select: {
               id: true
@@ -4789,7 +4947,7 @@ var getSessionById = async (sessionId, userId, userRole) => {
   });
   if (!session) throw new AppError_default(status10.NOT_FOUND, "Session not found.");
   if (userRole === Role.STUDENT) {
-    const myTask = session.tasks.find((t) => t.memberId === userId) ?? null;
+    const myTask = session.tasks.find((t) => t.studentProfile.userId === userId) ?? null;
     return {
       id: session.id,
       title: session.title,
@@ -5365,65 +5523,74 @@ var studySessionController = {
 };
 
 // src/modules/studySession/studySession.validation.ts
-import { z as z2 } from "zod";
-var createSessionSchema = z2.object({
-  clusterId: z2.string().min(1, "clusterId must not be empty"),
-  title: z2.string().min(3, "Title must be at least 3 characters").max(200),
-  description: z2.string().max(2e3).optional(),
-  scheduledAt: z2.string().min(1, "date (scheduledAt) is required").datetime({ message: "date must be a valid ISO 8601 datetime string" }),
-  location: z2.string().max(200).optional(),
-  taskDeadline: z2.string().datetime({ message: "deadline must be a valid ISO 8601 datetime string" }).optional(),
-  templateId: z2.string().optional(),
-  taskMode: z2.enum(["template", "individual", "none"]).optional(),
-  individualTasks: z2.array(
-    z2.object({
-      studentProfileId: z2.string().min(1),
-      title: z2.string().min(1).max(300),
-      description: z2.string().max(2e3).optional()
+import { z as z3 } from "zod";
+var createSessionSchema = z3.object({
+  clusterId: z3.string().min(1, "clusterId must not be empty"),
+  title: z3.string().min(3, "Title must be at least 3 characters").max(200),
+  description: z3.string().max(2e3).optional(),
+  scheduledAt: z3.string().min(1, "date (scheduledAt) is required").datetime({ message: "date must be a valid ISO 8601 datetime string" }),
+  location: z3.string().max(200).optional(),
+  taskDeadline: z3.string().datetime({ message: "deadline must be a valid ISO 8601 datetime string" }).optional(),
+  templateId: z3.string().optional(),
+  taskMode: z3.enum(["template", "individual", "none"]).optional(),
+  individualTasks: z3.array(
+    z3.object({
+      studentProfileId: z3.string().min(1),
+      title: z3.string().min(1).max(300),
+      description: z3.string().max(2e3).optional()
     })
   ).optional()
 });
-var updateSessionSchema = z2.object({
-  title: z2.string().min(3).max(200).optional(),
-  description: z2.string().max(2e3).optional(),
-  status: z2.enum(["upcoming", "ongoing", "completed", "cancelled"]).optional(),
-  date: z2.string().datetime({ message: "date must be a valid ISO 8601 datetime string" }).optional(),
-  durationMins: z2.number().optional(),
-  location: z2.string().max(200).optional(),
-  taskDeadline: z2.string().datetime({ message: "deadline must be a valid ISO 8601 datetime string" }).optional(),
-  recordingUrl: z2.string().optional(),
-  recordingNotes: z2.string().optional(),
-  templateId: z2.string().optional()
+var updateSessionSchema = z3.object({
+  title: z3.string().min(3).max(200).optional(),
+  description: z3.string().max(2e3).optional(),
+  status: z3.enum(["upcoming", "ongoing", "completed", "cancelled"]).optional(),
+  date: z3.string().datetime({ message: "date must be a valid ISO 8601 datetime string" }).optional(),
+  durationMins: z3.number().optional(),
+  location: z3.string().max(200).optional(),
+  taskDeadline: z3.string().datetime({ message: "deadline must be a valid ISO 8601 datetime string" }).optional(),
+  recordingUrl: z3.string().optional(),
+  recordingNotes: z3.string().optional(),
+  templateId: z3.string().optional()
 }).refine((d) => Object.keys(d).length > 0, {
   message: "At least one field must be provided to update"
 });
-var attendanceRecordSchema = z2.object({
-  studentId: z2.string().min(1, "studentId must not be empty"),
-  status: z2.enum(["PRESENT", "ABSENT", "EXCUSED"], {
+var attendanceRecordSchema = z3.object({
+  studentId: z3.string().min(1, "studentId must not be empty"),
+  status: z3.enum(["PRESENT", "ABSENT", "EXCUSED"], {
     message: 'status must be one of: "PRESENT", "ABSENT", or "EXCUSED"'
   }),
-  note: z2.string().max(500).optional()
+  note: z3.string().max(500).optional()
 });
-var submitAttendanceSchema = z2.object({
-  attendance: z2.array(attendanceRecordSchema).min(1, "attendance array must have at least one record")
+var submitAttendanceSchema = z3.object({
+  attendance: z3.array(attendanceRecordSchema).min(1, "attendance array must have at least one record")
 });
-var createAgendaSchema = z2.object({
-  startTime: z2.string().min(1, "startTime is required").regex(/^\d{2}:\d{2}$/, 'startTime must be in HH:MM format (e.g. "14:00")'),
-  durationMins: z2.number({ message: "durationMins must be a number" }).int().min(1, "durationMins must be at least 1"),
-  topic: z2.string().min(1, "topic must not be empty").max(300),
-  presenter: z2.string().max(150).optional()
+var agendaBlockSchema = z3.object({
+  startTime: z3.string().min(1, "startTime is required").regex(/^\d{2}:\d{2}$/, 'startTime must be in HH:MM format (e.g. "14:00")'),
+  durationMins: z3.number({ message: "durationMins must be a number" }).int().min(1, "durationMins must be at least 1"),
+  topic: z3.string().min(1, "topic must not be empty").max(300),
+  presenter: z3.string().max(150).optional()
 });
-var submitFeedbackSchema = z2.object({
-  rating: z2.number({ message: "rating must be a number" }).int().min(1, "rating must be between 1 and 5").max(5, "rating must be between 1 and 5"),
-  comment: z2.string().max(2e3).optional()
+var saveAgendaSchema = z3.object({
+  blocks: z3.array(agendaBlockSchema).max(100)
 });
-var replayNoteSchema = z2.object({
-  timestamp: z2.string().min(1, "timestamp is required").regex(/^\d{2}:\d{2}$/, 'timestamp must be in HH:MM format (e.g. "14:35")'),
-  note: z2.string().min(1, "note must not be empty").max(500)
+var attendanceWarningConfigSchema = z3.object({
+  threshold: z3.number().int().min(1).max(100).optional(),
+  message: z3.string().trim().min(1).max(1e3).optional()
+}).refine((value) => Object.keys(value).length > 0, {
+  message: "At least one field must be provided"
 });
-var attachReplaySchema = z2.object({
-  recordingUrl: z2.string().min(1, "recordingUrl is required").url("recordingUrl must be a valid URL"),
-  notes: z2.array(replayNoteSchema).optional()
+var submitFeedbackSchema = z3.object({
+  rating: z3.number({ message: "rating must be a number" }).int().min(1, "rating must be between 1 and 5").max(5, "rating must be between 1 and 5"),
+  comment: z3.string().max(2e3).optional()
+});
+var replayNoteSchema = z3.object({
+  timestamp: z3.string().min(1, "timestamp is required").regex(/^\d{2}:\d{2}$/, 'timestamp must be in HH:MM format (e.g. "14:35")'),
+  note: z3.string().min(1, "note must not be empty").max(500)
+});
+var attachReplaySchema = z3.object({
+  recordingUrl: z3.string().min(1, "recordingUrl is required").url("recordingUrl must be a valid URL"),
+  notes: z3.array(replayNoteSchema).optional()
 });
 
 // src/modules/studySession/studySession.route.ts
@@ -5447,6 +5614,7 @@ router4.get(
 router4.put(
   "/attendance-warning-config",
   checkAuth(Role.TEACHER),
+  validateRequest(attendanceWarningConfigSchema),
   studySessionController.saveAttendanceWarningConfig
 );
 router4.get(
@@ -5484,7 +5652,7 @@ router4.get(
 router4.post(
   "/:id/agenda",
   checkAuth(Role.TEACHER),
-  // validateRequest(createAgendaSchema),
+  validateRequest(saveAgendaSchema),
   studySessionController.saveAgenda
 );
 router4.get(
@@ -5651,15 +5819,15 @@ var studentController = {
 };
 
 // src/modules/student/student.type.ts
-import { z as z3 } from "zod";
-var updateStudentProfileSchema = z3.object({
-  body: z3.object({
-    institution: z3.string().optional(),
-    batch: z3.string().optional(),
-    programme: z3.string().optional(),
-    bio: z3.string().optional(),
-    linkedinUrl: z3.string().url().optional(),
-    githubUrl: z3.string().url().optional()
+import { z as z4 } from "zod";
+var updateStudentProfileSchema = z4.object({
+  body: z4.object({
+    institution: z4.string().optional(),
+    batch: z4.string().optional(),
+    programme: z4.string().optional(),
+    bio: z4.string().optional(),
+    linkedinUrl: z4.string().url().optional(),
+    githubUrl: z4.string().url().optional()
   })
 });
 
@@ -5994,27 +6162,27 @@ var teacherController = {
 };
 
 // src/modules/teacher/teacher.type.ts
-import { z as z4 } from "zod";
-var updateTeacherProfileSchema = z4.object({
-  body: z4.object({
-    designation: z4.string().optional(),
-    department: z4.string().optional(),
-    institution: z4.string().optional(),
-    bio: z4.string().optional(),
-    website: z4.string().url().optional(),
-    linkedinUrl: z4.string().url().optional()
+import { z as z5 } from "zod";
+var updateTeacherProfileSchema = z5.object({
+  body: z5.object({
+    designation: z5.string().optional(),
+    department: z5.string().optional(),
+    institution: z5.string().optional(),
+    bio: z5.string().optional(),
+    website: z5.string().url().optional(),
+    linkedinUrl: z5.string().url().optional()
   })
 });
 
 // src/modules/teacher/teacher.validation.ts
-import { z as z5 } from "zod";
-var earningsQuerySchema = z5.object({
-  page: z5.coerce.number().int().positive().default(1),
-  limit: z5.coerce.number().int().positive().max(100).default(20),
-  search: z5.string().optional(),
-  courseId: z5.preprocess(
+import { z as z6 } from "zod";
+var earningsQuerySchema = z6.object({
+  page: z6.coerce.number().int().positive().default(1),
+  limit: z6.coerce.number().int().positive().max(100).default(20),
+  search: z6.string().optional(),
+  courseId: z6.preprocess(
     (v) => v === "" || v === null || v === void 0 ? void 0 : v,
-    z5.string().uuid().optional()
+    z6.string().uuid().optional()
   )
 });
 
@@ -6054,13 +6222,13 @@ import { Router as Router7 } from "express";
 
 // src/modules/admin/admin.service.ts
 import status16 from "http-status";
-var createTeacher = async (emails) => {
+var createTeacher = async (emails2) => {
   const result = {
     newAccountsCreated: [],
     existingUpgraded: [],
     alreadyRegisteredAsTeacher: []
   };
-  for (const rawEmail of emails) {
+  for (const rawEmail of emails2) {
     const email = rawEmail.trim().toLowerCase();
     if (!email) continue;
     const existingUser = await prisma.user.findUnique({
@@ -6119,13 +6287,13 @@ var createTeacher = async (emails) => {
   }
   return result;
 };
-var createAdmin = async (emails) => {
+var createAdmin = async (emails2) => {
   const result = {
     newAccountsCreated: [],
     existingUpgraded: [],
     alreadyRegisteredAsAdmin: []
   };
-  for (const rawEmail of emails) {
+  for (const rawEmail of emails2) {
     const email = rawEmail.trim().toLowerCase();
     if (!email) continue;
     const existingUser = await prisma.user.findUnique({
@@ -6260,12 +6428,12 @@ var approveCourse = async (courseId, adminId) => {
     data: { status: "PUBLISHED", approvedAt: /* @__PURE__ */ new Date(), approvedById: adminId, rejectedNote: null }
   });
 };
-var rejectCourse = async (courseId, note, adminId) => {
+var rejectCourse = async (courseId, note2, adminId) => {
   const course = await prisma.course.findUnique({ where: { id: courseId } });
   if (!course) throw new AppError_default(status16.NOT_FOUND, "Course not found.");
   return prisma.course.update({
     where: { id: courseId },
-    data: { status: "REJECTED", rejectedAt: /* @__PURE__ */ new Date(), rejectedNote: note }
+    data: { status: "REJECTED", rejectedAt: /* @__PURE__ */ new Date(), rejectedNote: note2 }
   });
 };
 var deleteCourse = async (courseId) => {
@@ -6312,12 +6480,12 @@ var approveMission = async (missionId, adminId) => {
     data: { status: "PUBLISHED", approvedAt: /* @__PURE__ */ new Date(), approvedById: adminId, rejectedNote: null }
   });
 };
-var rejectMission = async (missionId, note) => {
+var rejectMission = async (missionId, note2) => {
   const mission = await prisma.courseMission.findUnique({ where: { id: missionId } });
   if (!mission) throw new AppError_default(status16.NOT_FOUND, "Mission not found.");
   return prisma.courseMission.update({
     where: { id: missionId },
-    data: { status: "REJECTED", rejectedAt: /* @__PURE__ */ new Date(), rejectedNote: note }
+    data: { status: "REJECTED", rejectedAt: /* @__PURE__ */ new Date(), rejectedNote: note2 }
   });
 };
 var getPendingPriceRequests = async (page = 1, limit = 20) => {
@@ -6352,12 +6520,12 @@ var approvePriceRequest = async (requestId, price, adminId) => {
   ]);
   return { message: "Price approved and applied to course." };
 };
-var rejectPriceRequest = async (requestId, note, adminId) => {
+var rejectPriceRequest = async (requestId, note2, adminId) => {
   const req = await prisma.coursePriceRequest.findUnique({ where: { id: requestId } });
   if (!req) throw new AppError_default(status16.NOT_FOUND, "Price request not found.");
   return prisma.coursePriceRequest.update({
     where: { id: requestId },
-    data: { status: "REJECTED", adminNote: note, reviewedAt: /* @__PURE__ */ new Date(), reviewedById: adminId }
+    data: { status: "REJECTED", adminNote: note2, reviewedAt: /* @__PURE__ */ new Date(), reviewedById: adminId }
   });
 };
 var getAllEnrollments = async (params) => {
@@ -6374,10 +6542,12 @@ var getAllEnrollments = async (params) => {
     if (to) where.enrolledAt.lte = new Date(to);
   }
   if (search) {
-    where.user = { OR: [
-      { name: { contains: search, mode: "insensitive" } },
-      { email: { contains: search, mode: "insensitive" } }
-    ] };
+    where.user = {
+      OR: [
+        { name: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } }
+      ]
+    };
   }
   const [data, total] = await Promise.all([
     prisma.courseEnrollment.findMany({
@@ -6507,8 +6677,8 @@ function normalizeEmailsFromBody(body) {
   return [];
 }
 var createTeacher2 = catchAsync(async (req, res) => {
-  const emails = normalizeEmailsFromBody(req.body);
-  if (!emails.length) {
+  const emails2 = normalizeEmailsFromBody(req.body);
+  if (!emails2.length) {
     return sendResponse(res, {
       status: status17.BAD_REQUEST,
       success: false,
@@ -6516,7 +6686,7 @@ var createTeacher2 = catchAsync(async (req, res) => {
       data: null
     });
   }
-  const result = await adminService.createTeacher(emails);
+  const result = await adminService.createTeacher(emails2);
   sendResponse(res, {
     status: status17.OK,
     success: true,
@@ -6525,8 +6695,8 @@ var createTeacher2 = catchAsync(async (req, res) => {
   });
 });
 var createAdmin2 = catchAsync(async (req, res) => {
-  const emails = normalizeEmailsFromBody(req.body);
-  if (!emails.length) {
+  const emails2 = normalizeEmailsFromBody(req.body);
+  if (!emails2.length) {
     return sendResponse(res, {
       status: status17.BAD_REQUEST,
       success: false,
@@ -6534,7 +6704,7 @@ var createAdmin2 = catchAsync(async (req, res) => {
       data: null
     });
   }
-  const result = await adminService.createAdmin(emails);
+  const result = await adminService.createAdmin(emails2);
   sendResponse(res, {
     status: status17.OK,
     success: true,
@@ -6676,30 +6846,30 @@ router7.post(
   "/createTeacher",
   checkAuth(Role.ADMIN),
   // Assuming only ADMIN can create teachers
-  //   validateRequest(createTeacherSchema),
+  validateRequest(createUsersByEmailSchema),
   adminController.createTeacher
 );
 router7.post(
   "/createAdmin",
   checkAuth(Role.ADMIN),
   // Assuming only ADMIN can create teachers
-  //   validateRequest(createTeacherSchema),
+  validateRequest(createUsersByEmailSchema),
   adminController.createAdmin
 );
 router7.get("/courses", checkAuth(Role.ADMIN), adminController.getAllCourses);
 router7.get("/courses/pending", checkAuth(Role.ADMIN), adminController.getPendingCourses);
 router7.get("/courses/:id", checkAuth(Role.ADMIN), adminController.getCourseById);
 router7.post("/courses/:id/approve", checkAuth(Role.ADMIN), adminController.approveCourse);
-router7.post("/courses/:id/reject", checkAuth(Role.ADMIN), adminController.rejectCourse);
+router7.post("/courses/:id/reject", checkAuth(Role.ADMIN), validateRequest(rejectNoteSchema), adminController.rejectCourse);
 router7.delete("/courses/:id", checkAuth(Role.ADMIN), adminController.deleteCourse);
 router7.post("/courses/:id/feature", checkAuth(Role.ADMIN), adminController.toggleFeatured);
-router7.patch("/courses/:id/revenue-percent", checkAuth(Role.ADMIN), adminController.setRevenuePercent);
+router7.patch("/courses/:id/revenue-percent", checkAuth(Role.ADMIN), validateRequest(revenuePercentSchema), adminController.setRevenuePercent);
 router7.get("/missions", checkAuth(Role.ADMIN), adminController.getPendingMissions);
 router7.post("/missions/:id/approve", checkAuth(Role.ADMIN), adminController.approveMission);
-router7.post("/missions/:id/reject", checkAuth(Role.ADMIN), adminController.rejectMission);
+router7.post("/missions/:id/reject", checkAuth(Role.ADMIN), validateRequest(rejectNoteSchema), adminController.rejectMission);
 router7.get("/price-requests", checkAuth(Role.ADMIN), adminController.getPendingPriceRequests);
-router7.post("/price-requests/:id/approve", checkAuth(Role.ADMIN), adminController.approvePriceRequest);
-router7.post("/price-requests/:id/reject", checkAuth(Role.ADMIN), adminController.rejectPriceRequest);
+router7.post("/price-requests/:id/approve", checkAuth(Role.ADMIN), validateRequest(approvePriceSchema), adminController.approvePriceRequest);
+router7.post("/price-requests/:id/reject", checkAuth(Role.ADMIN), validateRequest(rejectNoteSchema), adminController.rejectPriceRequest);
 router7.get("/enrollments", checkAuth(Role.ADMIN), adminController.getAllEnrollments);
 router7.get("/revenue", checkAuth(Role.ADMIN), adminController.getRevenueSummary);
 router7.get("/revenue/transactions", checkAuth(Role.ADMIN), adminController.getRevenueTransactions);
@@ -6707,7 +6877,7 @@ var adminRouter = router7;
 
 // src/middleware/globalErrorHandler.ts
 import status19 from "http-status";
-import z6 from "zod";
+import z7 from "zod";
 
 // src/errorHelpers/handleZodError.ts
 import status18 from "http-status";
@@ -6747,7 +6917,7 @@ var globalErrorHandler = async (err, req, res, next) => {
   let statusCode = status19.INTERNAL_SERVER_ERROR;
   let message = "Internal Server Error";
   let stack = void 0;
-  if (err instanceof z6.ZodError) {
+  if (err instanceof z7.ZodError) {
     const simplifiedError = handleZodError(err);
     statusCode = simplifiedError.statusCode;
     message = simplifiedError.message;
@@ -7135,13 +7305,17 @@ var getMyAnnouncements = async (authorId) => {
 };
 var createAnnouncement = async (authorId, payload) => {
   const { title, body, urgency = "INFO", clusterIds = [], isGlobal = false, scheduledAt } = payload;
+  const teacherProfile = await prisma.teacherProfile.findUnique({ where: { userId: authorId } });
+  if (!teacherProfile) throw new AppError_default(status24.NOT_FOUND, "Teacher profile not found.");
+  const ownedClusterCount = await prisma.cluster.count({ where: { id: { in: clusterIds }, teacherId: teacherProfile.id } });
+  if (ownedClusterCount !== clusterIds.length) throw new AppError_default(status24.FORBIDDEN, "One or more clusters are not owned by you.");
   const announcement = await prisma.announcement.create({
     data: {
       authorId,
       title,
       body,
       urgency,
-      isGlobal,
+      isGlobal: false,
       publishedAt: scheduledAt ? null : /* @__PURE__ */ new Date(),
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
       clusters: {
@@ -7198,7 +7372,7 @@ var announcementController = {
 var router10 = Router10();
 router10.get("/clusters", checkAuth(Role.TEACHER), announcementController.getMyClusters);
 router10.get("/", checkAuth(Role.TEACHER), announcementController.getMyAnnouncements);
-router10.post("/", checkAuth(Role.TEACHER), announcementController.createAnnouncement);
+router10.post("/", checkAuth(Role.TEACHER), validateRequest(teacherAnnouncementSchema), announcementController.createAnnouncement);
 router10.delete("/:id", checkAuth(Role.TEACHER), announcementController.deleteAnnouncement);
 var teacherAnnouncementRouter = router10;
 
@@ -7234,6 +7408,10 @@ var createCategory = async (teacherUserId, payload) => {
     throw new AppError_default(status26.CONTINUE, "Teacher is not found");
   }
   const teacherId = teacherProfile.id;
+  if (clusterId) {
+    const cluster = await prisma.cluster.findFirst({ where: { id: clusterId, teacherId } });
+    if (!cluster) throw new AppError_default(status26.FORBIDDEN, "Cluster not found or not owned by you.");
+  }
   const existing = await prisma.resourceCategory.findFirst({
     where: { name: { equals: name, mode: "insensitive" }, teacherId }
   });
@@ -7244,7 +7422,7 @@ var createCategory = async (teacherUserId, payload) => {
       color,
       teacherId: teacherId ?? null,
       clusterId: clusterId ?? null,
-      isGlobal
+      isGlobal: false
     }
   });
 };
@@ -7258,10 +7436,14 @@ var updateCategory = async (teacherUserId, id, payload) => {
     throw new AppError_default(status26.CONTINUE, "Teacher is not found");
   }
   const teacherId = teacherProfile.id;
+  if (payload.clusterId) {
+    const cluster = await prisma.cluster.findFirst({ where: { id: payload.clusterId, teacherId } });
+    if (!cluster) throw new AppError_default(status26.FORBIDDEN, "Cluster not found or not owned by you.");
+  }
   const cat = await prisma.resourceCategory.findUnique({ where: { id } });
   if (!cat) throw new AppError_default(status26.NOT_FOUND, "Category not found.");
   if (cat.teacherId !== teacherId) throw new AppError_default(status26.FORBIDDEN, "Not your category.");
-  return prisma.resourceCategory.update({ where: { id }, data: payload });
+  return prisma.resourceCategory.update({ where: { id }, data: { ...payload, isGlobal: false } });
 };
 var deleteCategory = async (teacherUserId, id) => {
   const teacherProfile = await prisma.teacherProfile.findFirst({
@@ -7310,9 +7492,9 @@ var categoryController = { getCategories: getCategories4, createCategory: create
 
 // src/modules/teacherDashboard/category/category.route.ts
 var router11 = Router11();
-router11.get("/", categoryController.getCategories);
-router11.post("/", checkAuth(Role.TEACHER), categoryController.createCategory);
-router11.patch("/:id", checkAuth(Role.TEACHER), categoryController.updateCategory);
+router11.get("/", checkAuth(Role.TEACHER), categoryController.getCategories);
+router11.post("/", checkAuth(Role.TEACHER), validateRequest(categoryCreateSchema), categoryController.createCategory);
+router11.patch("/:id", checkAuth(Role.TEACHER), validateRequest(categoryUpdateSchema), categoryController.updateCategory);
 router11.delete("/:id", checkAuth(Role.TEACHER), categoryController.deleteCategory);
 var categoryRouter = router11;
 
@@ -7797,12 +7979,12 @@ router12.get("/sessions/:sessionId/members", checkAuth(Role.TEACHER), teacherTas
 router12.get("/clusters/:clusterId/members-progress", checkAuth(Role.TEACHER), teacherTaskController.getClusterMembersProgress);
 router12.get("/clusters/:clusterId/members", checkAuth(Role.TEACHER), teacherTaskController.getClusterMembers);
 router12.get("/homework", checkAuth(Role.TEACHER), teacherTaskController.getHomeworkManagement);
-router12.post("/sessions/:sessionId/assign", checkAuth(Role.TEACHER), teacherTaskController.assignTask);
-router12.post("/sessions/:sessionId/members/:studentProfileId/assign", checkAuth(Role.TEACHER), teacherTaskController.assignTaskToMember);
-router12.patch("/tasks/:taskId", checkAuth(Role.TEACHER), teacherTaskController.updateTask);
+router12.post("/sessions/:sessionId/assign", checkAuth(Role.TEACHER), validateRequest(taskAssignmentSchema), teacherTaskController.assignTask);
+router12.post("/sessions/:sessionId/members/:studentProfileId/assign", checkAuth(Role.TEACHER), validateRequest(taskAssignmentSchema), teacherTaskController.assignTaskToMember);
+router12.patch("/tasks/:taskId", checkAuth(Role.TEACHER), validateRequest(taskUpdateSchema), teacherTaskController.updateTask);
 router12.delete("/tasks/:taskId", checkAuth(Role.TEACHER), teacherTaskController.deleteTask);
 router12.get("/tasks/:taskId/submission", checkAuth(Role.TEACHER), teacherTaskController.getSubmissionDetail);
-router12.patch("/tasks/:taskId/review", checkAuth(Role.TEACHER), teacherTaskController.reviewSubmission);
+router12.patch("/tasks/:taskId/review", checkAuth(Role.TEACHER), validateRequest(taskReviewSchema), teacherTaskController.reviewSubmission);
 var teacherTaskRouter = router12;
 
 // src/modules/studentDashboard/progress/progress.route.ts
@@ -8146,8 +8328,8 @@ var taskController = { getMyTasks: getMyTasks2, getTaskById: getTaskById2, submi
 var router14 = Router14();
 router14.get("/", checkAuth(Role.STUDENT), taskController.getMyTasks);
 router14.get("/:taskId", checkAuth(Role.STUDENT), taskController.getTaskById);
-router14.post("/:taskId/submit", checkAuth(Role.STUDENT), taskController.submitTask);
-router14.patch("/:taskId/submit", checkAuth(Role.STUDENT), taskController.editSubmission);
+router14.post("/:taskId/submit", checkAuth(Role.STUDENT), validateRequest(taskSubmissionSchema), taskController.submitTask);
+router14.patch("/:taskId/submit", checkAuth(Role.STUDENT), validateRequest(taskSubmissionSchema), taskController.editSubmission);
 var studentTaskRouter = router14;
 
 // src/modules/studentDashboard/courseEnrollment/courseEnrollment.route.ts
@@ -8933,52 +9115,52 @@ var settingsController = {
 };
 
 // src/modules/settings/settings.validation.ts
-import { z as z7 } from "zod";
-var optionalUrl = z7.string().optional().refine((v) => !v || v === "" || z7.string().url().safeParse(v).success, "Invalid URL");
-var updateAccountSettingsSchema = z7.object({
-  name: z7.string().min(1).max(120).optional(),
-  image: z7.string().url().optional().nullable(),
-  teacherProfile: z7.object({
-    designation: z7.string().max(120).optional(),
-    department: z7.string().max(120).optional(),
-    institution: z7.string().max(200).optional(),
-    bio: z7.string().max(2e3).optional(),
-    website: optionalUrl,
-    linkedinUrl: optionalUrl,
-    specialization: z7.string().max(200).optional(),
-    googleScholarUrl: optionalUrl,
-    officeHours: z7.string().max(500).optional(),
-    researchInterests: z7.array(z7.string().max(80)).max(20).optional()
+import { z as z8 } from "zod";
+var optionalUrl2 = z8.string().optional().refine((v) => !v || v === "" || z8.string().url().safeParse(v).success, "Invalid URL");
+var updateAccountSettingsSchema = z8.object({
+  name: z8.string().min(1).max(120).optional(),
+  image: z8.string().url().optional().nullable(),
+  teacherProfile: z8.object({
+    designation: z8.string().max(120).optional(),
+    department: z8.string().max(120).optional(),
+    institution: z8.string().max(200).optional(),
+    bio: z8.string().max(2e3).optional(),
+    website: optionalUrl2,
+    linkedinUrl: optionalUrl2,
+    specialization: z8.string().max(200).optional(),
+    googleScholarUrl: optionalUrl2,
+    officeHours: z8.string().max(500).optional(),
+    researchInterests: z8.array(z8.string().max(80)).max(20).optional()
   }).optional(),
-  studentProfile: z7.object({
-    phone: z7.string().max(40).optional(),
-    address: z7.string().max(500).optional(),
-    bio: z7.string().max(2e3).optional(),
-    institution: z7.string().max(200).optional(),
-    department: z7.string().max(120).optional(),
-    batch: z7.string().max(80).optional(),
-    programme: z7.string().max(120).optional(),
-    linkedinUrl: optionalUrl,
-    githubUrl: optionalUrl,
-    website: optionalUrl,
-    nationality: z7.string().max(80).optional()
+  studentProfile: z8.object({
+    phone: z8.string().max(40).optional(),
+    address: z8.string().max(500).optional(),
+    bio: z8.string().max(2e3).optional(),
+    institution: z8.string().max(200).optional(),
+    department: z8.string().max(120).optional(),
+    batch: z8.string().max(80).optional(),
+    programme: z8.string().max(120).optional(),
+    linkedinUrl: optionalUrl2,
+    githubUrl: optionalUrl2,
+    website: optionalUrl2,
+    nationality: z8.string().max(80).optional()
   }).optional(),
-  adminProfile: z7.object({
-    phone: z7.string().max(40).optional(),
-    bio: z7.string().max(2e3).optional(),
-    nationality: z7.string().max(80).optional(),
-    designation: z7.string().max(120).optional(),
-    department: z7.string().max(120).optional(),
-    organization: z7.string().max(200).optional(),
-    linkedinUrl: optionalUrl,
-    website: optionalUrl
+  adminProfile: z8.object({
+    phone: z8.string().max(40).optional(),
+    bio: z8.string().max(2e3).optional(),
+    nationality: z8.string().max(80).optional(),
+    designation: z8.string().max(120).optional(),
+    department: z8.string().max(120).optional(),
+    organization: z8.string().max(200).optional(),
+    linkedinUrl: optionalUrl2,
+    website: optionalUrl2
   }).optional(),
-  preferences: z7.object({
-    timezone: z7.string().max(120).optional(),
-    language: z7.string().max(80).optional(),
-    emailNotifications: z7.record(z7.string(), z7.boolean()).optional(),
-    pushNotifications: z7.record(z7.string(), z7.boolean()).optional(),
-    privacy: z7.record(z7.string(), z7.union([z7.boolean(), z7.string()])).optional()
+  preferences: z8.object({
+    timezone: z8.string().max(120).optional(),
+    language: z8.string().max(80).optional(),
+    emailNotifications: z8.record(z8.string(), z8.boolean()).optional(),
+    pushNotifications: z8.record(z8.string(), z8.boolean()).optional(),
+    privacy: z8.record(z8.string(), z8.union([z8.boolean(), z8.string()])).optional()
   }).optional()
 });
 
@@ -8995,15 +9177,15 @@ router17.get("/sessions", checkAuth(), settingsController.getActiveSessions);
 router17.post("/sessions/revoke-all", checkAuth(), settingsController.revokeAllOtherSessions);
 router17.post("/sessions/:sessionId/revoke", checkAuth(), settingsController.revokeSession);
 router17.post("/deactivate", checkAuth(), settingsController.deactivateAccount);
-router17.post("/delete-account", checkAuth(), settingsController.deleteAccount);
+router17.post("/delete-account", checkAuth(), validateRequest(deleteAccountSchema), settingsController.deleteAccount);
 router17.post("/export-data", checkAuth(), settingsController.exportData);
 router17.get("/export-data-pdf", checkAuth(), settingsController.exportDataPDF);
 router17.get("/two-factor-status", checkAuth(), settingsController.getTwoFactorStatus);
-router17.post("/two-factor/enable", checkAuth(), settingsController.enableTwoFactor);
-router17.post("/two-factor/verify-totp", checkAuth(), settingsController.verifyTOTP);
-router17.post("/two-factor/disable", checkAuth(), settingsController.disableTwoFactor);
+router17.post("/two-factor/enable", checkAuth(), validateRequest(passwordSchema), settingsController.enableTwoFactor);
+router17.post("/two-factor/verify-totp", checkAuth(), validateRequest(totpSchema), settingsController.verifyTOTP);
+router17.post("/two-factor/disable", checkAuth(), validateRequest(passwordSchema), settingsController.disableTwoFactor);
 router17.get("/api-keys", checkAuth(), settingsController.getApiKeys);
-router17.post("/api-keys", checkAuth(), settingsController.generateApiKey);
+router17.post("/api-keys", checkAuth(), validateRequest(apiKeySchema), settingsController.generateApiKey);
 router17.delete("/api-keys/:keyId", checkAuth(), settingsController.deleteApiKey);
 router17.post("/api-keys/revoke-all", checkAuth(), settingsController.revokeAllApiKeys);
 var settingsRouter = router17;
@@ -9100,44 +9282,44 @@ var homeworkRouter = router18;
 import { Router as Router19 } from "express";
 
 // src/modules/course/course.validation.ts
-import { z as z8 } from "zod";
-var createCourseSchema = z8.object({
-  title: z8.string().min(3, "Title must be at least 3 characters").max(120),
-  description: z8.string().max(2e3).optional(),
-  thumbnailUrl: z8.string().url().optional(),
-  tags: z8.array(z8.string().max(24)).max(8).default([]),
-  isFree: z8.boolean(),
-  requestedPrice: z8.number().positive("Price must be positive").optional(),
-  priceNote: z8.string().max(500).optional()
+import { z as z9 } from "zod";
+var createCourseSchema = z9.object({
+  title: z9.string().min(3, "Title must be at least 3 characters").max(120),
+  description: z9.string().max(2e3).optional(),
+  thumbnailUrl: z9.string().url().optional(),
+  tags: z9.array(z9.string().max(24)).max(8).default([]),
+  isFree: z9.boolean(),
+  requestedPrice: z9.number().positive("Price must be positive").optional(),
+  priceNote: z9.string().max(500).optional()
 }).refine(
   (data) => data.isFree || data.requestedPrice !== void 0 && data.requestedPrice > 0,
   { message: "Paid courses must include a requested price", path: ["requestedPrice"] }
 );
-var createMissionSchema = z8.object({
-  title: z8.string().min(3).max(120),
-  description: z8.string().max(1e3).optional(),
-  order: z8.number().int().min(0).optional()
+var createMissionSchema = z9.object({
+  title: z9.string().min(3).max(120),
+  description: z9.string().max(1e3).optional(),
+  order: z9.number().int().min(0).optional()
 });
-var createPriceRequestSchema = z8.object({
-  requestedPrice: z8.number().positive("Price must be positive"),
-  note: z8.string().max(500).optional()
+var createPriceRequestSchema = z9.object({
+  requestedPrice: z9.number().positive("Price must be positive"),
+  note: z9.string().max(500).optional()
 });
-var enrollmentQuerySchema = z8.object({
-  page: z8.coerce.number().int().positive().default(1),
-  limit: z8.coerce.number().int().positive().max(100).default(20),
-  search: z8.string().optional(),
-  paymentStatus: z8.enum(["FREE", "PENDING", "PAID", "FAILED", "REFUNDED"]).optional()
+var enrollmentQuerySchema = z9.object({
+  page: z9.coerce.number().int().positive().default(1),
+  limit: z9.coerce.number().int().positive().max(100).default(20),
+  search: z9.string().optional(),
+  paymentStatus: z9.enum(["FREE", "PENDING", "PAID", "FAILED", "REFUNDED"]).optional()
 });
-var updateCourseSchema = z8.object({
-  title: z8.string().min(3).max(120).optional(),
-  description: z8.string().max(2e3).optional(),
-  thumbnailUrl: z8.string().url().optional(),
-  tags: z8.array(z8.string().max(24)).max(8).optional()
+var updateCourseSchema = z9.object({
+  title: z9.string().min(3).max(120).optional(),
+  description: z9.string().max(2e3).optional(),
+  thumbnailUrl: z9.string().url().optional(),
+  tags: z9.array(z9.string().max(24)).max(8).optional()
 });
-var updateMissionSchema = z8.object({
-  title: z8.string().min(3).max(120).optional(),
-  description: z8.string().max(1e3).optional(),
-  order: z8.number().int().min(0).optional()
+var updateMissionSchema = z9.object({
+  title: z9.string().min(3).max(120).optional(),
+  description: z9.string().max(1e3).optional(),
+  order: z9.number().int().min(0).optional()
 });
 
 // src/modules/course/course.controller.ts
@@ -9230,7 +9412,7 @@ var createCourse = async (userId, input) => {
         courseId: course.id,
         teacherId,
         requestedPrice: input.requestedPrice,
-        note: input.priceNote,
+        ...input.priceNote !== void 0 && { note: input.priceNote },
         status: "PENDING"
       }
     });
@@ -9354,7 +9536,13 @@ var createPriceRequest = async (userId, courseId, input) => {
   });
   if (pending) throw new AppError_default(status41.CONFLICT, "A price request is already pending admin review.");
   return prisma.coursePriceRequest.create({
-    data: { courseId, teacherId, requestedPrice: input.requestedPrice, note: input.note, status: "PENDING" }
+    data: {
+      courseId,
+      teacherId,
+      requestedPrice: input.requestedPrice,
+      ...input.note !== void 0 && { note: input.note },
+      status: "PENDING"
+    }
   });
 };
 var getPriceRequests = async (userId, courseId) => {
@@ -9390,7 +9578,7 @@ var createMission = async (userId, courseId, input) => {
     data: {
       courseId,
       title: input.title,
-      description: input.description,
+      ...input.description !== void 0 && { description: input.description },
       order: input.order ?? count,
       status: "DRAFT"
     }
@@ -9735,25 +9923,31 @@ var missionController = {
 };
 
 // src/modules/mission/mission.validation.ts
-import { z as z9 } from "zod";
-var createContentSchema = z9.object({
-  type: z9.enum(["VIDEO", "TEXT", "PDF"]),
-  title: z9.string().min(2).max(120),
-  order: z9.number().int().min(0).optional(),
-  videoUrl: z9.string().url().optional(),
-  duration: z9.number().int().positive().optional(),
-  textBody: z9.string().max(1e5).optional(),
-  pdfUrl: z9.string().url().optional(),
-  fileSize: z9.number().int().positive().optional()
-}).refine(
-  (data) => !(data.type === "VIDEO") || !!data.videoUrl,
-  { message: "VIDEO type requires a videoUrl", path: ["videoUrl"] }
-).refine(
-  (data) => !(data.type === "PDF") || !!data.pdfUrl,
-  { message: "PDF type requires a pdfUrl", path: ["pdfUrl"] }
-);
-var reorderContentsSchema = z9.object({
-  orderedIds: z9.array(z9.string().uuid()).min(1)
+import { z as z10 } from "zod";
+var contentFieldsSchema = z10.object({
+  type: z10.enum(["VIDEO", "TEXT", "PDF"]),
+  title: z10.string().min(2).max(120),
+  order: z10.number().int().min(0).optional(),
+  videoUrl: z10.string().url().optional(),
+  duration: z10.number().int().positive().optional(),
+  textBody: z10.string().max(1e5).optional(),
+  pdfUrl: z10.string().url().optional(),
+  fileSize: z10.number().int().positive().optional()
+});
+var validateContentUrl = (data, ctx) => {
+  if (data.type === "VIDEO" && !data.videoUrl) {
+    ctx.addIssue({ code: "custom", message: "VIDEO type requires a videoUrl", path: ["videoUrl"] });
+  }
+  if (data.type === "PDF" && !data.pdfUrl) {
+    ctx.addIssue({ code: "custom", message: "PDF type requires a pdfUrl", path: ["pdfUrl"] });
+  }
+};
+var createContentSchema = contentFieldsSchema.superRefine(validateContentUrl);
+var reorderContentsSchema = z10.object({
+  orderedIds: z10.array(z10.string().uuid()).min(1)
+});
+var updateContentSchema = contentFieldsSchema.partial().superRefine(validateContentUrl).refine((value) => Object.keys(value).length > 0, {
+  message: "At least one field is required"
 });
 
 // src/modules/mission/mission.route.ts
@@ -9772,6 +9966,7 @@ router20.post(
 router20.patch(
   "/:missionId/contents/:contentId",
   checkAuth(Role.TEACHER),
+  validateRequest(updateContentSchema),
   missionController.updateContent
 );
 router20.delete(
@@ -9854,9 +10049,12 @@ var finalizeSuccessfulPaymentIntent = async (intent) => {
         }
       }
     });
-    return { enrollmentId: (await prisma.courseEnrollment.findUnique({
-      where: { courseId_userId: { courseId: payment.courseId, userId: payment.userId } }
-    })).id, alreadyFinalized: false };
+    return {
+      enrollmentId: (await prisma.courseEnrollment.findUnique({
+        where: { courseId_userId: { courseId: payment.courseId, userId: payment.userId } }
+      })).id,
+      alreadyFinalized: false
+    };
   }
   await prisma.$transaction(async (tx) => {
     await tx.payment.update({
@@ -10186,22 +10384,24 @@ import express from "express";
 var router21 = Router21();
 router21.post(
   "/create-intent",
-  checkAuth(),
+  checkAuth(Role.STUDENT),
+  validateRequest(paymentCourseSchema),
   paymentController.createIntent
 );
 router21.post(
   "/confirm",
-  checkAuth(),
+  checkAuth(Role.STUDENT),
+  validateRequest(paymentIntentSchema),
   paymentController.confirmPayment
 );
 router21.post(
   "/sync/:courseId",
-  checkAuth(),
+  checkAuth(Role.STUDENT),
   paymentController.syncCoursePayment
 );
 router21.post(
   "/sync-pending",
-  checkAuth(),
+  checkAuth(Role.STUDENT),
   paymentController.syncPendingPayments
 );
 router21.get(
@@ -10345,7 +10545,10 @@ import status48 from "http-status";
 var getLeaderboard2 = catchAsync(async (req, res) => {
   const userId = req.user.userId;
   const { clusterId, period } = req.query;
-  const result = await leaderboardService.getLeaderboard(userId, { clusterId, period });
+  const result = await leaderboardService.getLeaderboard(userId, {
+    ...clusterId !== void 0 && { clusterId },
+    ...period !== void 0 && { period }
+  });
   sendResponse(res, { status: status48.OK, success: true, message: "Leaderboard fetched", data: result });
 });
 var optIn2 = catchAsync(async (req, res) => {
@@ -10476,8 +10679,8 @@ var studyPlannerController = { getGoals: getGoals2, createGoal: createGoal2, upd
 var router23 = Router23();
 router23.get("/", checkAuth(Role.STUDENT), studyPlannerController.getGoals);
 router23.get("/streak", checkAuth(Role.STUDENT), studyPlannerController.getStreak);
-router23.post("/", checkAuth(Role.STUDENT), studyPlannerController.createGoal);
-router23.patch("/:id", checkAuth(Role.STUDENT), studyPlannerController.updateGoal);
+router23.post("/", checkAuth(Role.STUDENT), validateRequest(goalCreateSchema), studyPlannerController.createGoal);
+router23.patch("/:id", checkAuth(Role.STUDENT), validateRequest(goalUpdateSchema), studyPlannerController.updateGoal);
 router23.delete("/:id", checkAuth(Role.STUDENT), studyPlannerController.deleteGoal);
 var studyPlannerRouter = router23;
 
@@ -10506,9 +10709,9 @@ var createAnnotation = async (userId, payload) => {
     data: {
       userId,
       resourceId: payload.resourceId,
-      highlight: payload.highlight,
-      note: payload.note,
-      page: payload.page,
+      ...payload.highlight !== void 0 && { highlight: payload.highlight },
+      ...payload.note !== void 0 && { note: payload.note },
+      ...payload.page !== void 0 && { page: payload.page },
       isShared: payload.isShared ?? false
     }
   });
@@ -10604,8 +10807,8 @@ var router24 = Router24();
 router24.get("/resources", checkAuth(Role.STUDENT), annotationController.getResources);
 router24.get("/", checkAuth(Role.STUDENT), annotationController.getAnnotations);
 router24.get("/shared", checkAuth(Role.STUDENT), annotationController.getSharedAnnotations);
-router24.post("/", checkAuth(Role.STUDENT), annotationController.createAnnotation);
-router24.patch("/:id", checkAuth(Role.STUDENT), annotationController.updateAnnotation);
+router24.post("/", checkAuth(Role.STUDENT), validateRequest(annotationCreateSchema), annotationController.createAnnotation);
+router24.patch("/:id", checkAuth(Role.STUDENT), validateRequest(annotationUpdateSchema), annotationController.updateAnnotation);
 router24.delete("/:id", checkAuth(Role.STUDENT), annotationController.deleteAnnotation);
 var annotationRouter = router24;
 
@@ -10729,7 +10932,12 @@ var createTemplate = async (userId, payload) => {
   const teacher2 = await prisma.teacherProfile.findFirst({ where: { userId } });
   if (!teacher2) throw new AppError_default(status53.NOT_FOUND, "Teacher not found");
   return prisma.taskTemplate.create({
-    data: { teacherId: userId, title: payload.title, description: payload.description, teacherProfileId: teacher2.id }
+    data: {
+      teacherId: userId,
+      title: payload.title,
+      ...payload.description !== void 0 && { description: payload.description },
+      teacherProfileId: teacher2.id
+    }
   });
 };
 var updateTemplate = async (userId, id, payload) => {
@@ -10798,8 +11006,8 @@ var router25 = Router25();
 router25.get("/analytics", checkAuth(Role.TEACHER), teacherAnalyticsController.getAnalytics);
 router25.get("/session-history", checkAuth(Role.TEACHER), teacherAnalyticsController.getSessionHistory);
 router25.get("/task-templates", checkAuth(Role.TEACHER), teacherAnalyticsController.getTemplates);
-router25.post("/task-templates", checkAuth(Role.TEACHER), teacherAnalyticsController.createTemplate);
-router25.patch("/task-templates/:id", checkAuth(Role.TEACHER), teacherAnalyticsController.updateTemplate);
+router25.post("/task-templates", checkAuth(Role.TEACHER), validateRequest(taskTemplateCreateSchema), teacherAnalyticsController.createTemplate);
+router25.patch("/task-templates/:id", checkAuth(Role.TEACHER), validateRequest(taskTemplateUpdateSchema), teacherAnalyticsController.updateTemplate);
 router25.delete("/task-templates/:id", checkAuth(Role.TEACHER), teacherAnalyticsController.deleteTemplate);
 var teacherAnalyticsRouter = router25;
 
@@ -11308,22 +11516,22 @@ var adminPlatformController = {
 var router26 = Router26();
 router26.get("/analytics", checkAuth(Role.ADMIN), adminPlatformController.getPlatformAnalytics);
 router26.get("/announcements", checkAuth(Role.ADMIN), adminPlatformController.getGlobalAnnouncements);
-router26.post("/announcements", checkAuth(Role.ADMIN), adminPlatformController.createGlobalAnnouncement);
+router26.post("/announcements", checkAuth(Role.ADMIN), validateRequest(globalAnnouncementSchema), adminPlatformController.createGlobalAnnouncement);
 router26.delete("/announcements/:id", checkAuth(Role.ADMIN), adminPlatformController.deleteGlobalAnnouncement);
 router26.get("/clusters", checkAuth(Role.ADMIN), adminPlatformController.getClusterOversight);
 router26.get("/moderation", checkAuth(Role.ADMIN), adminPlatformController.getFlaggedContent);
 router26.delete("/moderation/courses/:id", checkAuth(Role.ADMIN), adminPlatformController.removeCourse);
 router26.delete("/moderation/resources/:id", checkAuth(Role.ADMIN), adminPlatformController.removeResource);
-router26.post("/moderation/warn/:userId", checkAuth(Role.ADMIN), adminPlatformController.warnUser);
+router26.post("/moderation/warn/:userId", checkAuth(Role.ADMIN), validateRequest(warningSchema), adminPlatformController.warnUser);
 router26.get("/moderation/warnings/:userId", checkAuth(Role.ADMIN), adminPlatformController.getWarnings);
 router26.delete("/moderation/warnings/:warningId", checkAuth(Role.ADMIN), adminPlatformController.removeWarning);
 router26.get("/certificates", checkAuth(Role.ADMIN), adminPlatformController.getCertificates);
 router26.post("/certificates/:enrollmentId", checkAuth(Role.ADMIN), adminPlatformController.generateCertificate);
-router26.post("/enroll", checkAuth(Role.ADMIN), adminPlatformController.manualEnroll);
-router26.post("/unenroll", checkAuth(Role.ADMIN), adminPlatformController.manualUnenroll);
+router26.post("/enroll", checkAuth(Role.ADMIN), validateRequest(manualEnrollmentSchema), adminPlatformController.manualEnroll);
+router26.post("/unenroll", checkAuth(Role.ADMIN), validateRequest(manualEnrollmentSchema), adminPlatformController.manualUnenroll);
 router26.get("/email-templates", checkAuth(Role.ADMIN), adminPlatformController.getEmailTemplates);
-router26.post("/email-templates", checkAuth(Role.ADMIN), adminPlatformController.createEmailTemplate);
-router26.patch("/email-templates/:id", checkAuth(Role.ADMIN), adminPlatformController.updateEmailTemplate);
+router26.post("/email-templates", checkAuth(Role.ADMIN), validateRequest(emailTemplateCreateSchema), adminPlatformController.createEmailTemplate);
+router26.patch("/email-templates/:id", checkAuth(Role.ADMIN), validateRequest(emailTemplateUpdateSchema), adminPlatformController.updateEmailTemplate);
 router26.delete("/email-templates/:id", checkAuth(Role.ADMIN), adminPlatformController.deleteEmailTemplate);
 var adminPlatformRouter = router26;
 
@@ -11421,24 +11629,8 @@ var deactivateUser = async (id) => {
 var resetPassword3 = async (id) => {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) throw new AppError_default(status57.NOT_FOUND, "User not found");
-  const newPassword = generatePassword(12);
-  await prisma.account.updateMany({
-    where: { userId: id, providerId: "credential" },
-    data: { password: newPassword }
-    // plain text — BetterAuth will hash on next read; safer to just email it
-  });
-  await sendEmail({
-    to: user.email,
-    subject: "Nexora \u2014 Your password has been reset",
-    templateName: "teacherWelcome",
-    templateData: {
-      name: user.name,
-      email: user.email,
-      password: newPassword,
-      loginUrl: `${envVars.FRONTEND_URL}/login`
-    }
-  });
-  return { reset: true, email: user.email };
+  await authService.forgetPassword(user.email);
+  return { resetRequested: true, email: user.email };
 };
 var impersonateUser = async (targetId, adminUserId) => {
   const target = await prisma.user.findUnique({ where: { id: targetId } });
@@ -11507,7 +11699,7 @@ var adminUsersController = {
 var router27 = Router27();
 router27.get("/", checkAuth(Role.ADMIN), adminUsersController.getUsers);
 router27.get("/:id", checkAuth(Role.ADMIN), adminUsersController.getUserById);
-router27.patch("/:id", checkAuth(Role.ADMIN), adminUsersController.updateUser);
+router27.patch("/:id", checkAuth(Role.ADMIN), validateRequest(adminUpdateUserSchema), adminUsersController.updateUser);
 router27.delete("/:id", checkAuth(Role.ADMIN), adminUsersController.deactivateUser);
 router27.post("/:id/reset-password", checkAuth(Role.ADMIN), adminUsersController.resetPassword);
 router27.post("/:id/impersonate", checkAuth(Role.ADMIN), adminUsersController.impersonateUser);
@@ -11733,19 +11925,19 @@ var upsertHeroSectionTeacher = async (payload) => {
   const result = await prisma.heroSectionTeacher.upsert({
     where: { userId: payload.userId },
     update: {
-      displayName: payload.displayName,
-      displayDesignation: payload.displayDesignation,
-      displayDepartment: payload.displayDepartment,
-      displayBio: payload.displayBio,
+      ...payload.displayName !== void 0 && { displayName: payload.displayName },
+      ...payload.displayDesignation !== void 0 && { displayDesignation: payload.displayDesignation },
+      ...payload.displayDepartment !== void 0 && { displayDepartment: payload.displayDepartment },
+      ...payload.displayBio !== void 0 && { displayBio: payload.displayBio },
       order: payload.order ?? 0,
       isActive: payload.isActive
     },
     create: {
       userId: payload.userId,
-      displayName: payload.displayName,
-      displayDesignation: payload.displayDesignation,
-      displayDepartment: payload.displayDepartment,
-      displayBio: payload.displayBio,
+      ...payload.displayName !== void 0 && { displayName: payload.displayName },
+      ...payload.displayDesignation !== void 0 && { displayDesignation: payload.displayDesignation },
+      ...payload.displayDepartment !== void 0 && { displayDepartment: payload.displayDepartment },
+      ...payload.displayBio !== void 0 && { displayBio: payload.displayBio },
       order: payload.order ?? 0,
       isActive: payload.isActive
     }
@@ -11827,7 +12019,7 @@ var router29 = Router29();
 router29.get("/featuredCourse", homePageController.getFeaturedCourse);
 router29.get("/featuredTeachers", homePageController.getFeaturedTeachers);
 router29.get("/allTeachersForHeroSelection", checkAuth(Role.ADMIN), homePageController.getAllTeachersForHeroSelection);
-router29.post("/heroSectionTeacher", checkAuth(Role.ADMIN), homePageController.upsertHeroSectionTeacher);
+router29.post("/heroSectionTeacher", checkAuth(Role.ADMIN), validateRequest(heroTeacherSchema), homePageController.upsertHeroSectionTeacher);
 router29.delete("/heroSectionTeacher/:userId", checkAuth(Role.ADMIN), homePageController.removeHeroSectionTeacher);
 var homePageRouter = router29;
 
@@ -12214,7 +12406,7 @@ var testimonialController = {
 // src/modules/testimonial/testimonial.route.ts
 var router31 = Router31();
 router31.get("/", testimonialController.getApproved);
-router31.post("/", checkAuth(Role.STUDENT, Role.TEACHER, Role.ADMIN), testimonialController.create);
+router31.post("/", checkAuth(Role.STUDENT, Role.TEACHER, Role.ADMIN), validateRequest(testimonialCreateSchema), testimonialController.create);
 router31.get("/admin/pending", checkAuth(Role.ADMIN), testimonialController.getPending);
 router31.get("/admin/approved", checkAuth(Role.ADMIN), testimonialController.getAllApproved);
 router31.post("/admin/:id/approve", checkAuth(Role.ADMIN), testimonialController.approve);
@@ -12361,12 +12553,12 @@ var teacherApplicationController = {
 
 // src/modules/teacherApplication/teacherApplication.route.ts
 var router32 = Router32();
-router32.post("/apply", checkAuth(Role.STUDENT, Role.TEACHER, Role.ADMIN), teacherApplicationController.apply);
+router32.post("/apply", checkAuth(Role.STUDENT, Role.TEACHER, Role.ADMIN), validateRequest(teacherApplicationSchema), teacherApplicationController.apply);
 router32.get("/my", checkAuth(Role.STUDENT, Role.TEACHER, Role.ADMIN), teacherApplicationController.getMyApplication);
 router32.get("/admin/all", checkAuth(Role.ADMIN), teacherApplicationController.getAll);
 router32.get("/admin/pending", checkAuth(Role.ADMIN), teacherApplicationController.getPending);
 router32.post("/admin/:id/approve", checkAuth(Role.ADMIN), teacherApplicationController.approve);
-router32.post("/admin/:id/reject", checkAuth(Role.ADMIN), teacherApplicationController.reject);
+router32.post("/admin/:id/reject", checkAuth(Role.ADMIN), validateRequest(teacherApplicationRejectSchema), teacherApplicationController.reject);
 var teacherApplicationRouter = router32;
 
 // src/modules/exam/exam.route.ts
@@ -12599,6 +12791,7 @@ var studentResult = async (userId, examId) => {
     include: { exam: { select: { title: true, endTime: true } }, answers: { include: { question: { include: { options: true } }, selectedOption: true } }, proctorEvents: true }
   });
   if (!attempt || attempt.status === "IN_PROGRESS") throw new AppError_default(status67.BAD_REQUEST, "Result is not available");
+  if (attempt.exam.endTime.getTime() > Date.now()) throw new AppError_default(status67.FORBIDDEN, "Detailed results are available after the exam window ends");
   return attempt;
 };
 var adminAnalytics = async () => {
@@ -12675,14 +12868,14 @@ var examController = {
 };
 
 // src/modules/exam/exam.validation.ts
-import { z as z10 } from "zod";
-var option = z10.object({ text: z10.string().trim().min(1), isCorrect: z10.boolean().default(false) });
-var question = z10.object({
-  type: z10.enum(["MCQ", "CQ"]),
-  prompt: z10.string().trim().min(1),
-  explanation: z10.string().trim().optional(),
-  marks: z10.number().positive().default(1),
-  options: z10.array(option).max(6).default([])
+import { z as z11 } from "zod";
+var option = z11.object({ text: z11.string().trim().min(1), isCorrect: z11.boolean().default(false) });
+var question = z11.object({
+  type: z11.enum(["MCQ", "CQ"]),
+  prompt: z11.string().trim().min(1),
+  explanation: z11.string().trim().optional(),
+  marks: z11.number().positive().default(1),
+  options: z11.array(option).max(6).default([])
 }).superRefine((value, ctx) => {
   if (value.type === "MCQ" && (value.options.length < 2 || value.options.filter((item) => item.isCorrect).length !== 1)) {
     ctx.addIssue({ code: "custom", message: "MCQ questions need at least two options and exactly one correct answer", path: ["options"] });
@@ -12691,42 +12884,46 @@ var question = z10.object({
     ctx.addIssue({ code: "custom", message: "CQ questions cannot contain options", path: ["options"] });
   }
 });
-var createExamSchema = z10.object({
-  title: z10.string().trim().min(3).max(160),
-  description: z10.string().trim().max(2e3).optional(),
-  clusterId: z10.string().min(1),
-  type: z10.enum(["MCQ", "CQ", "MIXED"]),
-  startTime: z10.string().datetime(),
-  endTime: z10.string().datetime(),
-  durationMinutes: z10.number().int().min(1).max(1440).optional().nullable(),
-  questions: z10.array(question).default([])
-}).superRefine((data, ctx) => {
-  if (new Date(data.endTime) <= new Date(data.startTime)) {
+var examFieldsSchema = z11.object({
+  title: z11.string().trim().min(3).max(160),
+  description: z11.string().trim().max(2e3).optional(),
+  clusterId: z11.string().min(1),
+  type: z11.enum(["MCQ", "CQ", "MIXED"]),
+  startTime: z11.string().datetime(),
+  endTime: z11.string().datetime(),
+  durationMinutes: z11.number().int().min(1).max(1440).optional().nullable(),
+  questions: z11.array(question).default([])
+});
+var validateExamFields = (data, ctx) => {
+  if (data.startTime && data.endTime && new Date(data.endTime) <= new Date(data.startTime)) {
     ctx.addIssue({ code: "custom", message: "End time must be after start time", path: ["endTime"] });
   }
-  const kinds = new Set(data.questions.map((item) => item.type));
+  const kinds = new Set((data.questions ?? []).map((item) => item.type));
   if (data.type === "MCQ" && kinds.has("CQ")) ctx.addIssue({ code: "custom", message: "MCQ exams cannot contain CQ questions", path: ["questions"] });
   if (data.type === "CQ" && kinds.has("MCQ")) ctx.addIssue({ code: "custom", message: "CQ exams cannot contain MCQ questions", path: ["questions"] });
+};
+var createExamSchema = examFieldsSchema.superRefine((data, ctx) => {
+  validateExamFields(data, ctx);
 });
-var updateExamSchema = createExamSchema.partial().omit({ questions: true });
-var questionsSchema = z10.object({ questions: z10.array(question).min(1) });
-var rejectExamSchema = z10.object({ reason: z10.string().trim().min(3).max(1e3) });
-var submitExamSchema = z10.object({
-  answers: z10.array(z10.object({
-    questionId: z10.string(),
-    optionId: z10.string().nullable().optional(),
-    textAnswer: z10.string().max(2e4).nullable().optional()
+var updateExamSchema = examFieldsSchema.omit({ questions: true }).partial().superRefine(validateExamFields);
+var questionsSchema = z11.object({ questions: z11.array(question).min(1) });
+var rejectExamSchema = z11.object({ reason: z11.string().trim().min(3).max(1e3) });
+var submitExamSchema = z11.object({
+  answers: z11.array(z11.object({
+    questionId: z11.string(),
+    optionId: z11.string().nullable().optional(),
+    textAnswer: z11.string().max(2e4).nullable().optional()
   })),
-  autoSubmit: z10.boolean().optional().default(false)
+  autoSubmit: z11.boolean().optional().default(false)
 });
-var gradeAttemptSchema = z10.object({
-  grades: z10.array(z10.object({ answerId: z10.string(), awardedMarks: z10.number().min(0), note: z10.string().optional() }))
+var gradeAttemptSchema = z11.object({
+  grades: z11.array(z11.object({ answerId: z11.string(), awardedMarks: z11.number().min(0), note: z11.string().optional() }))
 });
-var proctorEventSchema = z10.object({
-  type: z10.enum(["TAB_HIDDEN", "WINDOW_BLUR", "PAGE_EXIT", "FULLSCREEN_EXIT", "COPY_ATTEMPT", "PASTE_ATTEMPT"]),
-  pageUrl: z10.string().max(2048).optional(),
-  referrer: z10.string().max(2048).optional(),
-  metadata: z10.record(z10.string(), z10.unknown()).optional()
+var proctorEventSchema = z11.object({
+  type: z11.enum(["TAB_HIDDEN", "WINDOW_BLUR", "PAGE_EXIT", "FULLSCREEN_EXIT", "COPY_ATTEMPT", "PASTE_ATTEMPT"]),
+  pageUrl: z11.string().max(2048).optional(),
+  referrer: z11.string().max(2048).optional(),
+  metadata: z11.record(z11.string(), z11.unknown()).optional()
 });
 
 // src/modules/exam/exam.route.ts
@@ -13519,9 +13716,9 @@ var aiController = {
 
 // src/modules/ai/ai.route.ts
 var router34 = Router34();
-router34.post("/suggest-description", aiController.suggestDescription);
-router34.post("/chat", checkAuth(Role.STUDENT, Role.TEACHER, Role.ADMIN), aiController.chat);
-router34.post("/guest-chat", aiController.guestChat);
+router34.post("/suggest-description", checkAuth(Role.TEACHER, Role.ADMIN), validateRequest(aiDescriptionSchema), aiController.suggestDescription);
+router34.post("/chat", checkAuth(Role.STUDENT, Role.TEACHER, Role.ADMIN), validateRequest(aiChatSchema), aiController.chat);
+router34.post("/guest-chat", validateRequest(aiChatSchema), aiController.guestChat);
 var aiRouter = router34;
 
 // src/app.ts

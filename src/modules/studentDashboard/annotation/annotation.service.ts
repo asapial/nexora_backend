@@ -19,7 +19,7 @@ const getSharedAnnotations = async (resourceId: string, userId: string) => {
 
 const createAnnotation = async (
   userId: string,
-  payload: { resourceId: string; highlight?: string; note?: string; page?: number; isShared?: boolean }
+  payload: { resourceId: string; highlight?: string; note?: string; page?: number; isShared?: boolean; }
 ) => {
   const resource = await prisma.resource.findUnique({ where: { id: payload.resourceId } });
   if (!resource) throw new AppError(status.NOT_FOUND, "Resource not found");
@@ -28,9 +28,9 @@ const createAnnotation = async (
     data: {
       userId,
       resourceId: payload.resourceId,
-      highlight: payload.highlight,
-      note: payload.note,
-      page: payload.page,
+      ...(payload.highlight !== undefined && { highlight: payload.highlight }),
+      ...(payload.note !== undefined && { note: payload.note }),
+      ...(payload.page !== undefined && { page: payload.page }),
       isShared: payload.isShared ?? false,
     },
   });
@@ -39,7 +39,7 @@ const createAnnotation = async (
 const updateAnnotation = async (
   userId: string,
   id: string,
-  payload: { highlight?: string; note?: string; page?: number; isShared?: boolean }
+  payload: { highlight?: string; note?: string; page?: number; isShared?: boolean; }
 ) => {
   const annotation = await prisma.resourceAnnotation.findUnique({ where: { id } });
   if (!annotation) throw new AppError(status.NOT_FOUND, "Annotation not found");

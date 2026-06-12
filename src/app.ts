@@ -44,7 +44,7 @@ import { examRouter } from "./modules/exam/exam.route";
 const app: Application = express();
 
 app.set("view engine", "ejs");
-app.set("views", path.resolve(process.cwd(), `src/templates`))
+app.set("views", path.resolve(process.cwd(), `src/templates`));
 
 
 // ── 1. CORS ─────────────────────────────────────────────────────────────────
@@ -159,7 +159,7 @@ app.use("/api/courses", courseRouter);
 app.use("/api/missions", missionRouter);
 app.use("/api/payments", paymentRouter);
 app.use("/api/settings", settingsRouter);
-app.use("/api/homePage",homePageRouter );
+app.use("/api/homePage", homePageRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/testimonials", testimonialRouter);
 app.use("/api/teacher-applications", teacherApplicationRouter);
