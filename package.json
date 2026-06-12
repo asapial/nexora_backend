@@ -7,6 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "npx tsx watch src/server.ts",
     "seeding": "npx tsx src/scripts/seedingAdmin.ts",
+    "seed:demo-users": "npx tsx src/scripts/seedingDemoUsers.ts",
+    "seed:courses": "npx tsx src/scripts/seedingCourses.ts",
     "migrate": "npx prisma migrate dev",
     "generate": "npx prisma generate",
     "postinstall": "prisma generate",

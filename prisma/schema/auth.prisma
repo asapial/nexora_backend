@@ -55,6 +55,8 @@ model User {
   teacherApplications TeacherApplication[]
 
   accountSettings UserAccountSettings?
+  examAssignments ExamAssignment[]
+  examAttempts    ExamAttempt[]
 
   @@unique([email])
   @@index([email, role])

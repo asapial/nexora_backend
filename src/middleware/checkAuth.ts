@@ -124,3 +124,32 @@ export const checkAuth = (...authRoles: Role[]) => async (req: Request, res: Res
         next(error);
     }
 };
+
+/**
+ * Optional authentication middleware.
+ * If a valid JWT access token is present, populates req.user.
+ * If no token (or invalid token), silently continues without error.
+ * Use this for public routes that benefit from knowing who the user is.
+ */
+export const optionalAuth = async (req: Request, _res: Response, next: NextFunction) => {
+    try {
+        const accessToken = cookieUtils.getCookie(req, "accessToken");
+        if (!accessToken) return next();
+
+        const verified = jwtUtils.vefifyToken(accessToken, envVars.ACCESS_TOKEN_SECRET);
+        if (!verified.success || !verified.data) return next();
+
+        const { userId } = verified.data as { userId: string; role: Role; email: string };
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, role: true, email: true, isDeleted: true, isActive: true },
+        });
+
+        if (user && !user.isDeleted && user.isActive !== false) {
+            req.user = { userId: user.id, role: user.role, email: user.email };
+        }
+    } catch {
+        // swallow any error — auth is optional
+    }
+    next();
+};

@@ -35,6 +35,7 @@ model TeacherProfile {
     coTeacherOf   CoTeacher[]
     sessions      StudySession[]  @relation("SessionCreator")
     taskTemplates TaskTemplate[]
+    exams         Exam[]
   teacherClusters      Cluster[]            @relation("ClusterTeacher")
 
     // courses

@@ -5,6 +5,7 @@ import { prisma } from "../../lib/prisma";
 import { tokenUtils } from "../../utils/token";
 import { ILoginData, IRegisterData } from "./auth.type";
 import { coerceValue } from "../../utils/coerceValue";
+import { randomBytes, randomUUID } from "crypto";
 
 
 
@@ -192,6 +193,67 @@ const loginService = async (data: ILoginData, cookieHeader?: string) => {
     };
 }
 
+
+const demoLoginService = async (role: string) => {
+    const normalizedRole = role?.trim().toLowerCase();
+
+    if (normalizedRole !== "teacher" && normalizedRole !== "student") {
+        throw new AppError(status.BAD_REQUEST, "Demo role must be teacher or student.");
+    }
+
+    const isTeacher = normalizedRole === "teacher";
+    const email = isTeacher ? process.env.DEMO_TEACHER_EMAIL : process.env.DEMO_STUDENT_EMAIL;
+
+    if (!email) {
+        throw new AppError(status.SERVICE_UNAVAILABLE, `Demo ${normalizedRole} account is not configured.`);
+    }
+
+    const user = await prisma.user.findUnique({
+        where: { email: email.trim().toLowerCase() },
+        select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+            role: true,
+            isActive: true,
+            isDeleted: true,
+            emailVerified: true,
+            oneTimePassword: true,
+        },
+    });
+    if (!user || user.isDeleted || !user.isActive || user.role !== normalizedRole.toUpperCase()) {
+        throw new AppError(status.SERVICE_UNAVAILABLE, `Configured demo account is not a ${normalizedRole} account.`);
+    }
+
+    const token = randomBytes(32).toString("hex");
+    await prisma.session.create({
+        data: {
+            id: randomUUID(),
+            token,
+            userId: user.id,
+            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+    });
+
+    const tokenPayload = {
+        userId: user.id,
+        role: user.role,
+        name: user.name,
+        email: user.email,
+        isActive: user.isActive,
+        oneTimePassword: user.oneTimePassword,
+        emailVerified: user.emailVerified,
+    };
+    const { oneTimePassword, isDeleted, ...safeUser } = user;
+
+    return {
+        user: safeUser,
+        token,
+        accessToken: tokenUtils.createAccessToken(tokenPayload),
+        refreshToken: tokenUtils.createRefreshToken(tokenPayload),
+    };
+}
 
 const verifyLoginTOTP = async (code: string, cookieHeader: string) => {
     // BetterAuth's verify-totp during login needs the pending 2FA session cookie
@@ -663,6 +725,7 @@ const updateProfileService = async (
 export const authService = {
     registerService,
     loginService,
+    demoLoginService,
     verifyLoginTOTP,
     getMyData,
     changePasswordService,

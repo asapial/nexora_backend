@@ -82,6 +82,26 @@ const loginController = catchAsync(
 )
 
 
+const demoLoginController = catchAsync(
+    async (req: Request, res: Response) => {
+        const result = await authService.demoLoginService(req.body?.role);
+        const { accessToken, refreshToken, token, ...rest } = result;
+
+        if (token) {
+            tokenUtils.setBetterAuthSessionCookie(res, token as string);
+        }
+        tokenUtils.setAccessTokenCookie(res, accessToken);
+        tokenUtils.setRefreshTokenCookie(res, refreshToken);
+
+        sendResponse(res, {
+            status: status.OK,
+            success: true,
+            message: "Demo login successful",
+            data: rest,
+        });
+    }
+)
+
 const getMyDataController = catchAsync(
     async (req: Request, res: Response, next: NextFunction) => {
 
@@ -343,6 +363,7 @@ const verifyLoginTOTPController = catchAsync(
 export const authController = {
     registerController,
     loginController,
+    demoLoginController,
     verifyLoginTOTPController,
     getMyDataController,
     changePasswordController,

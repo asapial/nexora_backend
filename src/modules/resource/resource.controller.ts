@@ -74,7 +74,8 @@ const browseResources = catchAsync(
     const userId = req.user?.userId;
     const result = await resourceService.getFilteredResources(
       req.query as Record<string, string>,
-      userId
+      userId,
+      true   // browseMode — enforces PUBLIC/CLUSTER visibility gate
     );
     sendResponse(res, {
       status: status.OK,
@@ -260,6 +261,30 @@ const cloudinarySign = catchAsync(
   }
 );
 
+// ── Update Resource (PATCH) ───────────────────────────────────────────────────
+const updateResource = catchAsync(
+  async (req: Request, res: Response, _next: NextFunction) => {
+    const userId = req.user!.userId;
+    const { resourceId } = req.params as { resourceId: string };
+    const body = req.body as {
+      title?: string; description?: string; authors?: string[];
+      tags?: string[]; year?: string; categoryId?: string;
+      clusterIds?: string[]; visibility?: string;
+    };
+    const result = await resourceService.updateResource(resourceId, userId, {
+      title:       body.title,
+      description: body.description,
+      authors:     Array.isArray(body.authors) ? body.authors : undefined,
+      tags:        Array.isArray(body.tags)    ? body.tags    : undefined,
+      year:        body.year !== undefined ? (body.year ? Number(body.year) : null) : undefined,
+      categoryId:  body.categoryId,
+      clusterIds:  Array.isArray(body.clusterIds) ? body.clusterIds : undefined,
+      visibility:  body.visibility,
+    });
+    sendResponse(res, { status: status.OK, success: true, message: "Resource updated", data: result });
+  }
+);
+
 export const resourceController = {
   uploadResource,
   allResources,
@@ -271,4 +296,5 @@ export const resourceController = {
   suggestMetadata,
   cloudinarySign,
   deleteResource,
+  updateResource,
 };
