@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   annotationCreateSchema,
   createUsersByEmailSchema,
+  demoLoginSchema,
   registerSchema,
   resourceUpdateSchema,
   taskReviewSchema,
@@ -34,6 +35,11 @@ test("registration enforces a strong password and strips unknown fields", () => 
   assert.equal(result.email, "t@example.com");
   assert.equal(result.image, "https://example.com/avatar.png");
   assert.equal("role" in result, false);
+});
+
+test("demo login normalizes role casing", () => {
+  assert.deepEqual(demoLoginSchema.parse({ role: "teacher" }), { role: "TEACHER" });
+  assert.deepEqual(demoLoginSchema.parse({ role: " student " }), { role: "STUDENT" });
 });
 
 test("task review score is constrained to the supported range", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { scoreAnswers, seededShuffle } from "./exam.utils";
+import { canViewAnswerSheet, scoreAnswers, seededShuffle } from "./exam.utils";
 
 test("seededShuffle is deterministic and preserves every item", () => {
   const source = ["a", "b", "c", "d", "e"];
@@ -16,4 +16,10 @@ test("scoreAnswers scores MCQ and leaves CQ for manual grading", () => {
   assert.equal(result.score, 2);
   assert.equal(result.totalMarks, 10);
   assert.equal(result.rows[1]!.awardedMarks, 0);
+});
+
+test("answer sheets remain hidden for attempts with integrity violations", () => {
+  assert.equal(canViewAnswerSheet(true, false), true);
+  assert.equal(canViewAnswerSheet(true, true), false);
+  assert.equal(canViewAnswerSheet(false, false), false);
 });

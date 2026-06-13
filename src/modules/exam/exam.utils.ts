@@ -24,6 +24,9 @@ export const seededShuffle = <T>(items: T[], seed: string): T[] => {
   return copy;
 };
 
+export const canViewAnswerSheet = (answerSheetPublished: boolean, suspicious: boolean) =>
+  answerSheetPublished && !suspicious;
+
 export const scoreAnswers = (
   questions: ScoringQuestion[],
   answers: { questionId: string; optionId?: string | null; }[],

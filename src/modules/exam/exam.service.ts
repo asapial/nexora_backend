@@ -1,12 +1,21 @@
 import status from "http-status";
+import { createHash, randomBytes } from "node:crypto";
 import AppError from "../../errorHelpers/AppError";
+import { envVars } from "../../config/env";
 import { prisma } from "../../lib/prisma";
-import { scoreAnswers, seededShuffle } from "./exam.utils";
+import { sendEmail } from "../../utils/emailSender";
+import { canViewAnswerSheet, scoreAnswers, seededShuffle } from "./exam.utils";
 
 type QuestionInput = {
   type: "MCQ" | "CQ"; prompt: string; explanation?: string; marks: number;
   options: { text: string; isCorrect: boolean; }[];
 };
+
+const cameraEventTypes = new Set([
+  "FACE_NOT_VISIBLE", "MULTIPLE_FACES", "CAMERA_INTERRUPTED",
+  "CAMERA_PERMISSION_REVOKED", "CAMERA_DEVICE_CHANGED", "PREFLIGHT_FAILED",
+]);
+const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
 const teacher = async (userId: string) => {
   const profile = await prisma.teacherProfile.findUnique({ where: { userId } });
@@ -47,12 +56,13 @@ const create = async (userId: string, payload: any) => {
   const exam = await prisma.exam.create({
     data: {
       teacherId: profile.id, clusterId: cluster.id, title: payload.title, description: payload.description ?? null,
-      type: payload.type, status: payload.questions.length ? "PENDING_APPROVAL" : "DRAFT",
+      type: payload.type, examMode: payload.examMode, status: payload.questions.length ? "PENDING_APPROVAL" : "DRAFT",
       startTime, endTime: new Date(payload.endTime), durationMinutes: payload.durationMinutes ?? null,
       questionsDueAt: new Date(startTime.getTime() - 24 * 60 * 60 * 1000),
       questions: { create: createQuestionRows(payload.questions) },
+      proctorPolicy: payload.examMode === "PRO" ? { create: payload.proctorPolicy } : undefined,
     },
-    include: { cluster: true, questions: { include: { options: true } } },
+    include: { cluster: true, proctorPolicy: true, questions: { include: { options: true } } },
   });
   await syncAssignments(exam.id, cluster.id);
   return exam;
@@ -62,7 +72,7 @@ const listTeacher = async (userId: string) => {
   const profile = await teacher(userId);
   return prisma.exam.findMany({
     where: { teacherId: profile.id },
-    include: { cluster: { select: { id: true, name: true } }, _count: { select: { questions: true, attempts: true, assignments: true } } },
+    include: { cluster: { select: { id: true, name: true } }, proctorPolicy: true, _count: { select: { questions: true, attempts: true, assignments: true } } },
     orderBy: { startTime: "desc" },
   });
 };
@@ -70,12 +80,23 @@ const listTeacher = async (userId: string) => {
 const update = async (userId: string, examId: string, payload: any) => {
   const exam = await ownedExam(userId, examId);
   if (!["DRAFT", "PENDING_APPROVAL", "REJECTED"].includes(exam.status)) throw new AppError(status.BAD_REQUEST, "Approved exams cannot be edited");
+  if (payload.examMode && payload.examMode !== exam.examMode) {
+    const attempts = await prisma.examAttempt.count({ where: { examId } });
+    if (attempts) throw new AppError(status.BAD_REQUEST, "Exam mode cannot be changed after a student starts");
+  }
   const startTime = payload.startTime ? new Date(payload.startTime) : exam.startTime;
   if (startTime.getTime() - Date.now() < 24 * 60 * 60 * 1000) throw new AppError(status.BAD_REQUEST, "Exam start time must be at least 24 hours away");
+  const { proctorPolicy, ...examPayload } = payload;
+  const nextMode = payload.examMode ?? exam.examMode;
+  if (nextMode === "PRO" && proctorPolicy) {
+    await prisma.examProctorPolicy.upsert({ where: { examId }, create: { examId, ...proctorPolicy }, update: proctorPolicy });
+  } else if (nextMode === "REGULAR") {
+    await prisma.examProctorPolicy.deleteMany({ where: { examId } });
+  }
   return prisma.exam.update({
     where: { id: examId },
     data: {
-      ...payload, startTime, endTime: payload.endTime ? new Date(payload.endTime) : undefined,
+      ...examPayload, startTime, endTime: payload.endTime ? new Date(payload.endTime) : undefined,
       questionsDueAt: new Date(startTime.getTime() - 24 * 60 * 60 * 1000),
       rejectionReason: null,
     },
@@ -104,6 +125,7 @@ const getTeacherDetail = async (userId: string, examId: string) => {
     where: { id: examId },
     include: {
       cluster: { include: { members: { include: { user: { select: { id: true, name: true, email: true } } } } } },
+      proctorPolicy: true,
       questions: { include: { options: { orderBy: { order: "asc" } } }, orderBy: { order: "asc" } },
       attempts: { include: { user: { select: { id: true, name: true, email: true } }, answers: true, proctorEvents: { orderBy: { occurredAt: "desc" } } } },
     },
@@ -132,22 +154,107 @@ const reject = async (examId: string, reason: string) => {
 
 const listStudent = async (userId: string) => prisma.examAssignment.findMany({
   where: { userId, accessGranted: true, exam: { status: "APPROVED" } },
-  include: { exam: { include: { cluster: { select: { id: true, name: true } }, _count: { select: { questions: true } } } } },
+  include: {
+    exam: {
+      include: {
+        cluster: { select: { id: true, name: true } },
+        proctorPolicy: true,
+        attempts: {
+          where: { userId },
+          select: { id: true, status: true, submittedAt: true, score: true, totalMarks: true, percentage: true, suspicious: true, suspiciousCount: true },
+          take: 1,
+        },
+        _count: { select: { questions: true } },
+      },
+    },
+  },
   orderBy: { exam: { startTime: "asc" } },
 });
 
-const start = async (userId: string, examId: string) => {
+const studentAccess = async (userId: string, examId: string) => {
+  const assignment = await prisma.examAssignment.findUnique({
+    where: { examId_userId: { examId, userId } },
+    include: {
+      exam: {
+        include: {
+          cluster: { select: { id: true, name: true } },
+          proctorPolicy: true,
+          attempts: { where: { userId }, select: { id: true, status: true }, take: 1 },
+        },
+      },
+    },
+  });
+  if (!assignment?.accessGranted || assignment.exam.status !== "APPROVED") throw new AppError(status.FORBIDDEN, "You do not have access to this exam");
+  return {
+    exam: {
+      id: assignment.exam.id,
+      title: assignment.exam.title,
+      description: assignment.exam.description,
+      examMode: assignment.exam.examMode,
+      startTime: assignment.exam.startTime,
+      endTime: assignment.exam.endTime,
+      durationMinutes: assignment.exam.durationMinutes,
+      cluster: assignment.exam.cluster,
+    },
+    proctorPolicy: assignment.exam.proctorPolicy,
+    attempt: assignment.exam.attempts[0] ?? null,
+  };
+};
+
+const proctorPreflight = async (userId: string, examId: string, payload: any) => {
+  const assignment = await prisma.examAssignment.findUnique({
+    where: { examId_userId: { examId, userId } },
+    include: { exam: { include: { proctorPolicy: true } } },
+  });
+  if (!assignment?.accessGranted || assignment.exam.status !== "APPROVED") throw new AppError(status.FORBIDDEN, "You do not have access to this exam");
+  if (assignment.exam.examMode !== "PRO" || !assignment.exam.proctorPolicy) throw new AppError(status.BAD_REQUEST, "Camera preflight is only available for Pro Mode exams");
+  if (Date.now() < assignment.exam.startTime.getTime() || Date.now() >= assignment.exam.endTime.getTime()) throw new AppError(status.BAD_REQUEST, "Exam is not active");
+
+  const token = randomBytes(32).toString("hex");
+  const completedAt = new Date();
+  await prisma.examAssignment.update({
+    where: { id: assignment.id },
+    data: {
+      proctorConsentAt: completedAt,
+      proctorPreflightAt: completedAt,
+      proctorTokenHash: hashToken(token),
+      proctorTokenExpiresAt: new Date(completedAt.getTime() + 10 * 60 * 1000),
+    },
+  });
+  return { preflightToken: token, expiresInSeconds: 600, calibration: payload.calibration };
+};
+
+const start = async (userId: string, examId: string, preflightToken?: string) => {
   const assignment = await prisma.examAssignment.findUnique({ where: { examId_userId: { examId, userId } }, include: { exam: { include: { questions: { include: { options: true } } } } } });
   if (!assignment?.accessGranted || assignment.exam.status !== "APPROVED") throw new AppError(status.FORBIDDEN, "You do not have access to this exam");
   const now = Date.now();
   if (now < assignment.exam.startTime.getTime() || now >= assignment.exam.endTime.getTime()) throw new AppError(status.BAD_REQUEST, "Exam is not active");
+  if (assignment.exam.examMode === "PRO") {
+    const validToken = preflightToken
+      && assignment.proctorTokenHash === hashToken(preflightToken)
+      && assignment.proctorTokenExpiresAt
+      && assignment.proctorTokenExpiresAt.getTime() > now
+      && assignment.proctorConsentAt
+      && assignment.proctorPreflightAt;
+    if (!validToken) throw new AppError(status.FORBIDDEN, "Complete the Pro Mode camera preflight before starting");
+  }
   const existing = await prisma.examAttempt.findUnique({ where: { examId_userId: { examId, userId } } });
-  const attempt = existing ?? await prisma.examAttempt.create({ data: { examId, userId, questionOrder: seededShuffle(assignment.exam.questions.map((q) => q.id), `${examId}:${userId}`) } });
+  const attempt = existing ?? await prisma.examAttempt.create({
+    data: {
+      examId,
+      userId,
+      questionOrder: seededShuffle(assignment.exam.questions.map((q) => q.id), `${examId}:${userId}`),
+      examModeSnapshot: assignment.exam.examMode,
+      cameraConsentAt: assignment.exam.examMode === "PRO" ? assignment.proctorConsentAt : null,
+      cameraPreflightAt: assignment.exam.examMode === "PRO" ? assignment.proctorPreflightAt : null,
+      cameraMonitoringAt: assignment.exam.examMode === "PRO" ? new Date() : null,
+    },
+  });
   if (attempt.status !== "IN_PROGRESS") throw new AppError(status.BAD_REQUEST, "This exam has already been submitted");
   const map = new Map(assignment.exam.questions.map((question) => [question.id, question]));
   return {
     attemptId: attempt.id, startedAt: attempt.startedAt, endTime: assignment.exam.endTime, durationMinutes: assignment.exam.durationMinutes,
-    title: assignment.exam.title,
+    title: assignment.exam.title, examMode: assignment.exam.examMode,
     questions: attempt.questionOrder.map((id) => map.get(id)!).filter(Boolean).map((q) => ({
       id: q.id, type: q.type, prompt: q.prompt, marks: q.marks,
       options: seededShuffle(q.options, `${attempt.id}:${q.id}`).map(({ id, text }) => ({ id, text })),
@@ -169,12 +276,34 @@ const submit = async (userId: string, examId: string, answers: any[], auto = fal
 const violation = async (userId: string, examId: string, payload: any) => {
   const attempt = await prisma.examAttempt.findUnique({ where: { examId_userId: { examId, userId } }, include: { exam: { include: { teacher: true } }, user: true } });
   if (!attempt || attempt.status !== "IN_PROGRESS") throw new AppError(status.BAD_REQUEST, "No active exam attempt");
+  if (cameraEventTypes.has(payload.type) && attempt.exam.examMode !== "PRO") throw new AppError(status.BAD_REQUEST, "Camera events are only accepted for Pro Mode exams");
+  if (payload.clientEventId) {
+    const existing = await prisma.examProctorEvent.findUnique({ where: { clientEventId: payload.clientEventId } });
+    if (existing) return existing;
+  }
   const event = await prisma.examProctorEvent.create({ data: { attemptId: attempt.id, ...payload } });
   await prisma.$transaction([
-    prisma.examAttempt.update({ where: { id: attempt.id }, data: { suspicious: true, suspiciousCount: { increment: 1 } } }),
-    prisma.notification.create({ data: { userId: attempt.exam.teacher.userId, type: "EXAM_VIOLATION", title: `${attempt.user.name}: ${payload.type.replaceAll("_", " ")}`, body: `Violation during ${attempt.exam.title}`, link: `/dashboard/teacher/exams/${examId}` } }),
+    prisma.examAttempt.update({
+      where: { id: attempt.id },
+      data: {
+        suspicious: true,
+        suspiciousCount: { increment: 1 },
+        cameraInterruptedAt: ["CAMERA_INTERRUPTED", "CAMERA_PERMISSION_REVOKED"].includes(payload.type) ? new Date() : undefined,
+      },
+    }),
+    prisma.notification.create({ data: { userId: attempt.exam.teacher.userId, type: "EXAM_VIOLATION", title: `${attempt.user.name}: ${payload.type.replaceAll("_", " ")}`, body: `Violation during ${attempt.exam.title}`, link: "/dashboard/teacher/exams/proctoring" } }),
   ]);
   return event;
+};
+
+const reviewProctorEvent = async (userId: string, examId: string, eventId: string, payload: any) => {
+  await ownedExam(userId, examId);
+  const event = await prisma.examProctorEvent.findFirst({ where: { id: eventId, attempt: { examId } } });
+  if (!event) throw new AppError(status.NOT_FOUND, "Proctor event not found");
+  return prisma.examProctorEvent.update({
+    where: { id: eventId },
+    data: { reviewDecision: payload.decision, reviewNote: payload.note ?? null, reviewerId: userId, reviewedAt: new Date() },
+  });
 };
 
 const gradeAttempt = async (userId: string, examId: string, attemptId: string, grades: { answerId: string; awardedMarks: number; }[]) => {
@@ -193,14 +322,163 @@ const gradeAttempt = async (userId: string, examId: string, attemptId: string, g
   return prisma.examAttempt.update({ where: { id: attemptId }, data: { score, totalMarks, percentage: totalMarks ? Math.round((score / totalMarks) * 10000) / 100 : 0 } });
 };
 
-const studentResult = async (userId: string, examId: string) => {
+const updateResultPublication = async (
+  userId: string,
+  examId: string,
+  publication: { resultsPublished?: boolean; answerSheetPublished?: boolean; },
+) => {
+  const exam = await ownedExam(userId, examId);
+  if (exam.endTime.getTime() > Date.now()) throw new AppError(status.BAD_REQUEST, "Results can only be published after the exam window closes");
+  if (publication.answerSheetPublished && !publication.resultsPublished && !exam.resultsPublishedAt) {
+    throw new AppError(status.BAD_REQUEST, "Publish results before publishing answer sheets");
+  }
+  return prisma.exam.update({
+    where: { id: examId },
+    data: {
+      resultsPublishedAt: publication.resultsPublished === undefined
+        ? undefined
+        : publication.resultsPublished ? new Date() : null,
+      answerSheetPublishedAt: publication.resultsPublished === false
+        ? null
+        : publication.answerSheetPublished === undefined
+        ? undefined
+        : publication.answerSheetPublished ? new Date() : null,
+    },
+  });
+};
+
+const buildStudentResult = async (userId: string, examId: string) => {
   const attempt = await prisma.examAttempt.findUnique({
     where: { examId_userId: { examId, userId } },
-    include: { exam: { select: { title: true, endTime: true } }, answers: { include: { question: { include: { options: true } }, selectedOption: true } }, proctorEvents: true },
+    include: {
+      user: { select: { name: true, email: true } },
+      exam: {
+        include: {
+          cluster: { select: { name: true } },
+          attempts: {
+            where: { status: { not: "IN_PROGRESS" } },
+            select: { id: true, percentage: true, score: true },
+          },
+        },
+      },
+      answers: {
+        include: {
+          question: { include: { options: { orderBy: { order: "asc" } } } },
+          selectedOption: true,
+        },
+      },
+      proctorEvents: { orderBy: { occurredAt: "asc" } },
+    },
   });
   if (!attempt || attempt.status === "IN_PROGRESS") throw new AppError(status.BAD_REQUEST, "Result is not available");
-  if (attempt.exam.endTime.getTime() > Date.now()) throw new AppError(status.FORBIDDEN, "Detailed results are available after the exam window ends");
-  return attempt;
+  if (!attempt.exam.resultsPublishedAt) throw new AppError(status.FORBIDDEN, "Your teacher has not published this result yet");
+
+  const percentages = attempt.exam.attempts
+    .map((item) => item.percentage)
+    .filter((value): value is number => value !== null);
+  const scores = attempt.exam.attempts
+    .map((item) => item.score)
+    .filter((value): value is number => value !== null);
+  const sorted = [...percentages].sort((a, b) => b - a);
+  const answerSheetAvailable = canViewAnswerSheet(Boolean(attempt.exam.answerSheetPublishedAt), attempt.suspicious);
+  return {
+    exam: {
+      id: attempt.exam.id,
+      title: attempt.exam.title,
+      type: attempt.exam.type,
+      cluster: attempt.exam.cluster,
+      startTime: attempt.exam.startTime,
+      endTime: attempt.exam.endTime,
+      resultsPublishedAt: attempt.exam.resultsPublishedAt,
+      answerSheetPublishedAt: attempt.exam.answerSheetPublishedAt,
+    },
+    student: attempt.user,
+    attempt: {
+      status: attempt.status,
+      startedAt: attempt.startedAt,
+      submittedAt: attempt.submittedAt,
+      score: attempt.score ?? 0,
+      totalMarks: attempt.totalMarks ?? 0,
+      percentage: attempt.percentage ?? 0,
+      suspicious: attempt.suspicious,
+      suspiciousCount: attempt.suspiciousCount,
+    },
+    statistics: {
+      highestPercentage: sorted[0] ?? 0,
+      lowestPercentage: sorted.at(-1) ?? 0,
+      highestScore: scores.length ? Math.max(...scores) : 0,
+      lowestScore: scores.length ? Math.min(...scores) : 0,
+      averagePercentage: percentages.length
+        ? Math.round((percentages.reduce((sum, value) => sum + value, 0) / percentages.length) * 100) / 100
+        : 0,
+      rank: sorted.findIndex((value) => value <= (attempt.percentage ?? 0)) + 1,
+      participantCount: percentages.length,
+    },
+    answerSheetAvailable,
+    answerSheet: answerSheetAvailable ? attempt.answers.map((answer) => ({
+      id: answer.id,
+      questionId: answer.questionId,
+      prompt: answer.question.prompt,
+      type: answer.question.type,
+      marks: answer.question.marks,
+      awardedMarks: answer.awardedMarks,
+      isCorrect: answer.isCorrect,
+      textAnswer: answer.textAnswer,
+      selectedOption: answer.selectedOption ? { id: answer.selectedOption.id, text: answer.selectedOption.text } : null,
+      correctOptions: answer.question.options.filter((option) => option.isCorrect).map((option) => ({ id: option.id, text: option.text })),
+      explanation: answer.question.explanation,
+    })) : null,
+    violationHistory: attempt.suspicious ? attempt.proctorEvents : [],
+  };
+};
+
+const sendPublishedResultEmail = async (studentId: string, examId: string) => {
+  const result = await buildStudentResult(studentId, examId);
+  await sendEmail({
+    to: result.student.email,
+    subject: `Your result is available: ${result.exam.title}`,
+    templateName: "examResultPublished",
+    templateData: {
+      ...result,
+      resultUrl: `${envVars.FRONTEND_URL}/dashboard/student/exams/results/${examId}`,
+    },
+  });
+  return result;
+};
+
+const emailPublishedResultToStudent = async (userId: string, examId: string, attemptId: string) => {
+  await ownedExam(userId, examId);
+  const attempt = await prisma.examAttempt.findFirst({
+    where: { id: attemptId, examId, status: { not: "IN_PROGRESS" } },
+    select: { id: true, userId: true },
+  });
+  if (!attempt) throw new AppError(status.NOT_FOUND, "Submitted student attempt not found");
+
+  const result = await sendPublishedResultEmail(attempt.userId, examId);
+  const sentAt = new Date();
+  await prisma.examAttempt.update({ where: { id: attempt.id }, data: { resultEmailSentAt: sentAt } });
+  return { attemptId: attempt.id, student: result.student, sentAt };
+};
+
+const emailPublishedResults = async (userId: string, examId: string) => {
+  const exam = await ownedExam(userId, examId);
+  if (!exam.resultsPublishedAt) throw new AppError(status.BAD_REQUEST, "Publish results before sending result emails");
+  const attempts = await prisma.examAttempt.findMany({
+    where: { examId, status: { not: "IN_PROGRESS" } },
+    select: { id: true, userId: true },
+  });
+  const settled = await Promise.allSettled(attempts.map(async ({ id, userId: studentId }) => {
+    await sendPublishedResultEmail(studentId, examId);
+    await prisma.examAttempt.update({ where: { id }, data: { resultEmailSentAt: new Date() } });
+  }));
+  const sent = settled.filter((item) => item.status === "fulfilled").length;
+  const failed = settled.length - sent;
+  await prisma.exam.update({ where: { id: examId }, data: { resultEmailsSentAt: new Date() } });
+  return { sent, failed, total: settled.length };
+};
+
+const studentResult = async (userId: string, examId: string) => {
+  return buildStudentResult(userId, examId);
 };
 
 const adminAnalytics = async () => {
@@ -241,4 +519,4 @@ const remindOverdueTeachers = async () => {
   return { reminded: exams.length };
 };
 
-export const examService = { create, listTeacher, update, setQuestions, getTeacherDetail, listPending, approve, reject, listStudent, start, submit, violation, gradeAttempt, studentResult, adminAnalytics, remindOverdueTeachers };
+export const examService = { create, listTeacher, update, setQuestions, getTeacherDetail, listPending, approve, reject, listStudent, studentAccess, proctorPreflight, start, submit, violation, reviewProctorEvent, gradeAttempt, updateResultPublication, emailPublishedResults, emailPublishedResultToStudent, studentResult, adminAnalytics, remindOverdueTeachers };

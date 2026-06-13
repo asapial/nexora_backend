@@ -143,7 +143,12 @@ export const loginSchema = z.object({
   rememberMe: z.boolean().optional(),
   callbackURL: z.string().url().max(2048).optional(),
 });
-export const demoLoginSchema = z.object({ role: z.enum(["ADMIN", "TEACHER", "STUDENT"]) });
+export const demoLoginSchema = z.object({
+  role: z.preprocess(
+    (value) => typeof value === "string" ? value.trim().toUpperCase() : value,
+    z.enum(["ADMIN", "TEACHER", "STUDENT"]),
+  ),
+});
 export const changePasswordSchema = z.object({ oldPassword: z.string().min(1).max(200), newPassword: strongPassword });
 export const emailSchema = z.object({ email: z.string().trim().toLowerCase().email() });
 export const otpSchema = emailSchema.extend({ otp: z.string().regex(/^\d{6}$/) });
