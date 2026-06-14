@@ -29,7 +29,7 @@ const storage = new CloudinaryStorage({
 
     return {
       folder: `nexora/${folder}`,
-      public_id: uniqueName,
+      public_id: extension === "pdf" ? `${uniqueName}.pdf` : uniqueName,
       resource_type: extension === "pdf" ? "raw" : "auto",
     };
   }

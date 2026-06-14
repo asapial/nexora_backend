@@ -3,12 +3,13 @@ import { Role } from "../../generated/prisma/enums";
 import { checkAuth } from "../../middleware/checkAuth";
 import { validateRequest } from "../../middleware/validateRequest";
 import { examController } from "./exam.controller";
-import { createExamSchema, gradeAttemptSchema, individualResultEmailSchema, proctorEventSchema, proctorPreflightSchema, proctorReviewSchema, questionsSchema, rejectExamSchema, resultPublicationSchema, startExamSchema, submitExamSchema, updateExamSchema } from "./exam.validation";
+import { clearProctorFeedSchema, createExamSchema, gradeAttemptSchema, individualResultEmailSchema, proctorEventSchema, proctorPreflightSchema, proctorReviewSchema, questionsSchema, rejectExamSchema, resultPublicationSchema, startExamSchema, submitExamSchema, updateExamSchema } from "./exam.validation";
 
 const router = Router();
 
 router.get("/teacher", checkAuth(Role.TEACHER), examController.listTeacher);
 router.post("/teacher", checkAuth(Role.TEACHER), validateRequest(createExamSchema), examController.create);
+router.post("/teacher/:id/proctor-socket-ticket", checkAuth(Role.TEACHER), examController.proctorSocketTicket);
 router.get("/teacher/:id", checkAuth(Role.TEACHER), examController.teacherDetail);
 router.patch("/teacher/:id", checkAuth(Role.TEACHER), validateRequest(updateExamSchema), examController.update);
 router.put("/teacher/:id/questions", checkAuth(Role.TEACHER), validateRequest(questionsSchema), examController.setQuestions);
@@ -17,6 +18,7 @@ router.patch("/teacher/:id/publication", checkAuth(Role.TEACHER), validateReques
 router.post("/teacher/:id/email-results", checkAuth(Role.TEACHER), examController.emailResults);
 router.post("/teacher/:id/email-result", checkAuth(Role.TEACHER), validateRequest(individualResultEmailSchema), examController.emailStudentResult);
 router.patch("/teacher/:id/proctor-events/:eventId/review", checkAuth(Role.TEACHER), validateRequest(proctorReviewSchema), examController.reviewProctorEvent);
+router.post("/teacher/:id/proctor-feed/clear", checkAuth(Role.TEACHER), validateRequest(clearProctorFeedSchema), examController.clearProctorFeed);
 
 router.get("/admin/pending", checkAuth(Role.ADMIN), examController.pending);
 router.get("/admin/analytics", checkAuth(Role.ADMIN), examController.analytics);

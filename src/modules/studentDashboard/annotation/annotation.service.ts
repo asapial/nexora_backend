@@ -1,8 +1,18 @@
 import { prisma } from "../../../lib/prisma";
 import AppError from "../../../errorHelpers/AppError";
 import status from "http-status";
+import { resourceAccessWhere } from "../../resource/resource.service";
+
+const assertResourceAccess = async (userId: string, resourceId: string) => {
+  const resource = await prisma.resource.findFirst({
+    where: { id: resourceId, ...(await resourceAccessWhere(userId)) },
+    select: { id: true },
+  });
+  if (!resource) throw new AppError(status.FORBIDDEN, "You do not have access to this resource");
+};
 
 const getAnnotations = async (userId: string, resourceId: string) => {
+  await assertResourceAccess(userId, resourceId);
   return prisma.resourceAnnotation.findMany({
     where: { userId, resourceId },
     orderBy: { createdAt: "asc" },
@@ -10,6 +20,7 @@ const getAnnotations = async (userId: string, resourceId: string) => {
 };
 
 const getSharedAnnotations = async (resourceId: string, userId: string) => {
+  await assertResourceAccess(userId, resourceId);
   return prisma.resourceAnnotation.findMany({
     where: { resourceId, isShared: true, NOT: { userId } },
     include: { user: { select: { id: true, name: true, image: true } } },
@@ -21,8 +32,7 @@ const createAnnotation = async (
   userId: string,
   payload: { resourceId: string; highlight?: string; note?: string; page?: number; isShared?: boolean; }
 ) => {
-  const resource = await prisma.resource.findUnique({ where: { id: payload.resourceId } });
-  if (!resource) throw new AppError(status.NOT_FOUND, "Resource not found");
+  await assertResourceAccess(userId, payload.resourceId);
 
   return prisma.resourceAnnotation.create({
     data: {
@@ -65,22 +75,9 @@ const deleteAnnotation = async (userId: string, id: string) => {
 };
 
 const getResources = async (userId: string) => {
-  // Get resources accessible to the student (public + cluster-level if member)
-  const memberships = await prisma.clusterMember.findMany({
-    where: { userId },
-    select: { clusterId: true },
-  });
-  const clusterIds = memberships.map((m) => m.clusterId);
-
   return prisma.resource.findMany({
-    where: {
-      OR: [
-        { visibility: "PUBLIC" },
-        { visibility: "CLUSTER", clusterId: { in: clusterIds } },
-        { uploaderId: userId },
-      ],
-    },
-    select: { id: true, title: true, fileType: true, fileUrl: true, description: true, createdAt: true },
+    where: await resourceAccessWhere(userId),
+    select: { id: true, title: true, fileType: true, fileUrl: true, description: true, visibility: true, uploaderId: true, createdAt: true },
     orderBy: { createdAt: "desc" },
     take: 50,
   });

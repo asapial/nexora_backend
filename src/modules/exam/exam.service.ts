@@ -1,9 +1,11 @@
 import status from "http-status";
 import { createHash, randomBytes } from "node:crypto";
 import AppError from "../../errorHelpers/AppError";
+import { deleteExamEvidenceFromCloudinary, uploadExamEvidenceToCloudinary } from "../../config/cloudinary.config";
 import { envVars } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { sendEmail } from "../../utils/emailSender";
+import { examRealtime } from "./exam.realtime";
 import { canViewAnswerSheet, scoreAnswers, seededShuffle } from "./exam.utils";
 
 type QuestionInput = {
@@ -14,6 +16,7 @@ type QuestionInput = {
 const cameraEventTypes = new Set([
   "FACE_NOT_VISIBLE", "MULTIPLE_FACES", "CAMERA_INTERRUPTED",
   "CAMERA_PERMISSION_REVOKED", "CAMERA_DEVICE_CHANGED", "PREFLIGHT_FAILED",
+  "HEAD_TURN_HORIZONTAL", "EYE_MOVEMENT_HORIZONTAL", "PHONE_DETECTED",
 ]);
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -132,9 +135,20 @@ const getTeacherDetail = async (userId: string, examId: string) => {
   });
 };
 
+const assertTeacherExamAccess = async (userId: string, examId: string) => {
+  await ownedExam(userId, examId);
+};
+
+const createProctorSocketTicket = async (userId: string, examId: string) => {
+  await ownedExam(userId, examId);
+  const ticket = examRealtime.issueTicket(examId);
+  const socketBaseUrl = envVars.BETTER_AUTH_URL.replace(/^http/, "ws").replace(/\/$/, "");
+  return { socketUrl: `${socketBaseUrl}/ws/exams/proctoring?ticket=${ticket}`, expiresInSeconds: 60 };
+};
+
 const listPending = () => prisma.exam.findMany({
   where: { status: "PENDING_APPROVAL" },
-  include: { teacher: { include: { user: { select: { name: true, email: true } } } }, cluster: true, questions: { include: { options: true } }, _count: { select: { assignments: true } } },
+  include: { teacher: { include: { user: { select: { name: true, email: true } } } }, cluster: true, proctorPolicy: true, questions: { include: { options: true } }, _count: { select: { assignments: true } } },
   orderBy: { createdAt: "asc" },
 });
 
@@ -274,25 +288,71 @@ const submit = async (userId: string, examId: string, answers: any[], auto = fal
 };
 
 const violation = async (userId: string, examId: string, payload: any) => {
-  const attempt = await prisma.examAttempt.findUnique({ where: { examId_userId: { examId, userId } }, include: { exam: { include: { teacher: true } }, user: true } });
+  const attempt = await prisma.examAttempt.findUnique({ where: { examId_userId: { examId, userId } }, include: { exam: { include: { teacher: true, proctorPolicy: true } }, user: true } });
   if (!attempt || attempt.status !== "IN_PROGRESS") throw new AppError(status.BAD_REQUEST, "No active exam attempt");
   if (cameraEventTypes.has(payload.type) && attempt.exam.examMode !== "PRO") throw new AppError(status.BAD_REQUEST, "Camera events are only accepted for Pro Mode exams");
   if (payload.clientEventId) {
     const existing = await prisma.examProctorEvent.findUnique({ where: { clientEventId: payload.clientEventId } });
     if (existing) return existing;
   }
-  const event = await prisma.examProctorEvent.create({ data: { attemptId: attempt.id, ...payload } });
-  await prisma.$transaction([
-    prisma.examAttempt.update({
-      where: { id: attempt.id },
+  const { snapshotDataUrl, ...eventPayload } = payload;
+  const event = await prisma.$transaction(async (tx) => {
+    const created = await tx.examProctorEvent.create({ data: { attemptId: attempt.id, ...eventPayload } });
+    if (["CAMERA_INTERRUPTED", "CAMERA_PERMISSION_REVOKED"].includes(payload.type)) {
+      await tx.examAttempt.update({ where: { id: attempt.id }, data: { cameraInterruptedAt: new Date() } });
+    }
+    await tx.notification.create({
       data: {
-        suspicious: true,
-        suspiciousCount: { increment: 1 },
-        cameraInterruptedAt: ["CAMERA_INTERRUPTED", "CAMERA_PERMISSION_REVOKED"].includes(payload.type) ? new Date() : undefined,
+        userId: attempt.exam.teacher.userId,
+        type: "EXAM_VIOLATION",
+        title: `${attempt.user.name}: ${payload.type.replaceAll("_", " ")}`,
+        body: `Proctor warning during ${attempt.exam.title}. Confirm it in the proctoring console before treating it as a violation.`,
+        link: "/dashboard/teacher/exams/proctoring",
       },
-    }),
-    prisma.notification.create({ data: { userId: attempt.exam.teacher.userId, type: "EXAM_VIOLATION", title: `${attempt.user.name}: ${payload.type.replaceAll("_", " ")}`, body: `Violation during ${attempt.exam.title}`, link: "/dashboard/teacher/exams/proctoring" } }),
-  ]);
+    });
+    return created;
+  });
+  examRealtime.publish(examId, {
+    action: "CREATED",
+    id: event.id,
+    attemptId: attempt.id,
+    student: attempt.user.name,
+    studentEmail: attempt.user.email,
+    type: event.type,
+    occurredAt: event.occurredAt,
+    durationMs: event.durationMs,
+    confidence: event.confidence,
+    evidenceUrl: event.evidenceUrl,
+    metadata: event.metadata,
+    reviewDecision: event.reviewDecision,
+    reviewNote: event.reviewNote,
+  });
+  if (snapshotDataUrl && attempt.exam.examMode === "PRO" && attempt.exam.proctorPolicy?.snapshotEnabled) {
+    void (async () => {
+      try {
+        const buffer = Buffer.from(snapshotDataUrl.replace(/^data:image\/jpeg;base64,/, ""), "base64");
+        const evidenceUrl = await uploadExamEvidenceToCloudinary(buffer, `${attempt.id}-${event.id}`);
+        const evidence = await prisma.examProctorEvent.update({ where: { id: event.id }, data: { evidenceUrl } });
+        examRealtime.publish(examId, {
+          action: "EVIDENCE_UPDATED",
+          id: evidence.id,
+          attemptId: attempt.id,
+          student: attempt.user.name,
+          studentEmail: attempt.user.email,
+          type: evidence.type,
+          occurredAt: evidence.occurredAt,
+          durationMs: evidence.durationMs,
+          confidence: evidence.confidence,
+          evidenceUrl: evidence.evidenceUrl,
+          metadata: evidence.metadata,
+          reviewDecision: evidence.reviewDecision,
+          reviewNote: evidence.reviewNote,
+        });
+      } catch (error) {
+        console.error("[ExamShield] Snapshot evidence upload failed:", error);
+      }
+    })();
+  }
   return event;
 };
 
@@ -300,10 +360,102 @@ const reviewProctorEvent = async (userId: string, examId: string, eventId: strin
   await ownedExam(userId, examId);
   const event = await prisma.examProctorEvent.findFirst({ where: { id: eventId, attempt: { examId } } });
   if (!event) throw new AppError(status.NOT_FOUND, "Proctor event not found");
-  return prisma.examProctorEvent.update({
+  const reviewed = await prisma.examProctorEvent.update({
     where: { id: eventId },
     data: { reviewDecision: payload.decision, reviewNote: payload.note ?? null, reviewerId: userId, reviewedAt: new Date() },
   });
+  const activeSignals = await prisma.examProctorEvent.count({
+    where: { attemptId: event.attemptId, reviewDecision: "CONFIRMED_CONCERN" },
+  });
+  const attempt = await prisma.examAttempt.update({
+    where: { id: event.attemptId },
+    data: { suspicious: activeSignals > 0, suspiciousCount: activeSignals },
+    include: { user: { select: { name: true, email: true } } },
+  });
+  examRealtime.publish(examId, {
+    action: "REVIEWED",
+    id: reviewed.id,
+    attemptId: attempt.id,
+    student: attempt.user.name,
+    studentEmail: attempt.user.email,
+    type: reviewed.type,
+    occurredAt: reviewed.occurredAt,
+    durationMs: reviewed.durationMs,
+    confidence: reviewed.confidence,
+    evidenceUrl: reviewed.evidenceUrl,
+    metadata: reviewed.metadata,
+    reviewDecision: reviewed.reviewDecision,
+    reviewNote: reviewed.reviewNote,
+    suspicious: attempt.suspicious,
+    suspiciousCount: attempt.suspiciousCount,
+  });
+  return reviewed;
+};
+
+const clearProctorFeed = async (userId: string, examId: string, attemptId: string) => {
+  await ownedExam(userId, examId);
+  const attempt = await prisma.examAttempt.findFirst({
+    where: { id: attemptId, examId },
+    include: {
+      user: { select: { name: true, email: true } },
+      proctorEvents: {
+        where: { reviewDecision: { not: "CONFIRMED_CONCERN" } },
+        select: { id: true, evidenceUrl: true },
+      },
+    },
+  });
+  if (!attempt) throw new AppError(status.NOT_FOUND, "Student attempt not found");
+
+  const deletedEventIds: string[] = [];
+  const evidenceDeletionFailures: string[] = [];
+  for (const event of attempt.proctorEvents) {
+    if (event.evidenceUrl) {
+      try {
+        await deleteExamEvidenceFromCloudinary(event.evidenceUrl);
+      } catch (error) {
+        evidenceDeletionFailures.push(event.id);
+        console.error(`[ExamShield] Could not delete cleared evidence ${event.id}:`, error);
+        continue;
+      }
+    }
+    deletedEventIds.push(event.id);
+  }
+
+  const feedClearedAt = evidenceDeletionFailures.length === 0 ? new Date() : attempt.proctorFeedClearedAt;
+  await prisma.$transaction([
+    prisma.examProctorEvent.deleteMany({ where: { id: { in: deletedEventIds } } }),
+    ...(feedClearedAt && evidenceDeletionFailures.length === 0
+      ? [prisma.examAttempt.update({ where: { id: attemptId }, data: { proctorFeedClearedAt: feedClearedAt } })]
+      : []),
+  ]);
+  examRealtime.publish(examId, {
+    action: "FEED_CLEARED",
+    id: `feed-cleared:${attemptId}:${Date.now()}`,
+    attemptId,
+    student: attempt.user.name,
+    studentEmail: attempt.user.email,
+    type: "FEED_CLEARED",
+    occurredAt: feedClearedAt,
+    durationMs: null,
+    confidence: null,
+    evidenceUrl: null,
+    metadata: null,
+    reviewDecision: "PENDING",
+    reviewNote: null,
+    suspicious: attempt.suspicious,
+    suspiciousCount: attempt.suspiciousCount,
+    feedClearedAt: evidenceDeletionFailures.length === 0 ? feedClearedAt : undefined,
+    deletedEventIds,
+    evidenceDeletionFailures: evidenceDeletionFailures.length,
+  });
+  return {
+    attemptId,
+    feedClearedAt: evidenceDeletionFailures.length === 0 ? feedClearedAt : undefined,
+    deletedEventIds,
+    deletedWarnings: deletedEventIds.length,
+    preservedConfirmedViolations: attempt.suspiciousCount,
+    evidenceDeletionFailures: evidenceDeletionFailures.length,
+  };
 };
 
 const gradeAttempt = async (userId: string, examId: string, attemptId: string, grades: { answerId: string; awardedMarks: number; }[]) => {
@@ -519,4 +671,26 @@ const remindOverdueTeachers = async () => {
   return { reminded: exams.length };
 };
 
-export const examService = { create, listTeacher, update, setQuestions, getTeacherDetail, listPending, approve, reject, listStudent, studentAccess, proctorPreflight, start, submit, violation, reviewProctorEvent, gradeAttempt, updateResultPublication, emailPublishedResults, emailPublishedResultToStudent, studentResult, adminAnalytics, remindOverdueTeachers };
+const cleanupExpiredProctorEvidence = async () => {
+  const events = await prisma.examProctorEvent.findMany({
+    where: { evidenceUrl: { not: null }, reviewDecision: { not: "CONFIRMED_CONCERN" } },
+    include: { attempt: { include: { exam: { include: { proctorPolicy: true } } } } },
+    orderBy: { occurredAt: "asc" },
+    take: 100,
+  });
+  let deleted = 0;
+  for (const event of events) {
+    const retentionDays = event.attempt.exam.proctorPolicy?.evidenceRetentionDays ?? 30;
+    if (event.occurredAt.getTime() + retentionDays * 24 * 60 * 60 * 1000 > Date.now() || !event.evidenceUrl) continue;
+    try {
+      await deleteExamEvidenceFromCloudinary(event.evidenceUrl);
+      await prisma.examProctorEvent.update({ where: { id: event.id }, data: { evidenceUrl: null } });
+      deleted += 1;
+    } catch (error) {
+      console.error(`[ExamShield] Could not delete expired evidence ${event.id}:`, error);
+    }
+  }
+  return { deleted };
+};
+
+export const examService = { create, listTeacher, update, setQuestions, getTeacherDetail, assertTeacherExamAccess, createProctorSocketTicket, listPending, approve, reject, listStudent, studentAccess, proctorPreflight, start, submit, violation, reviewProctorEvent, clearProctorFeed, gradeAttempt, updateResultPublication, emailPublishedResults, emailPublishedResultToStudent, studentResult, adminAnalytics, remindOverdueTeachers, cleanupExpiredProctorEvidence };

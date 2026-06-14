@@ -5,11 +5,23 @@ model MemberGoal {
   title        String
   target       String?
   kanbanStatus String    @default("TODO")
+  subject      String?
+  priority     String    @default("MEDIUM")
+  dueAt        DateTime?
+  scheduledAt  DateTime?
+  estimatedMinutes Int?
+  completedMinutes Int   @default(0)
+  recurrence   String    @default("NONE")
+  tags         String[]  @default([])
   isAchieved   Boolean   @default(false)
   achievedAt   DateTime?
   createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   studentProfile   StudentProfile? @relation(fields: [studentProfileId], references: [id])
   studentProfileId String?
+
+  @@index([userId, dueAt])
+  @@index([userId, kanbanStatus])
 }

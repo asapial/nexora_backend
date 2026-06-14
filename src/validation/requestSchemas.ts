@@ -77,18 +77,25 @@ export const annotationCreateSchema = annotationFields
   .refine((value) => Boolean(value.highlight?.trim() || value.note?.trim()), "Highlight or note is required");
 export const annotationUpdateSchema = annotationFields.omit({ resourceId: true }).partial()
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
-export const goalCreateSchema = z.object({
+const goalFields = z.object({
   title: z.string().trim().min(1).max(200),
   target: z.string().trim().max(1000).optional(),
   clusterId: z.string().min(1).optional(),
   kanbanStatus: z.enum(["TODO", "IN_PROGRESS", "DONE"]).optional(),
+  subject: z.string().trim().max(120).optional(),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
+  dueAt: z.string().datetime().nullable().optional(),
+  scheduledAt: z.string().datetime().nullable().optional(),
+  estimatedMinutes: z.number().int().min(5).max(10080).nullable().optional(),
+  recurrence: z.enum(["NONE", "DAILY", "WEEKLY"]).optional(),
+  tags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
 });
-export const goalUpdateSchema = z.object({
-  title: z.string().trim().min(1).max(200).optional(),
-  target: z.string().trim().max(1000).optional(),
+export const goalCreateSchema = goalFields;
+export const goalUpdateSchema = goalFields.partial().extend({
   isAchieved: z.boolean().optional(),
-  kanbanStatus: z.enum(["TODO", "IN_PROGRESS", "DONE"]).optional(),
+  completedMinutes: z.number().int().min(0).max(100000).optional(),
 }).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+export const goalFocusSchema = z.object({ minutes: z.number().int().min(1).max(720) });
 export const taskSubmissionSchema = z.object({
   videoUrl: optionalUrl,
   textBody: z.string().max(50_000).optional().nullable(),

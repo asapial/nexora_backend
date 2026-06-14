@@ -102,7 +102,7 @@ app.use((req, res, next) => {
 });
 
 // ── 4. Body parser ──────────────────────────────────────────────────────────
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 // ── 5. Custom routes ────────────────────────────────────────────────────────
 app.use("/api/auth", authRouter);

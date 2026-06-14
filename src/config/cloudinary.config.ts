@@ -92,3 +92,49 @@ export const deleteFileFromCloudinary = async (url: string) => {
 
 
 export const cloudinaryUpload = cloudinary;
+
+export const uploadExamEvidenceToCloudinary = async (buffer: Buffer, evidenceId: string) => {
+  if (!buffer.length) throw new AppError(status.BAD_REQUEST, "Snapshot evidence is empty");
+  const publicId = `nexora/examshield-evidence/${evidenceId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const uploaded = await new Promise<UploadApiResponse>((resolve, reject) => {
+    cloudinary.uploader.upload_stream(
+      { resource_type: "image", type: "authenticated", public_id: publicId, overwrite: false },
+      (error, result) => {
+        if (error || !result) return reject(new AppError(status.INTERNAL_SERVER_ERROR, "Failed to upload snapshot evidence"));
+        resolve(result);
+      },
+    ).end(buffer);
+  });
+  return cloudinary.url(uploaded.public_id, {
+    secure: true,
+    sign_url: true,
+    type: "authenticated",
+    resource_type: "image",
+  });
+};
+
+export const extractCloudinaryPublicId = (url: string) => {
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(new URL(url).pathname);
+  } catch {
+    throw new AppError(status.BAD_REQUEST, "Invalid Cloudinary evidence URL");
+  }
+
+  const match = pathname.match(/\/(nexora\/examshield-evidence\/.+)$/) ?? pathname.match(/\/v\d+\/(.+)$/);
+  if (!match?.[1]) throw new AppError(status.BAD_REQUEST, "Cloudinary evidence public ID could not be resolved");
+
+  return match[1].replace(/\.[a-zA-Z0-9]+$/, "");
+};
+
+export const deleteExamEvidenceFromCloudinary = async (url: string) => {
+  const publicId = extractCloudinaryPublicId(url);
+  const result = await cloudinary.uploader.destroy(publicId, {
+    resource_type: "image",
+    type: "authenticated",
+    invalidate: true,
+  });
+  if (!["ok", "not found"].includes(result.result)) {
+    throw new AppError(status.INTERNAL_SERVER_ERROR, `Cloudinary evidence deletion failed: ${result.result}`);
+  }
+};

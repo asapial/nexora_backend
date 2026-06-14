@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { resourceController } from "./resource.controller";
 import { multerUpload, multerMemory } from "../../config/multer.config";
-import { checkAuth, optionalAuth } from "../../middleware/checkAuth";
+import { checkAuth } from "../../middleware/checkAuth";
 import { Role } from "../../generated/prisma/enums";
 import { validateRequest } from "../../middleware/validateRequest";
 import { resourceUpdateSchema } from "../../validation/requestSchemas";
@@ -25,7 +25,7 @@ router.post(
 );
 
 // Browse with filters + bookmark metadata (authenticated users see cluster resources too)
-router.get("/browse", optionalAuth, resourceController.browseResources);
+router.get("/browse", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.browseResources);
 
 // My resources (logged-in user's uploads)
 router.get("/my", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.myResources);

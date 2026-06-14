@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createExamSchema, individualResultEmailSchema, proctorEventSchema, proctorPreflightSchema, startExamSchema } from "./exam.validation";
+import { clearProctorFeedSchema, createExamSchema, individualResultEmailSchema, proctorEventSchema, proctorPreflightSchema, proctorReviewSchema, startExamSchema } from "./exam.validation";
 
 test("individual result email requires one valid attempt id", () => {
   assert.deepEqual(individualResultEmailSchema.parse({ attemptId: " attempt-1 " }), { attemptId: "attempt-1" });
@@ -64,4 +64,32 @@ test("camera event validation accepts bounded idempotent Pro Mode events", () =>
     type: "FACE_NOT_VISIBLE",
     durationMs: 999999,
   }).success, false);
+  assert.equal(proctorEventSchema.safeParse({
+    type: "PHONE_DETECTED",
+    snapshotDataUrl: `data:image/jpeg;base64,${Buffer.from("small-jpeg").toString("base64")}`,
+  }).success, true);
+  assert.equal(proctorEventSchema.safeParse({
+    type: "PHONE_DETECTED",
+    snapshotDataUrl: "data:image/png;base64,ZmFrZQ==",
+  }).success, false);
+  for (const type of ["HEAD_TURN_HORIZONTAL", "EYE_MOVEMENT_HORIZONTAL", "PHONE_DETECTED"]) {
+    assert.equal(proctorEventSchema.safeParse({
+      clientEventId: "1c31baaf-bde5-46a8-872f-41ddf0f3705d",
+      type,
+      durationMs: 1500,
+      confidence: 0.72,
+      metadata: type === "PHONE_DETECTED" ? { category: "cell phone" } : { direction: "left" },
+    }).success, true);
+  }
+});
+
+test("teacher proctor reviews accept only supported human decisions", () => {
+  assert.equal(proctorReviewSchema.safeParse({ decision: "DISMISSED", note: "Normal movement" }).success, true);
+  assert.equal(proctorReviewSchema.safeParse({ decision: "AUTO_FAIL" }).success, false);
+});
+
+test("teacher can only clear a specific student proctor feed", () => {
+  assert.equal(clearProctorFeedSchema.safeParse({ attemptId: "attempt-1" }).success, true);
+  assert.equal(clearProctorFeedSchema.safeParse({ attemptId: "" }).success, false);
+  assert.equal(clearProctorFeedSchema.safeParse({ attemptId: "attempt-1", deleteHistory: true }).success, false);
 });

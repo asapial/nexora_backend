@@ -3,7 +3,7 @@ import { z } from "zod";
 const option = z.object({ text: z.string().trim().min(1), isCorrect: z.boolean().default(false) });
 const proctorPolicy = z.object({
   cameraRequired: z.boolean().default(true),
-  snapshotEnabled: z.boolean().default(false),
+  snapshotEnabled: z.boolean().default(true),
   sensitivity: z.enum(["RELAXED", "STANDARD", "STRICT"]).default("STANDARD"),
   studentWarnings: z.boolean().default(true),
   roughPaperAllowed: z.boolean().default(true),
@@ -112,15 +112,24 @@ export const proctorEventSchema = z.object({
   type: z.enum([
     "TAB_HIDDEN", "WINDOW_BLUR", "PAGE_EXIT", "FULLSCREEN_EXIT", "COPY_ATTEMPT", "PASTE_ATTEMPT",
     "FACE_NOT_VISIBLE", "MULTIPLE_FACES", "CAMERA_INTERRUPTED", "CAMERA_PERMISSION_REVOKED", "CAMERA_DEVICE_CHANGED", "PREFLIGHT_FAILED",
+    "HEAD_TURN_HORIZONTAL", "EYE_MOVEMENT_HORIZONTAL", "PHONE_DETECTED",
   ]),
   pageUrl: z.string().max(2048).optional(),
   referrer: z.string().max(2048).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   durationMs: z.number().int().min(0).max(120000).optional(),
   confidence: z.number().min(0).max(1).optional(),
+  snapshotDataUrl: z.string()
+    .max(700000)
+    .regex(/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/, "Snapshot must be a JPEG data URL")
+    .optional(),
 }).strict();
 
 export const proctorReviewSchema = z.object({
   decision: z.enum(["DISMISSED", "CONFIRMED_CONCERN", "NEEDS_FOLLOW_UP"]),
   note: z.string().trim().max(2000).optional(),
+}).strict();
+
+export const clearProctorFeedSchema = z.object({
+  attemptId: z.string().trim().min(1, "Student attempt is required"),
 }).strict();

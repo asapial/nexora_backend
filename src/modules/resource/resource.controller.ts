@@ -36,12 +36,13 @@ const uploadResource = catchAsync(
       title: bodyData.title ?? "",
       description: bodyData.description ?? undefined,
       visibility: bodyData.visibility ?? "PUBLIC",
-      tags: Array.isArray(bodyData.tags) ? bodyData.tags : [],
-      authors: Array.isArray(bodyData.authors) ? bodyData.authors : [],
+      tags: multipartArray(bodyData, "tags"),
+      authors: multipartArray(bodyData, "authors"),
       year: bodyData.year ? Number(bodyData.year) : undefined,
       isFeatured: bodyData.isFeatured ?? false,
       categoryId: bodyData.categoryId ?? undefined,
       clusterId: bodyData.clusterId ?? undefined,
+      clusterIds: multipartArray(bodyData, "clusterIds"),
     };
 
     const result = await resourceService.uploadResource(payload);
@@ -54,6 +55,12 @@ const uploadResource = catchAsync(
     });
   }
 );
+
+const multipartArray = (body: Record<string, unknown>, key: string) => {
+  const value = body[key] ?? body[`${key}[]`];
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+  return typeof value === "string" && value.length > 0 ? [value] : [];
+};
 
 // ── All Resources ─────────────────────────────────────────────────────────────
 const allResources = catchAsync(
@@ -174,7 +181,7 @@ const deleteResource = catchAsync(
 );
 
 // ── Cloudinary Signed URL / Download Proxy ────────────────────────────────────
-// For INLINE view  : 302 redirect (browser renders PDF natively).
+// For INLINE view  : fetch and stream from this origin so PDF previews render reliably.
 // For DOWNLOAD     : fetch file server-side and pipe back with the correct
 //                   Content-Disposition: attachment; filename="<title>.pdf"
 //
@@ -186,11 +193,17 @@ const deleteResource = catchAsync(
 //  Streaming gives us 100% control over Content-Disposition.
 const cloudinarySign = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
-    const { url, inline, filename } = req.query as { url?: string; inline?: string; filename?: string; };
+    const { url, inline, filename, reader } = req.query as {
+      url?: string;
+      inline?: string;
+      filename?: string;
+      reader?: string;
+    };
 
     if (!url || !url.startsWith("https://res.cloudinary.com/")) {
       return sendResponse(res, { status: status.BAD_REQUEST, success: false, message: "Valid Cloudinary url param required", data: null });
     }
+    await resourceService.assertResourceUrlAccess(req.user!.userId, url);
 
     // ── Detect resource_type ─────────────────────────────────────────────────
     const resourceType: "image" | "raw" | "video" =
@@ -220,12 +233,73 @@ const cloudinarySign = catchAsync(
       resource_type: resourceType,
       type: "upload",
       expires_at: Math.floor(Date.now() / 1000) + 3600,
-      attachment: true,
+      attachment: inline === "true" ? false : true,
     });
 
     // ── INLINE VIEW: redirect ────────────────────────────────────────────────
     if (inline === "true") {
-      return res.redirect(302, signedCloudinaryUrl);
+      let upstream: globalThis.Response;
+      const storageHeaders = req.headers.range ? { Range: req.headers.range } : undefined;
+
+      try {
+        upstream = await fetch(resourceType === "raw" ? url : signedCloudinaryUrl, {
+          headers: storageHeaders,
+        });
+        if (!upstream.ok && resourceType === "raw") {
+          upstream = await fetch(signedCloudinaryUrl, { headers: storageHeaders });
+        }
+      } catch {
+        return sendResponse(res, {
+          status: status.BAD_GATEWAY,
+          success: false,
+          message: "Could not reach file storage",
+          data: null,
+        });
+      }
+
+      if (!upstream.ok) {
+        return sendResponse(res, {
+          status: status.BAD_GATEWAY,
+          success: false,
+          message: `Storage returned ${upstream.status}`,
+          data: null,
+        });
+      }
+
+      const safeInlineName =
+        (filename || "document").replace(/[^\w\-. ]/g, "_").trim() || "document";
+      const isPdfFile =
+        format.toLowerCase() === "pdf" ||
+        url.toLowerCase().includes(".pdf") ||
+        safeInlineName.toLowerCase().endsWith(".pdf");
+
+      res.status(upstream.status);
+      if (reader !== "true") {
+        res.setHeader("Content-Disposition", `inline; filename="${safeInlineName}.pdf"`);
+      }
+      res.setHeader(
+        "Content-Type",
+        reader === "true"
+          ? "application/octet-stream"
+          : isPdfFile ? "application/pdf" : upstream.headers.get("content-type") || "application/octet-stream"
+      );
+      if (reader === "true" && isPdfFile) res.setHeader("X-Nexora-Document-Type", "pdf");
+      res.setHeader("Cache-Control", "private, max-age=300");
+      res.setHeader("Accept-Ranges", upstream.headers.get("accept-ranges") || "bytes");
+      const contentLength = upstream.headers.get("content-length");
+      const contentRange = upstream.headers.get("content-range");
+      if (contentLength) res.setHeader("Content-Length", contentLength);
+      if (contentRange) res.setHeader("Content-Range", contentRange);
+
+      const { Readable } = await import("stream");
+      if (upstream.body) {
+        // Node's Web Stream type differs slightly from the runtime implementation.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Readable.fromWeb(upstream.body as any).pipe(res);
+      } else {
+        res.end();
+      }
+      return;
     }
 
     // ── DOWNLOAD: stream through our server with correct filename header ──────

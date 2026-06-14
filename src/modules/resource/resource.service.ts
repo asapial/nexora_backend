@@ -1,6 +1,47 @@
 import { prisma } from "../../lib/prisma";
 import AppError from "../../errorHelpers/AppError";
 import status from "http-status";
+import { Prisma } from "../../generated/prisma/client";
+
+export const buildResourceAccessWhere = (userId: string, clusterIds: string[]): Prisma.ResourceWhereInput => ({
+  OR: [
+    { visibility: "PUBLIC" },
+    { uploaderId: userId },
+    ...(clusterIds.length > 0 ? [{
+      visibility: "CLUSTER" as const,
+      OR: [
+        { clusterId: { in: clusterIds } },
+        { clusterIds: { hasSome: clusterIds } },
+      ],
+    }] : []),
+  ],
+});
+
+export const resourceAccessWhere = async (userId: string): Promise<Prisma.ResourceWhereInput> => {
+  const [memberships, teacherProfile] = await Promise.all([
+    prisma.clusterMember.findMany({ where: { userId }, select: { clusterId: true } }),
+    prisma.teacherProfile.findFirst({
+      where: { userId },
+      select: { teacherClusters: { select: { id: true } } },
+    }),
+  ]);
+  const memberClusterIds = [
+    ...new Set([
+      ...memberships.map((membership) => membership.clusterId),
+      ...(teacherProfile?.teacherClusters.map((cluster) => cluster.id) ?? []),
+    ]),
+  ];
+
+  return buildResourceAccessWhere(userId, memberClusterIds);
+};
+
+const assertResourceUrlAccess = async (userId: string, fileUrl: string) => {
+  const resource = await prisma.resource.findFirst({
+    where: { fileUrl, ...(await resourceAccessWhere(userId)) },
+    select: { id: true },
+  });
+  if (!resource) throw new AppError(status.FORBIDDEN, "You do not have access to this resource.");
+};
 
 const uploadResource = async (resourcePayload: any) => {
   // Normalise clusterIds — always an array, derived from either clusterIds[] or single clusterId
@@ -15,6 +56,20 @@ const uploadResource = async (resourcePayload: any) => {
     clusterId: clusterIds[0] ?? null,   // primary FK (first selected)
     clusterIds: clusterIds,              // all selected
   };
+  if (clusterIds.length && resourcePayload.uploaderId) {
+    const accessibleClusters = await prisma.cluster.count({
+      where: {
+        id: { in: clusterIds },
+        OR: [
+          { members: { some: { userId: resourcePayload.uploaderId } } },
+          { teacher: { userId: resourcePayload.uploaderId } },
+        ],
+      },
+    });
+    if (accessibleClusters !== new Set(clusterIds).size) {
+      throw new AppError(status.FORBIDDEN, "One or more selected clusters are not accessible to you.");
+    }
+  }
   const result = await prisma.resource.create({ data });
   return result;
 };
@@ -58,21 +113,9 @@ const getFilteredResources = async (
   const where: Record<string, unknown> = {};
 
   // ── Visibility gate for browse mode ─────────────────────────────────────────
+  const accessWhere = browseMode && userId ? await resourceAccessWhere(userId) : undefined;
   if (browseMode) {
-    // Find all clusters the requesting user belongs to (as student or teacher)
-    const memberClusterIds = userId
-      ? (await prisma.clusterMember.findMany({
-        where: { userId },
-        select: { clusterId: true },
-      })).map((m) => m.clusterId)
-      : [];
-
-    where.OR = [
-      { visibility: "PUBLIC" },
-      ...(memberClusterIds.length > 0
-        ? [{ visibility: "CLUSTER", clusterId: { in: memberClusterIds } }]
-        : []),
-    ];
+    where.OR = accessWhere?.OR ?? [{ visibility: "PUBLIC" }];
   }
 
   // ── Individual filters ───────────────────────────────────────────────────────
@@ -127,6 +170,25 @@ const getFilteredResources = async (
     prisma.resource.count({ where }),
   ]);
 
+  const sourceCounts = accessWhere && userId
+    ? await prisma.$transaction([
+      prisma.resource.count({ where: accessWhere }),
+      prisma.resource.count({ where: { AND: [accessWhere, { visibility: "PUBLIC" }] } }),
+      prisma.resource.count({ where: { AND: [accessWhere, { visibility: "CLUSTER" }] } }),
+      prisma.resource.count({
+        where: { AND: [accessWhere, { visibility: "PRIVATE" }, { uploaderId: userId }] },
+      }),
+    ])
+    : undefined;
+  const sourceSummary = sourceCounts
+    ? {
+      total: sourceCounts[0],
+      public: sourceCounts[1],
+      cluster: sourceCounts[2],
+      privateUploads: sourceCounts[3],
+    }
+    : undefined;
+
   return {
     resources: resources.map((r) => ({
       ...r,
@@ -137,6 +199,7 @@ const getFilteredResources = async (
       limit,
       total,
       totalPages: Math.ceil(total / limit),
+      ...(sourceSummary && { sourceSummary }),
     },
   };
 };
@@ -273,4 +336,5 @@ export const resourceService = {
   getCategories,
   deleteResource,
   updateResource,
+  assertResourceUrlAccess,
 };

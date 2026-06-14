@@ -54,6 +54,9 @@ enum ExamProctorEventType {
   CAMERA_PERMISSION_REVOKED
   CAMERA_DEVICE_CHANGED
   PREFLIGHT_FAILED
+  HEAD_TURN_HORIZONTAL
+  EYE_MOVEMENT_HORIZONTAL
+  PHONE_DETECTED
 }
 
 model Exam {
@@ -95,7 +98,7 @@ model ExamProctorPolicy {
   id                    String              @id @default(cuid())
   examId                String              @unique
   cameraRequired        Boolean             @default(true)
-  snapshotEnabled       Boolean             @default(false)
+  snapshotEnabled       Boolean             @default(true)
   sensitivity           ProctorSensitivity  @default(STANDARD)
   studentWarnings       Boolean             @default(true)
   roughPaperAllowed     Boolean             @default(true)
@@ -174,6 +177,7 @@ model ExamAttempt {
   cameraMonitoringAt DateTime?
   cameraInterruptedAt DateTime?
   calibrationMetadata Json?
+  proctorFeedClearedAt DateTime?
 
   exam          Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
   user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -210,6 +214,7 @@ model ExamProctorEvent {
   metadata   Json?
   durationMs Int?
   confidence Float?
+  evidenceUrl String?
   reviewDecision ProctorReviewDecision @default(PENDING)
   reviewNote String?
   reviewedAt DateTime?
