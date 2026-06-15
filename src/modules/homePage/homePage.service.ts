@@ -1,6 +1,48 @@
 import { PriceApprovalStatus } from "../../generated/prisma/enums";
 import { prisma } from "../../lib/prisma";
 
+const getContentSections = async () => {
+  return prisma.homepageSection.findMany({
+    orderBy: [{ order: "asc" }, { key: "asc" }],
+  });
+};
+
+const getContentSection = async (key: string) => {
+  return prisma.homepageSection.findUnique({
+    where: { key },
+  });
+};
+
+const upsertContentSection = async (
+  key: string,
+  payload: {
+    content: unknown;
+    isVisible?: boolean;
+    order?: number;
+  },
+) => {
+  return prisma.homepageSection.upsert({
+    where: { key },
+    update: {
+      content: payload.content as any,
+      ...(payload.isVisible !== undefined && { isVisible: payload.isVisible }),
+      ...(payload.order !== undefined && { order: payload.order }),
+    },
+    create: {
+      key,
+      content: payload.content as any,
+      isVisible: payload.isVisible ?? true,
+      order: payload.order ?? 0,
+    },
+  });
+};
+
+const deleteContentSection = async (key: string) => {
+  return prisma.homepageSection.deleteMany({
+    where: { key },
+  });
+};
+
 const getFeaturedCourse = async () => {
 
   const featuredCourse = await prisma.course.findMany({
@@ -174,6 +216,10 @@ const removeHeroSectionTeacher = async (userId: string) => {
 };
 
 export const homePageService = {
+  getContentSections,
+  getContentSection,
+  upsertContentSection,
+  deleteContentSection,
   getFeaturedCourse,
   getAllTeachersForHeroSelection,
   getFeaturedTeachers,

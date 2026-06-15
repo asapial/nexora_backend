@@ -4,6 +4,53 @@ import { homePageService } from "./homePage.service";
 import { sendResponse } from "../../utils/sendResponse";
 import status from "http-status";
 
+const getContentSections = catchAsync(async (_req: Request, res: Response) => {
+  const result = await homePageService.getContentSections();
+
+  sendResponse(res, {
+    status: status.OK,
+    success: true,
+    message: "Site content fetched successfully",
+    data: result,
+  });
+});
+
+const getContentSection = catchAsync(async (req: Request, res: Response) => {
+  const result = await homePageService.getContentSection(req.params.key as string);
+
+  sendResponse(res, {
+    status: status.OK,
+    success: true,
+    message: "Site content section fetched successfully",
+    data: result,
+  });
+});
+
+const upsertContentSection = catchAsync(async (req: Request, res: Response) => {
+  const result = await homePageService.upsertContentSection(
+    req.params.key as string,
+    req.body,
+  );
+
+  sendResponse(res, {
+    status: status.OK,
+    success: true,
+    message: "Site content section saved successfully",
+    data: result,
+  });
+});
+
+const deleteContentSection = catchAsync(async (req: Request, res: Response) => {
+  const result = await homePageService.deleteContentSection(req.params.key as string);
+
+  sendResponse(res, {
+    status: status.OK,
+    success: true,
+    message: "Site content section reset successfully",
+    data: result,
+  });
+});
+
 const getFeaturedCourse = catchAsync(async (req: Request, res: Response) => {
   const result = await homePageService.getFeaturedCourse();
 
@@ -61,6 +108,10 @@ const removeHeroSectionTeacher = catchAsync(async (req: Request, res: Response) 
 });
 
 export const homePageController = {
+  getContentSections,
+  getContentSection,
+  upsertContentSection,
+  deleteContentSection,
   getFeaturedCourse,
   getAllTeachersForHeroSelection,
   getFeaturedTeachers,

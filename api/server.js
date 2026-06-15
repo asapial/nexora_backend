@@ -12097,6 +12097,37 @@ var teacherNoticeRouter = router28;
 import { Router as Router29 } from "express";
 
 // src/modules/homePage/homePage.service.ts
+var getContentSections = async () => {
+  return prisma.homepageSection.findMany({
+    orderBy: [{ order: "asc" }, { key: "asc" }]
+  });
+};
+var getContentSection = async (key) => {
+  return prisma.homepageSection.findUnique({
+    where: { key }
+  });
+};
+var upsertContentSection = async (key, payload) => {
+  return prisma.homepageSection.upsert({
+    where: { key },
+    update: {
+      content: payload.content,
+      ...payload.isVisible !== void 0 && { isVisible: payload.isVisible },
+      ...payload.order !== void 0 && { order: payload.order }
+    },
+    create: {
+      key,
+      content: payload.content,
+      isVisible: payload.isVisible ?? true,
+      order: payload.order ?? 0
+    }
+  });
+};
+var deleteContentSection = async (key) => {
+  return prisma.homepageSection.deleteMany({
+    where: { key }
+  });
+};
 var getFeaturedCourse = async () => {
   const featuredCourse = await prisma.course.findMany({
     where: {
@@ -12246,6 +12277,10 @@ var removeHeroSectionTeacher = async (userId) => {
   return result;
 };
 var homePageService = {
+  getContentSections,
+  getContentSection,
+  upsertContentSection,
+  deleteContentSection,
   getFeaturedCourse,
   getAllTeachersForHeroSelection,
   getFeaturedTeachers,
@@ -12255,6 +12290,45 @@ var homePageService = {
 
 // src/modules/homePage/homePage.controller.ts
 import status61 from "http-status";
+var getContentSections2 = catchAsync(async (_req, res) => {
+  const result = await homePageService.getContentSections();
+  sendResponse(res, {
+    status: status61.OK,
+    success: true,
+    message: "Site content fetched successfully",
+    data: result
+  });
+});
+var getContentSection2 = catchAsync(async (req, res) => {
+  const result = await homePageService.getContentSection(req.params.key);
+  sendResponse(res, {
+    status: status61.OK,
+    success: true,
+    message: "Site content section fetched successfully",
+    data: result
+  });
+});
+var upsertContentSection2 = catchAsync(async (req, res) => {
+  const result = await homePageService.upsertContentSection(
+    req.params.key,
+    req.body
+  );
+  sendResponse(res, {
+    status: status61.OK,
+    success: true,
+    message: "Site content section saved successfully",
+    data: result
+  });
+});
+var deleteContentSection2 = catchAsync(async (req, res) => {
+  const result = await homePageService.deleteContentSection(req.params.key);
+  sendResponse(res, {
+    status: status61.OK,
+    success: true,
+    message: "Site content section reset successfully",
+    data: result
+  });
+});
 var getFeaturedCourse2 = catchAsync(async (req, res) => {
   const result = await homePageService.getFeaturedCourse();
   sendResponse(res, {
@@ -12302,6 +12376,10 @@ var removeHeroSectionTeacher2 = catchAsync(async (req, res) => {
   });
 });
 var homePageController = {
+  getContentSections: getContentSections2,
+  getContentSection: getContentSection2,
+  upsertContentSection: upsertContentSection2,
+  deleteContentSection: deleteContentSection2,
   getFeaturedCourse: getFeaturedCourse2,
   getAllTeachersForHeroSelection: getAllTeachersForHeroSelection2,
   getFeaturedTeachers: getFeaturedTeachers2,
@@ -12311,8 +12389,12 @@ var homePageController = {
 
 // src/modules/homePage/homePage.route.ts
 var router29 = Router29();
+router29.get("/content", homePageController.getContentSections);
+router29.get("/content/:key", homePageController.getContentSection);
 router29.get("/featuredCourse", homePageController.getFeaturedCourse);
 router29.get("/featuredTeachers", homePageController.getFeaturedTeachers);
+router29.put("/content/:key", checkAuth(Role.ADMIN), homePageController.upsertContentSection);
+router29.delete("/content/:key", checkAuth(Role.ADMIN), homePageController.deleteContentSection);
 router29.get("/allTeachersForHeroSelection", checkAuth(Role.ADMIN), homePageController.getAllTeachersForHeroSelection);
 router29.post("/heroSectionTeacher", checkAuth(Role.ADMIN), validateRequest(heroTeacherSchema), homePageController.upsertHeroSectionTeacher);
 router29.delete("/heroSectionTeacher/:userId", checkAuth(Role.ADMIN), homePageController.removeHeroSectionTeacher);
