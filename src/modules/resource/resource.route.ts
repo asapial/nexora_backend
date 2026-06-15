@@ -27,6 +27,8 @@ router.post(
 // Browse with filters + bookmark metadata (authenticated users see cluster resources too)
 router.get("/browse", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.browseResources);
 
+router.get("/teacher-library", checkAuth(Role.TEACHER), resourceController.teacherLibraryResources);
+
 // My resources (logged-in user's uploads)
 router.get("/my", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.myResources);
 

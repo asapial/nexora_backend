@@ -29,4 +29,14 @@ const getStreak = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, { status: status.OK, success: true, message: "Streak fetched", data: result });
 });
 
-export const studyPlannerController = { getGoals, createGoal, updateGoal, deleteGoal, getStreak };
+const getSummary = catchAsync(async (req: Request, res: Response) => {
+  const result = await studyPlannerService.getSummary(req.user.userId);
+  sendResponse(res, { status: status.OK, success: true, message: "Planner summary fetched", data: result });
+});
+
+const logFocus = catchAsync(async (req: Request, res: Response) => {
+  const result = await studyPlannerService.logFocus(req.user.userId, req.params.id as string, req.body.minutes);
+  sendResponse(res, { status: status.OK, success: true, message: "Focus time logged", data: result });
+});
+
+export const studyPlannerController = { getGoals, createGoal, updateGoal, deleteGoal, getStreak, getSummary, logFocus };

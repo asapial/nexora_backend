@@ -82,7 +82,8 @@ const browseResources = catchAsync(
     const result = await resourceService.getFilteredResources(
       req.query as Record<string, string>,
       userId,
-      true   // browseMode — enforces PUBLIC/CLUSTER visibility gate
+      undefined,
+      true
     );
     sendResponse(res, {
       status: status.OK,
@@ -95,6 +96,25 @@ const browseResources = catchAsync(
 );
 
 // ── My Resources ──────────────────────────────────────────────────────────────
+const teacherLibraryResources = catchAsync(
+  async (req: Request, res: Response, _next: NextFunction) => {
+    const userId = req.user!.userId;
+    const result = await resourceService.getFilteredResources(
+      req.query as Record<string, string>,
+      userId,
+      resourceService.buildTeacherLibraryAccessWhere(userId),
+      true,
+    );
+    sendResponse(res, {
+      status: status.OK,
+      success: true,
+      message: "Teacher resource library fetched successfully",
+      data: result.resources,
+      meta: result.meta,
+    });
+  },
+);
+
 const myResources = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user?.userId;
@@ -363,6 +383,7 @@ export const resourceController = {
   uploadResource,
   allResources,
   browseResources,
+  teacherLibraryResources,
   myResources,
   bookmarkResource,
   removeBookmark,

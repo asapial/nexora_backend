@@ -4,6 +4,7 @@ import {
   annotationCreateSchema,
   createUsersByEmailSchema,
   demoLoginSchema,
+  goalCreateSchema,
   registerSchema,
   resourceUpdateSchema,
   taskReviewSchema,
@@ -50,6 +51,19 @@ test("task review score is constrained to the supported range", () => {
 test("annotation requires meaningful content", () => {
   assert.equal(annotationCreateSchema.safeParse({ resourceId: "resource", note: " " }).success, false);
   assert.equal(annotationCreateSchema.safeParse({ resourceId: "resource", note: "Useful note" }).success, true);
+});
+
+test("advanced study goals validate planning fields", () => {
+  assert.equal(goalCreateSchema.safeParse({
+    title: "Revise graph algorithms",
+    priority: "HIGH",
+    dueAt: "2026-06-20T10:00:00.000Z",
+    estimatedMinutes: 90,
+    recurrence: "WEEKLY",
+    tags: ["algorithms", "revision"],
+  }).success, true);
+  assert.equal(goalCreateSchema.safeParse({ title: "Study", priority: "CRITICAL" }).success, false);
+  assert.equal(goalCreateSchema.safeParse({ title: "Study", estimatedMinutes: 1 }).success, false);
 });
 
 test("resource updates reject empty mass-assignment payloads", () => {

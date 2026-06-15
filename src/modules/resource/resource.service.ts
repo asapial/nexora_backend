@@ -17,6 +17,10 @@ export const buildResourceAccessWhere = (userId: string, clusterIds: string[]): 
   ],
 });
 
+export const buildTeacherLibraryAccessWhere = (userId: string): Prisma.ResourceWhereInput => ({
+  OR: [{ visibility: "PUBLIC" }, { uploaderId: userId }],
+});
+
 export const resourceAccessWhere = async (userId: string): Promise<Prisma.ResourceWhereInput> => {
   const [memberships, teacherProfile] = await Promise.all([
     prisma.clusterMember.findMany({ where: { userId }, select: { clusterId: true } }),
@@ -104,6 +108,7 @@ interface ResourceFilter {
 const getFilteredResources = async (
   filters: ResourceFilter,
   userId?: string,
+  accessWhereOverride?: Prisma.ResourceWhereInput,
   browseMode = false           // true → enforce PUBLIC/CLUSTER visibility gate
 ) => {
   const page = parseInt(filters.page ?? "1", 10);
@@ -113,7 +118,9 @@ const getFilteredResources = async (
   const where: Record<string, unknown> = {};
 
   // ── Visibility gate for browse mode ─────────────────────────────────────────
-  const accessWhere = browseMode && userId ? await resourceAccessWhere(userId) : undefined;
+  const accessWhere = browseMode && userId
+    ? accessWhereOverride ?? await resourceAccessWhere(userId)
+    : undefined;
   if (browseMode) {
     where.OR = accessWhere?.OR ?? [{ visibility: "PUBLIC" }];
   }
@@ -175,6 +182,7 @@ const getFilteredResources = async (
       prisma.resource.count({ where: accessWhere }),
       prisma.resource.count({ where: { AND: [accessWhere, { visibility: "PUBLIC" }] } }),
       prisma.resource.count({ where: { AND: [accessWhere, { visibility: "CLUSTER" }] } }),
+      prisma.resource.count({ where: { AND: [accessWhere, { uploaderId: userId }] } }),
       prisma.resource.count({
         where: { AND: [accessWhere, { visibility: "PRIVATE" }, { uploaderId: userId }] },
       }),
@@ -185,7 +193,8 @@ const getFilteredResources = async (
       total: sourceCounts[0],
       public: sourceCounts[1],
       cluster: sourceCounts[2],
-      privateUploads: sourceCounts[3],
+      ownUploads: sourceCounts[3],
+      privateUploads: sourceCounts[4],
     }
     : undefined;
 
@@ -337,4 +346,5 @@ export const resourceService = {
   deleteResource,
   updateResource,
   assertResourceUrlAccess,
+  buildTeacherLibraryAccessWhere,
 };
