@@ -4360,9 +4360,7 @@ var resourceService = {
 import status8 from "http-status";
 
 // src/modules/ai/pdfRag.service.ts
-import { createRequire } from "module";
-var require2 = createRequire(import.meta.url);
-var { PDFParse } = require2("pdf-parse");
+import { extractText, getDocumentProxy } from "unpdf";
 function chunkText(text, chunkSize = 1500, overlap = 200) {
   const chunks = [];
   let start2 = 0;
@@ -4396,10 +4394,9 @@ function scoreChunk(chunk) {
   return metadataKeywords.reduce((score, kw) => score + (lower.includes(kw) ? 1 : 0), 0);
 }
 var extractMetadataFromPdf = async (buffer) => {
-  const parser = new PDFParse({ data: buffer });
-  const data = await parser.getText();
-  await parser.destroy();
-  const fullText = data.text;
+  const uint8Array = new Uint8Array(buffer);
+  const pdf = await getDocumentProxy(uint8Array);
+  const { text: fullText } = await extractText(pdf, { mergePages: true });
   if (!fullText || fullText.trim().length < 50) {
     throw new Error("PDF appears to be empty or image-only and cannot be parsed.");
   }

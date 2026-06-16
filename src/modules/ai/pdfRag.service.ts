@@ -1,6 +1,6 @@
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const { PDFParse } = require("pdf-parse");
+// unpdf ships a canvas-free, serverless-safe build of pdfjs.
+// Unlike pdfjs-dist, it never tries to load @napi-rs/canvas.
+import { extractText, getDocumentProxy } from "unpdf";
 
 import { envVars } from "../../config/env";
 
@@ -39,11 +39,11 @@ export interface PdfMetadataSuggestions {
 }
 
 export const extractMetadataFromPdf = async (buffer: Buffer): Promise<PdfMetadataSuggestions> => {
-  // Step 1: Extract full text
-  const parser = new PDFParse({ data: buffer });
-  const data = await parser.getText();
-  await parser.destroy();
-  const fullText = data.text;
+  // Step 1: Extract full text via unpdf (canvas-free, serverless-safe)
+  // unpdf uses a patched pdfjs build that strips all DOMMatrix / canvas code.
+  const uint8Array = new Uint8Array(buffer);
+  const pdf = await getDocumentProxy(uint8Array);
+  const { text: fullText } = await extractText(pdf, { mergePages: true });
 
   if (!fullText || fullText.trim().length < 50) {
     throw new Error("PDF appears to be empty or image-only and cannot be parsed.");
