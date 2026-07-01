@@ -2650,13 +2650,39 @@ var catchAsync = (fn) => {
 };
 
 // src/utils/sendResponse.ts
+var LOG_PREVIEW_LIMIT = 4e3;
+var nowMs = () => Number(process.hrtime.bigint() / 1000000n);
+var isDevelopment = () => process.env.NODE_ENV === "development";
+var previewForLog = (value) => {
+  try {
+    const serialized = JSON.stringify(value, null, 2);
+    if (!serialized) return serialized;
+    return serialized.length > LOG_PREVIEW_LIMIT ? `${serialized.slice(0, LOG_PREVIEW_LIMIT)}... [truncated ${serialized.length - LOG_PREVIEW_LIMIT} chars]` : serialized;
+  } catch {
+    return "[unserializable response payload]";
+  }
+};
 var sendResponse = (res, responseData) => {
-  res.status(responseData.status).json({
+  const responseBody = {
     success: responseData.success,
     message: responseData.message,
     data: responseData.data,
     meta: responseData.meta
-  });
+  };
+  if (isDevelopment()) {
+    console.log("[BACKEND_RESPONSE]", {
+      requestId: res.locals?.requestId ?? null,
+      environment: process.env.NODE_ENV,
+      method: res.req?.method,
+      path: res.req?.originalUrl,
+      status: responseData.status,
+      success: responseData.success,
+      message: responseData.message,
+      durationMs: typeof res.locals?.requestStartedAtMs === "number" ? nowMs() - res.locals.requestStartedAtMs : null,
+      body: previewForLog(responseBody)
+    });
+  }
+  res.status(responseData.status).json(responseBody);
 };
 
 // src/modules/auth/auth.controller.ts
@@ -4092,6 +4118,332 @@ var clusterRouter = router2;
 
 // src/modules/resource/resource.route.ts
 import { Router as Router3 } from "express";
+import multer2 from "multer";
+
+// src/config/multer.config.ts
+import multer from "multer";
+import { CloudinaryStorage } from "multer-storage-cloudinary";
+var storage = new CloudinaryStorage({
+  cloudinary: cloudinaryUpload,
+  params: async (req, file) => {
+    const originalName = file.originalname;
+    const extension = originalName.split(".").pop()?.toLocaleLowerCase();
+    const fileNameWithoutExtension = originalName.split(".").slice(0, -1).join(".").toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "");
+    const uniqueName = Math.random().toString(36).substring(2) + "-" + Date.now() + "-" + fileNameWithoutExtension;
+    const folder = extension === "pdf" ? "pdfs" : "images";
+    return {
+      folder: `nexora/${folder}`,
+      public_id: uniqueName,
+      resource_type: "auto"
+    };
+  }
+});
+var multerUpload = multer({ storage });
+
+// src/modules/resource/resource.controller.ts
+import status8 from "http-status";
+import zlib from "zlib";
+
+// src/utils/aiResponse.ts
+var nowMs2 = () => Number(process.hrtime.bigint() / 1000000n);
+var FREE_MODELS = [
+  "google/gemma-3-4b-it:free",
+  "openai/gpt-oss-20b:free",
+  "google/gemma-4-26b-a4b-it:free",
+  "openrouter/owl-alpha",
+  "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "poolside/laguna-m.1:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+  "openai/gpt-oss-120b:free",
+  "poolside/laguna-xs.2:free",
+  "google/gemma-4-31b-it:free",
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "nvidia/nemotron-nano-12b-v2-vl:free",
+  "nvidia/llama-nemotron-embed-vl-1b-v2:free"
+];
+function buildSystemPrompt(responseStyle, restrictedAnswer) {
+  const lines = [
+    "You are a precise AI assistant. Always respond with valid JSON only. No markdown fences and no extra text.",
+    `Response format / style: ${responseStyle}`
+  ];
+  if (restrictedAnswer && restrictedAnswer.trim()) {
+    lines.push(`Restrictions: ${restrictedAnswer.trim()}`);
+  }
+  return lines.join("\n");
+}
+async function fetchFromModel(model, systemPrompt, userMessage, timeoutMs, maxTokens, jsonMode = true) {
+  const startedAt = nowMs2();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let httpStatus2 = null;
+  try {
+    const response = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${envVars.OpenRouter_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": envVars.FRONTEND_URL,
+          "X-Title": "Nexora"
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          max_tokens: maxTokens,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userMessage }
+          ],
+          ...jsonMode ? { response_format: { type: "json_object" } } : {}
+        }),
+        signal: controller.signal
+      }
+    );
+    httpStatus2 = response.status;
+    const json = await response.json().catch(async () => ({
+      error: { message: await response.text().catch(() => "Unknown error") }
+    }));
+    if (!response.ok || json?.error) {
+      const message = json?.error?.message ?? JSON.stringify(json).slice(0, 500);
+      throw new Error(`HTTP ${response.status} from model "${model}": ${message}`);
+    }
+    const content = json?.choices?.[0]?.message?.content ?? "";
+    if (!content.trim()) {
+      throw new Error(`Empty content returned by model "${model}"`);
+    }
+    console.log("[AI_MODEL_RESPONSE_TIME]", {
+      model,
+      success: true,
+      jsonMode,
+      httpStatus: httpStatus2,
+      durationMs: nowMs2() - startedAt,
+      timeoutMs,
+      promptChars: userMessage.length,
+      responseChars: content.length,
+      usage: json?.usage ?? null,
+      finishedAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    return content;
+  } catch (err) {
+    console.log("[AI_MODEL_RESPONSE_TIME]", {
+      model,
+      success: false,
+      jsonMode,
+      httpStatus: httpStatus2,
+      durationMs: nowMs2() - startedAt,
+      timeoutMs,
+      promptChars: userMessage.length,
+      errorName: err instanceof Error ? err.name : "UnknownError",
+      errorMessage: err instanceof Error ? err.message : String(err),
+      finishedAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function safeParseJson(raw2) {
+  try {
+    const cleaned = raw2.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const objectMatch = cleaned.match(/\{[\s\S]*\}/);
+    const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+    return JSON.parse(objectMatch?.[0] ?? arrayMatch?.[0] ?? cleaned);
+  } catch {
+    return null;
+  }
+}
+async function tryModel(model, retryNumber, systemPrompt, context, responseTime, maxTokens) {
+  let lastError = "Unknown error";
+  for (let attempt = 1; attempt <= retryNumber; attempt++) {
+    const attemptStartedAt = nowMs2();
+    try {
+      console.log(`[AI] Trying model "${model}" - attempt ${attempt}/${retryNumber}`);
+      const rawText = await fetchFromModel(
+        model,
+        systemPrompt,
+        context,
+        responseTime,
+        maxTokens
+      );
+      const parsed = safeParseJson(rawText);
+      if (parsed !== null) {
+        console.log("[AI_MODEL_ATTEMPT_TIME]", {
+          model,
+          attempt,
+          success: true,
+          parsedJson: true,
+          durationMs: nowMs2() - attemptStartedAt
+        });
+        return { success: true, model, data: parsed };
+      }
+      console.log("[AI_MODEL_ATTEMPT_TIME]", {
+        model,
+        attempt,
+        success: true,
+        parsedJson: false,
+        durationMs: nowMs2() - attemptStartedAt
+      });
+      return { success: true, model, data: null, rawText };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      console.log("[AI_MODEL_ATTEMPT_TIME]", {
+        model,
+        attempt,
+        success: false,
+        durationMs: nowMs2() - attemptStartedAt,
+        error: lastError
+      });
+      console.error(`[AI] Model "${model}" attempt ${attempt} failed: ${lastError}`);
+      if (attempt < retryNumber) {
+        await new Promise((res) => setTimeout(res, 350 * attempt));
+      }
+    }
+  }
+  return { success: false, model, data: null, error: lastError };
+}
+async function getAiResponse(params) {
+  const startedAt = nowMs2();
+  const {
+    context,
+    responseStyle,
+    retryNumber = 1,
+    aiModel,
+    restrictedAnswer = "",
+    responseTime = 750,
+    maxTokens = 1200,
+    concurrency = 2,
+    maxModelBatches = 1
+  } = params;
+  const systemPrompt = buildSystemPrompt(responseStyle, restrictedAnswer);
+  const modelsToTry = aiModel ? [aiModel] : FREE_MODELS;
+  const batchSize = Math.max(1, Math.min(concurrency, modelsToTry.length));
+  let lastError = "Unknown error";
+  for (let i = 0, batchCount = 0; i < modelsToTry.length && batchCount < maxModelBatches; i += batchSize, batchCount++) {
+    const batch = modelsToTry.slice(i, i + batchSize);
+    const results = await Promise.all(
+      batch.map(
+        (model) => tryModel(model, retryNumber, systemPrompt, context, responseTime, maxTokens)
+      )
+    );
+    const parsedSuccess = results.find((result) => result.success && result.data !== null);
+    if (parsedSuccess) {
+      console.log("[AI_RESPONSE_TOTAL_TIME]", {
+        type: "json",
+        success: true,
+        model: parsedSuccess.model,
+        durationMs: nowMs2() - startedAt,
+        promptChars: context.length,
+        maxTokens,
+        responseTime
+      });
+      return parsedSuccess;
+    }
+    const rawSuccess = results.find((result) => result.success);
+    if (rawSuccess) {
+      console.log("[AI_RESPONSE_TOTAL_TIME]", {
+        type: "json",
+        success: true,
+        model: rawSuccess.model,
+        parsedJson: false,
+        durationMs: nowMs2() - startedAt,
+        promptChars: context.length,
+        maxTokens,
+        responseTime
+      });
+      return rawSuccess;
+    }
+    lastError = results.find((result) => result.error)?.error ?? lastError;
+    console.warn(`[AI] Batch failed: ${batch.join(", ")}. Moving to next batch.`);
+  }
+  const failedResponse = {
+    success: false,
+    model: modelsToTry[modelsToTry.length - 1] ?? "none",
+    data: null,
+    error: `All models failed. Last error: ${lastError}`
+  };
+  console.log("[AI_RESPONSE_TOTAL_TIME]", {
+    type: "json",
+    success: false,
+    model: failedResponse.model,
+    durationMs: nowMs2() - startedAt,
+    promptChars: context.length,
+    maxTokens,
+    responseTime,
+    error: failedResponse.error
+  });
+  return failedResponse;
+}
+async function getAiTextResponse(params) {
+  const startedAt = nowMs2();
+  const {
+    context,
+    retryNumber = 1,
+    aiModel,
+    restrictedAnswer = "",
+    responseTime = 750,
+    maxTokens = 900,
+    concurrency = 2,
+    maxModelBatches = 1,
+    systemPrompt = "You are a helpful assistant. Answer clearly and concisely."
+  } = params;
+  const modelsToTry = aiModel ? [aiModel] : FREE_MODELS;
+  const batchSize = Math.max(1, Math.min(concurrency, modelsToTry.length));
+  const prompt = restrictedAnswer.trim() ? `${systemPrompt}
+Restrictions: ${restrictedAnswer.trim()}` : systemPrompt;
+  let lastError = "Unknown error";
+  for (let i = 0, batchCount = 0; i < modelsToTry.length && batchCount < maxModelBatches; i += batchSize, batchCount++) {
+    const batch = modelsToTry.slice(i, i + batchSize);
+    const results = await Promise.all(
+      batch.map(async (model) => {
+        let lastModelError = "Unknown error";
+        for (let attempt = 1; attempt <= retryNumber; attempt++) {
+          try {
+            const rawText = await fetchFromModel(model, prompt, context, responseTime, maxTokens, false);
+            return { success: true, model, data: rawText.trim() };
+          } catch (err) {
+            lastModelError = err instanceof Error ? err.message : String(err);
+            if (attempt < retryNumber) {
+              await new Promise((res) => setTimeout(res, 350 * attempt));
+            }
+          }
+        }
+        return { success: false, model, data: null, error: lastModelError };
+      })
+    );
+    const success = results.find((result) => result.success && result.data);
+    if (success) {
+      console.log("[AI_RESPONSE_TOTAL_TIME]", {
+        type: "text",
+        success: true,
+        model: success.model,
+        durationMs: nowMs2() - startedAt,
+        promptChars: context.length,
+        maxTokens,
+        responseTime
+      });
+      return success;
+    }
+    lastError = results.find((result) => result.error)?.error ?? lastError;
+  }
+  const failedResponse = {
+    success: false,
+    model: modelsToTry[modelsToTry.length - 1] ?? "none",
+    data: null,
+    error: `All models failed. Last error: ${lastError}`
+  };
+  console.log("[AI_RESPONSE_TOTAL_TIME]", {
+    type: "text",
+    success: false,
+    model: failedResponse.model,
+    durationMs: nowMs2() - startedAt,
+    promptChars: context.length,
+    maxTokens,
+    responseTime,
+    error: failedResponse.error
+  });
+  return failedResponse;
+}
 
 // src/modules/resource/resource.service.ts
 import status7 from "http-status";
@@ -4357,152 +4709,154 @@ var resourceService = {
 };
 
 // src/modules/resource/resource.controller.ts
-import status8 from "http-status";
-
-// src/modules/ai/pdfRag.service.ts
-import { extractText, getDocumentProxy } from "unpdf";
-function chunkText(text, chunkSize = 1500, overlap = 200) {
-  const chunks = [];
-  let start2 = 0;
-  while (start2 < text.length) {
-    chunks.push(text.substring(start2, start2 + chunkSize));
-    start2 += chunkSize - overlap;
+var MAX_AI_PDF_BYTES = 30 * 1024 * 1024;
+var MAX_AI_CONTEXT_CHARS = 18e3;
+var asArray = (value) => {
+  if (Array.isArray(value)) return value.map(String).map((item) => item.trim()).filter(Boolean);
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  return [];
+};
+var cleanText = (value) => value.replace(/\\([()\\])/g, "$1").replace(/\\n|\\r|\\t/g, " ").replace(/\\[0-7]{1,3}/g, " ").replace(/\s+/g, " ").trim();
+var extractPdfStringText = (raw2) => {
+  const out = [];
+  const literalPattern = /\((?:\\.|[^\\)]){2,}\)\s*(?:Tj|'|")/g;
+  const arrayPattern = /\[((?:\s*(?:\((?:\\.|[^\\)])*\)|<[\da-fA-F\s]+>|-?\d+(?:\.\d+)?)\s*)+)\]\s*TJ/g;
+  const hexPattern = /<([\da-fA-F\s]{4,})>\s*Tj/g;
+  for (const match of raw2.matchAll(literalPattern)) {
+    out.push(cleanText(match[0].replace(/\)\s*(?:Tj|'|")$/, "").slice(1)));
   }
-  return chunks;
-}
-function scoreChunk(chunk) {
-  const metadataKeywords = [
-    "abstract",
-    "title",
-    "author",
-    "authors",
-    "published",
-    "publication",
-    "journal",
-    "year",
-    "keywords",
-    "introduction",
-    "university",
-    "institute",
-    "doi",
-    "department",
-    "corresponding",
-    "received",
-    "accepted"
-  ];
-  const lower = chunk.toLowerCase();
-  return metadataKeywords.reduce((score, kw) => score + (lower.includes(kw) ? 1 : 0), 0);
-}
-var extractMetadataFromPdf = async (buffer) => {
-  const uint8Array = new Uint8Array(buffer);
-  const pdf = await getDocumentProxy(uint8Array);
-  const { text: fullText } = await extractText(pdf, { mergePages: true });
-  if (!fullText || fullText.trim().length < 50) {
-    throw new Error("PDF appears to be empty or image-only and cannot be parsed.");
-  }
-  const chunks = chunkText(fullText, 1500, 200);
-  const rankedChunks = chunks.map((chunk, idx) => ({ chunk, score: scoreChunk(chunk) + (idx === 0 ? 5 : 0) })).sort((a, b) => b.score - a.score).slice(0, 3).map((c) => c.chunk);
-  const retrievedContext = rankedChunks.join("\n\n---CHUNK BOUNDARY---\n\n").slice(0, 4500);
-  const prompt = `You are a research metadata extraction assistant for an academic educational platform.
-
-The following text was extracted from an uploaded PDF using a RAG pipeline with vector retrieval.
-The most semantically relevant sections are provided below.
-
-=== RETRIEVED CONTEXT (vector database) ===
-${retrievedContext}
-=== END CONTEXT ===
-
-Your task: Generate EXACTLY 4 alternative suggestions for each metadata field.
-Each suggestion should be distinct and useful. Base everything strictly on the context above.
-
-Return a single raw JSON object with these keys:
-- "titles": array of 4 alternative title strings (vary length/formality/focus)
-- "descriptions": array of 4 alternative 5-7 sentence abstracts/summaries (each distinct angle)
-- "authorSets": array of 4 items, each item is an array of author name strings (e.g. all authors, first author only, first 3, etc.)
-- "years": array of 4 year strings like "2024" (the most likely year first, then plausible alternatives; use "" if none found)
-- "tagSets": array of 4 items, each item is an array of 10-15 lowercase topic/keyword tag strings (different focus each set)
-
-Rules:
-- Output ONLY raw JSON \u2014 no markdown, no code fences, no explanation whatsoever
-- Every array must have EXACTLY 4 elements
-- If a field truly cannot be determined, use empty strings or empty arrays as placeholders
-- Tags must be lowercase short phrases
-
-JSON output:`;
-  const FREE_MODELS2 = [
-    "google/gemma-4-26b-a4b-it:free",
-    "baidu/cobuddy:free",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-    "poolside/laguna-xs.2:free",
-    "poolside/laguna-m.1:free",
-    "deepseek/deepseek-v4-flash:free",
-    "google/gemma-4-31b-it:free",
-    "arcee-ai/trinity-large-thinking:free"
-  ];
-  let rawContent = "";
-  let lastError = "";
-  for (const model of FREE_MODELS2) {
-    try {
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${envVars.OpenRouter_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.4
-        })
-      });
-      if (!response.ok) {
-        const errBody = await response.json().catch(() => ({}));
-        lastError = errBody?.error?.message ?? `HTTP ${response.status}`;
-        console.warn(`[pdfRag] ${model} failed: ${lastError}`);
-        continue;
+  for (const match of raw2.matchAll(arrayPattern)) {
+    const segment = match[1] ?? "";
+    for (const part of segment.matchAll(/\((?:\\.|[^\\)])*\)/g)) {
+      out.push(cleanText(part[0].slice(1, -1)));
+    }
+    for (const part of segment.matchAll(/<([\da-fA-F\s]{4,})>/g)) {
+      const hex = (part[1] ?? "").replace(/\s+/g, "");
+      try {
+        out.push(cleanText(Buffer.from(hex, "hex").toString("utf8")));
+      } catch {
       }
-      const result = await response.json();
-      const choice = result.choices?.[0]?.message ?? {};
-      const candidate = typeof choice.content === "string" && choice.content.trim() || typeof choice.reasoning_content === "string" && choice.reasoning_content.trim() || typeof choice.thinking === "string" && choice.thinking.trim() || "";
-      if (candidate.length > 0) {
-        rawContent = candidate;
-        console.log(`[pdfRag] \u2713 ${model} responded (${candidate.length} chars)`);
-        break;
-      }
-      lastError = `Model returned empty content (finish_reason: ${result.choices?.[0]?.finish_reason})`;
-      console.warn(`[pdfRag] ${model} empty content: ${lastError}`);
-    } catch (fetchErr) {
-      lastError = String(fetchErr);
-      console.warn(`[pdfRag] ${model} threw: ${lastError}`);
     }
   }
-  if (!rawContent) {
-    throw new Error(`All AI models failed or returned empty content. Last error: ${lastError}`);
+  for (const match of raw2.matchAll(hexPattern)) {
+    const hex = (match[1] ?? "").replace(/\s+/g, "");
+    try {
+      out.push(cleanText(Buffer.from(hex, "hex").toString("utf8")));
+    } catch {
+    }
   }
-  rawContent = rawContent.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "").trim();
-  const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error(`AI returned invalid format \u2014 no JSON found. Raw: ${rawContent.slice(0, 200)}`);
-  const meta = JSON.parse(jsonMatch[0]);
-  const ensure4Strings = (arr, fallback) => {
-    const base = Array.isArray(arr) ? arr.map(String) : [];
-    while (base.length < 4) base.push(fallback);
-    return base.slice(0, 4);
-  };
-  const ensure4Arrays = (arr) => {
-    const base = Array.isArray(arr) ? arr.map((item) => Array.isArray(item) ? item.map(String) : []) : [];
-    while (base.length < 4) base.push([]);
-    return base.slice(0, 4);
-  };
+  return out.filter((item) => /[a-zA-Z]{3,}/.test(item));
+};
+var inflatePdfStream = (stream) => {
+  const candidates = [
+    () => zlib.inflateSync(stream),
+    () => zlib.inflateRawSync(stream),
+    () => zlib.unzipSync(stream)
+  ];
+  for (const inflate of candidates) {
+    try {
+      return inflate().toString("latin1");
+    } catch {
+    }
+  }
+  return null;
+};
+var extractPdfText = (buffer) => {
+  const raw2 = buffer.toString("latin1");
+  const chunks = [];
+  let charCount = 0;
+  const initialChunks = extractPdfStringText(raw2);
+  chunks.push(...initialChunks);
+  charCount += initialChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const streamPattern = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  for (const match of raw2.matchAll(streamPattern)) {
+    if (charCount > MAX_AI_CONTEXT_CHARS) break;
+    const streamBody = match[1];
+    if (!streamBody) continue;
+    const streamText = inflatePdfStream(Buffer.from(streamBody, "latin1"));
+    if (streamText) {
+      const streamChunks = extractPdfStringText(streamText);
+      chunks.push(...streamChunks);
+      charCount += streamChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    }
+  }
+  return cleanText(chunks.join(" ")).slice(0, MAX_AI_CONTEXT_CHARS);
+};
+var normalizeSuggestions = (value) => {
+  const toStrings = (input, maxItems, maxLen) => (Array.isArray(input) ? input : []).map((item) => String(item ?? "").trim()).filter(Boolean).slice(0, maxItems).map((item) => item.slice(0, maxLen));
+  const toStringSets = (input, maxSets, maxItems, maxLen) => (Array.isArray(input) ? input : []).map((set) => toStrings(set, maxItems, maxLen)).filter((set) => set.length > 0).slice(0, maxSets);
   return {
-    titles: ensure4Strings(meta.titles, ""),
-    descriptions: ensure4Strings(meta.descriptions, ""),
-    authorSets: ensure4Arrays(meta.authorSets),
-    years: ensure4Strings(meta.years, ""),
-    tagSets: ensure4Arrays(meta.tagSets)
+    titles: toStrings(value?.titles, 4, 160),
+    descriptions: toStrings(value?.descriptions, 4, 700),
+    authorSets: toStringSets(value?.authorSets, 4, 8, 80),
+    years: toStrings(value?.years, 4, 4).filter((year) => /^\d{4}$/.test(year)),
+    tagSets: toStringSets(value?.tagSets, 4, 10, 40)
   };
 };
+var fallbackMetadata = (fileName, extractedText) => {
+  const baseTitle = fileName.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim() || "Uploaded Resource";
+  const words = extractedText.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((word) => word.length > 4 && !["these", "those", "their", "there", "which", "about"].includes(word));
+  const tags = [...new Set(words)].slice(0, 8);
+  const year = extractedText.match(/\b(19|20)\d{2}\b/)?.[0];
+  return {
+    titles: [
+      baseTitle,
+      `${baseTitle} Study Material`,
+      `${baseTitle} Reference Guide`,
+      `${baseTitle} Learning Resource`
+    ],
+    descriptions: [
+      extractedText ? extractedText.slice(0, 420) : `A learning resource uploaded for study, reference, and classroom use.`,
+      `This resource can be used to support reading, discussion, and follow-up tasks.`,
+      `A structured document for students and teachers to review key concepts and related materials.`,
+      `Use this file as a reference resource for coursework, cluster learning, or independent study.`
+    ],
+    authorSets: [],
+    years: year ? [year] : [],
+    tagSets: [tags.length ? tags : ["resource", "study", "learning", "reference"]]
+  };
+};
+var suggestMetadata = catchAsync(
+  async (req, res, _next) => {
+    if (!req.file?.buffer) {
+      throw new AppError_default(status8.BAD_REQUEST, "PDF file is required.");
+    }
+    if (req.file.mimetype !== "application/pdf") {
+      throw new AppError_default(status8.BAD_REQUEST, "Only PDF files can be analyzed.");
+    }
+    if (req.file.size > MAX_AI_PDF_BYTES) {
+      throw new AppError_default(413, "PDF must be 30 MB or smaller.");
+    }
+    const extractedText = extractPdfText(req.file.buffer);
+    const context = extractedText.length >= 400 ? extractedText : `Filename: ${req.file.originalname}. The PDF has little extractable text, so infer conservative metadata from the filename only.`;
+    const fallback = fallbackMetadata(req.file.originalname, extractedText);
+    const aiResult = await getAiResponse({
+      context: `Analyze this uploaded education/resource PDF and propose metadata.
 
-// src/modules/resource/resource.controller.ts
+${context}`,
+      responseStyle: `Return a JSON object with exactly these keys:
+{
+  "titles": ["4 concise title suggestions"],
+  "descriptions": ["4 concise abstract/description suggestions, each under 90 words"],
+  "authorSets": [["up to 8 likely author names"], ["alternative author set"]],
+  "years": ["up to 4 likely publication years as strings"],
+  "tagSets": [["8-10 lowercase topic tags"], ["alternative tag set"]]
+}`,
+      restrictedAnswer: "Do not invent precise authors or years if the document text does not support them. Use empty arrays when uncertain.",
+      responseTime: 650,
+      maxTokens: 900,
+      concurrency: 1,
+      retryNumber: 1,
+      maxModelBatches: 1
+    });
+    sendResponse(res, {
+      status: status8.OK,
+      success: true,
+      message: aiResult.success ? "Metadata suggestions generated successfully" : "Fast metadata suggestions generated locally",
+      data: aiResult.success ? normalizeSuggestions(aiResult.data) : fallback
+    });
+  }
+);
 var uploadResource2 = catchAsync(
   async (req, res, _next) => {
     if (!req.file) {
@@ -4533,13 +4887,12 @@ var uploadResource2 = catchAsync(
       title: bodyData.title ?? "",
       description: bodyData.description ?? void 0,
       visibility: bodyData.visibility ?? "PUBLIC",
-      tags: multipartArray(bodyData, "tags"),
-      authors: multipartArray(bodyData, "authors"),
+      tags: [...asArray(bodyData.tags), ...asArray(bodyData["tags[]"])],
+      authors: [...asArray(bodyData.authors), ...asArray(bodyData["authors[]"])],
       year: bodyData.year ? Number(bodyData.year) : void 0,
       isFeatured: bodyData.isFeatured ?? false,
       categoryId: bodyData.categoryId ?? void 0,
-      clusterId: bodyData.clusterId ?? void 0,
-      clusterIds: multipartArray(bodyData, "clusterIds")
+      clusterId: bodyData.clusterId ?? asArray(bodyData["clusterIds[]"])[0] ?? void 0
     };
     const result = await resourceService.uploadResource(payload);
     sendResponse(res, {
@@ -4606,7 +4959,7 @@ var myResources = catchAsync(
   async (req, res, _next) => {
     const userId = req.user?.userId;
     const result = await resourceService.getFilteredResources(
-      { ...req.query, uploaderId: userId },
+      { ...req.query, uploaderId: userId ?? "" },
       userId
     );
     sendResponse(res, {
@@ -4792,6 +5145,7 @@ var updateResource2 = catchAsync(
   }
 );
 var resourceController = {
+  suggestMetadata,
   uploadResource: uploadResource2,
   allResources: allResources2,
   browseResources,
@@ -4806,40 +5160,18 @@ var resourceController = {
   updateResource: updateResource2
 };
 
-// src/config/multer.config.ts
-import multer from "multer";
-import { CloudinaryStorage } from "multer-storage-cloudinary";
-var storage = new CloudinaryStorage({
-  cloudinary: cloudinaryUpload,
-  params: async (req, file) => {
-    const originalName = file.originalname;
-    const extension = originalName.split(".").pop()?.toLocaleLowerCase();
-    const fileNameWithoutExtension = originalName.split(".").slice(0, -1).join(".").toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "");
-    const uniqueName = Math.random().toString(36).substring(2) + "-" + Date.now() + "-" + fileNameWithoutExtension;
-    const folder = extension === "pdf" ? "pdfs" : "images";
-    return {
-      folder: `nexora/${folder}`,
-      public_id: extension === "pdf" ? `${uniqueName}.pdf` : uniqueName,
-      resource_type: extension === "pdf" ? "raw" : "auto"
-    };
-  }
-});
-var multerUpload = multer({ storage });
-var multerMemory = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 },
-  // 20 MB max
-  fileFilter: (_req, file, cb) => {
-    if (file.mimetype === "application/pdf") {
-      cb(null, true);
-    } else {
-      cb(new Error("Only PDF files are allowed for AI analysis"));
-    }
-  }
-});
-
 // src/modules/resource/resource.route.ts
 var router3 = Router3();
+var pdfMetadataUpload = multer2({
+  storage: multer2.memoryStorage(),
+  limits: { fileSize: 30 * 1024 * 1024 }
+});
+router3.post(
+  "/suggest-metadata",
+  checkAuth(Role.STUDENT, Role.TEACHER),
+  pdfMetadataUpload.single("file"),
+  resourceController.suggestMetadata
+);
 router3.post(
   "/",
   checkAuth(Role.STUDENT, Role.TEACHER),
@@ -7121,8 +7453,7 @@ var globalErrorHandler = async (err, req, res, next) => {
     console.log("Error from Global Error Handler", err);
   }
   if (req.file?.path) {
-    await deleteFileFromCloudinary(req.file.path).catch(() => {
-    });
+    await deleteFileFromCloudinary(req.file.path);
   }
   if (req.files && Array.isArray(req.files) && req.files.length > 0) {
     const imageUrls = req.files.map((file) => file.path).filter(Boolean);
@@ -7167,6 +7498,52 @@ var globalErrorHandler = async (err, req, res, next) => {
     if (stack) errorResponse.stack = stack;
   }
   res.status(statusCode).json(errorResponse);
+};
+
+// src/middleware/requestLogger.ts
+var nowMs3 = () => Number(process.hrtime.bigint() / 1000000n);
+var isDevelopment2 = () => process.env.NODE_ENV === "development";
+var requestLogger = (req, res, next) => {
+  const startedAt = nowMs3();
+  const startedIso = (/* @__PURE__ */ new Date()).toISOString();
+  const requestId = req.headers["x-request-id"]?.toString() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  res.locals.requestId = requestId;
+  res.locals.requestStartedAtMs = startedAt;
+  if (!isDevelopment2()) {
+    return next();
+  }
+  console.log("[BACKEND_REQUEST_START]", {
+    requestId,
+    environment: process.env.NODE_ENV,
+    method: req.method,
+    path: req.originalUrl,
+    ip: req.ip,
+    userAgent: req.headers["user-agent"] ?? null,
+    contentType: req.headers["content-type"] ?? null,
+    contentLengthBytes: Number(req.headers["content-length"] ?? 0),
+    startedAt: startedIso
+  });
+  const logFinished = (event) => {
+    const durationMs = nowMs3() - startedAt;
+    const statusCode = res.statusCode;
+    console.log("[BACKEND_REQUEST_END]", {
+      requestId,
+      environment: process.env.NODE_ENV,
+      method: req.method,
+      path: req.originalUrl,
+      statusCode,
+      event,
+      durationMs,
+      durationSec: Number((durationMs / 1e3).toFixed(3)),
+      responseContentLengthBytes: Number(res.getHeader("content-length") ?? 0),
+      finishedAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+  };
+  res.once("finish", () => logFinished("finish"));
+  res.once("close", () => {
+    if (!res.writableEnded) logFinished("close");
+  });
+  next();
 };
 
 // src/modules/studentDashboard/studentCluster/studentCluster.route.ts
@@ -14197,7 +14574,77 @@ async function buildAdminContext() {
 }
 
 // src/modules/ai/ai.service.ts
-var BASE_URL = "https://nexorafrontend-one.vercel.app";
+var buildClusterDescriptionFallback = (clusterName) => [
+  `${clusterName} is a focused learning space for students to collaborate, share progress, and stay aligned with class goals. It helps members follow sessions, tasks, and resources in one organized place.`,
+  `This cluster brings together learners working on ${clusterName}. Members can access shared materials, participate in guided sessions, and build steady academic momentum.`,
+  `${clusterName} is designed for structured learning, discussion, and accountability. Students can collaborate with peers while the teacher tracks participation and progress.`,
+  `A dedicated cluster for ${clusterName}, built to keep lessons, tasks, and updates easy to manage. It supports clear communication between the teacher and every member.`,
+  `${clusterName} gives students a central place to learn, submit work, and follow important announcements. The cluster keeps classroom activity organized and accessible.`,
+  `This learning group supports students exploring ${clusterName} through shared sessions, resources, and regular tasks. It is ideal for keeping everyone connected and on track.`
+];
+var withTimeout = async (promise, ms, fallback) => {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve(fallback), ms);
+    })
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+};
+var suggestDescription = async (clusterName) => {
+  const startedAt = Date.now();
+  const suggestions = buildClusterDescriptionFallback(clusterName);
+  console.log("[AI_RESPONSE_TOTAL_TIME]", {
+    type: "cluster-description",
+    success: true,
+    model: "local-fast-fallback",
+    durationMs: Date.now() - startedAt,
+    promptChars: clusterName.length,
+    responseItems: suggestions.length
+  });
+  return suggestions;
+  const prompt = `You are helping a teacher on an educational platform called Nexora create a student cluster.
+The cluster is named: "${clusterName}"
+
+Generate exactly 6 concise, helpful cluster description suggestions (3\u20135 sentences each).
+Each should sound natural, professional, and specific to the cluster name.
+Return ONLY a raw JSON array of 6 strings. No markdown, no explanation, no extra text.
+Example format: ["First description.", "Second description.", "Third description."]`;
+  try {
+    const response = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${envVars.OpenRouter_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "google/gemma-3-4b-it:free",
+          messages: [{ role: "user", content: prompt }]
+        })
+      }
+    );
+    if (!response.ok) {
+      const err = await response.json();
+      console.error("OpenRouter error:", err);
+      throw { status: response.status, message: "AI service error" };
+    }
+    const result = await response.json();
+    const raw2 = result.choices[0].message.content.trim();
+    const cleaned = raw2.replace(/```json|```/g, "").trim();
+    const suggestions2 = JSON.parse(cleaned);
+    if (!Array.isArray(suggestions2) || suggestions2.length === 0) {
+      throw new Error("Invalid suggestions format");
+    }
+    return suggestions2;
+  } catch (err) {
+    console.error("Service Error:", err);
+    throw err;
+  }
+};
 var PLATFORM_KNOWLEDGE = `
 ## WHAT IS NEXORA?
 Nexora is a modern educational platform connecting teachers, students, and admins.
@@ -14324,74 +14771,39 @@ function scoreSection(section, query) {
     return score + Math.min((lower.match(re) || []).length, 5);
   }, 0);
 }
-function retrieveKnowledge(query, topK = 3) {
-  const scored = KNOWLEDGE_SECTIONS.map((s) => ({ s, score: scoreSection(s, query) })).sort((a, b) => b.score - a.score);
-  const relevant = scored.filter((x) => x.score > 0).slice(0, topK);
-  const toUse = relevant.length >= 1 ? relevant : scored.slice(0, 2);
-  return toUse.map((x) => x.s).join("\n\n---\n\n");
-}
-async function retrieveResources(userId, query) {
-  const terms = query.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((t) => t.length > 3 && !STOP_WORDS.has(t));
-  if (!terms.length) return "";
-  try {
-    const resources = await prisma.resource.findMany({
-      where: {
-        uploaderId: userId,
-        OR: [
-          ...terms.slice(0, 3).map((t) => ({ title: { contains: t, mode: "insensitive" } })),
-          ...terms.slice(0, 3).map((t) => ({ description: { contains: t, mode: "insensitive" } })),
-          { tags: { hasSome: terms.slice(0, 5) } }
-        ]
-      },
-      select: { title: true, description: true, tags: true, authors: true, year: true },
-      take: 5,
-      orderBy: { createdAt: "desc" }
-    });
-    if (!resources.length) return "";
-    const lines = [`
-=== MATCHING RESOURCES IN YOUR LIBRARY (${resources.length}) ===`];
-    for (const r of resources) {
-      lines.push(
-        `\u2022 "${r.title}"${r.authors.length ? ` \u2014 ${r.authors.join(", ")}` : ""}${r.year ? ` (${r.year})` : ""}` + (r.description ? `
-  ${r.description.slice(0, 120)}` : "") + (r.tags.length ? `
-  Tags: ${r.tags.slice(0, 5).join(", ")}` : "")
-      );
-    }
-    return lines.join("\n");
-  } catch {
-    return "";
-  }
-}
-var suggestDescription = async (clusterName) => {
-  const prompt = `You are helping a teacher on an educational platform called Nexora create a student cluster.
-The cluster is named: "${clusterName}"
+var chatWithAI = async (userId, role, userName, message, history) => {
+  const rawContext = await withTimeout(
+    buildContext(userId, role),
+    250,
+    "Live user data is still loading."
+  );
+  const context = rawContext.length > 3e3 ? rawContext.slice(0, 3e3) + "\n...(truncated)" : rawContext;
+  const systemContent = getSystemPrompt(role, userName, context);
+  const trimmedHistory = history.slice(-6);
+  const fullPrompt = `${systemContent}
+
+Conversation so far:
+${trimmedHistory.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n")}
 
 Generate exactly 6 concise, helpful cluster description suggestions (3\u20135 sentences each).
 Each should sound natural, professional, and specific to the cluster name.
 Return ONLY a raw JSON array of 6 strings. No markdown, no explanation, no extra text.
 Example format: ["First description.", "Second description.", "Third description."]`;
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${envVars.OpenRouter_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "nvidia/nemotron-nano-9b-v2:free",
-        messages: [{ role: "user", content: prompt }]
-      })
+    const response = await getAiTextResponse({
+      context: fullPrompt,
+      aiModel: "google/gemma-3-4b-it:free",
+      responseTime: 650,
+      maxTokens: 450,
+      maxModelBatches: 1
     });
-    if (!response.ok) throw { status: response.status, message: "AI service error" };
-    const result = await response.json();
-    const raw2 = result.choices[0].message.content.trim();
-    const cleaned = raw2.replace(/```json|```/g, "").trim();
-    const suggestions = JSON.parse(cleaned);
-    if (!Array.isArray(suggestions) || !suggestions.length) throw new Error("Invalid format");
-    return suggestions;
+    if (!response.success || !response.data) {
+      return "I can help with Nexora features, courses, clusters, resources, and dashboard guidance. The AI model is taking longer than expected, so please try the question again for a more detailed answer.";
+    }
+    return response.data.trim();
   } catch (err) {
-    console.error("suggestDescription error:", err);
-    throw err;
+    console.error("chatWithAI error:", err);
+    return "I can help with Nexora features, courses, clusters, resources, and dashboard guidance. The AI model is taking longer than expected, so please try the question again for a more detailed answer.";
   }
 };
 function buildSystemPrompt(role, userName, userContext, platformKnowledge, resourceSnippet) {
@@ -14516,7 +14928,27 @@ ${trimmedHistory.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.co
 
 User: ${message}
 Assistant:`;
-  return callLLM(fullPrompt);
+  try {
+    const response = await getAiTextResponse({
+      context: fullPrompt,
+      aiModel: "google/gemma-3-4b-it:free",
+      responseTime: 650,
+      maxTokens: 450,
+      maxModelBatches: 1
+    });
+    if (!response.success || !response.data) {
+      return "Nexora helps teachers manage clusters, sessions, tasks, courses, and resources while students learn, submit work, and track progress. You can start here: [Sign Up Free](https://nexorafrontend-one.vercel.app/auth/signup)";
+    }
+    return response.data.trim();
+  } catch (err) {
+    console.error("guestChat error:", err);
+    return "Nexora helps teachers manage clusters, sessions, tasks, courses, and resources while students learn, submit work, and track progress. You can start here: [Sign Up Free](https://nexorafrontend-one.vercel.app/auth/signup)";
+  }
+};
+var aiService = {
+  suggestDescription,
+  chatWithAI,
+  guestChat
 };
 var aiService = { suggestDescription, chatWithAI, guestChat };
 
@@ -14642,6 +15074,7 @@ app.use(
     exposedHeaders: ["Set-Cookie"]
   })
 );
+app.use(requestLogger);
 app.use(cookieParser());
 var betterAuthHandler = toNodeHandler(auth);
 app.use((req, res, next) => {

@@ -16,16 +16,9 @@ export const globalErrorHandler = async (err: any, req: Request, res: Response, 
     console.log("Error from Global Error Handler", err);
   }
 
-  // Only delete uploaded files that have a Cloudinary URL (disk storage).
-  // Memory-storage files (multerMemory) set req.file.path = undefined — skip those.
-  if (req.file?.path) {
-    await deleteFileFromCloudinary(req.file.path).catch(() => { });
-  }
-
-  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-    const imageUrls = req.files.map((file) => file.path).filter(Boolean);
-    await Promise.all(imageUrls.map(url => deleteFileFromCloudinary(url).catch(() => { })));
-  }
+    if(req.file?.path){
+        await deleteFileFromCloudinary(req.file.path)
+    }
 
   let errorSources: TErrorSources[] = [];
   let statusCode: number = status.INTERNAL_SERVER_ERROR;
@@ -89,5 +82,5 @@ export const globalErrorHandler = async (err: any, req: Request, res: Response, 
     if (stack) errorResponse.stack = stack;
   }
 
-  res.status(statusCode).json(errorResponse);
-};
+    res.status(statusCode).json(errorResponse);
+}
