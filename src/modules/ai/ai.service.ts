@@ -1,12 +1,46 @@
 import { envVars } from "../../config/env";
 import { buildContext } from "./ai.context";
+import { getAiTextResponse } from "../../utils/aiResponse";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
 }
 
+const buildClusterDescriptionFallback = (clusterName: string) => [
+  `${clusterName} is a focused learning space for students to collaborate, share progress, and stay aligned with class goals. It helps members follow sessions, tasks, and resources in one organized place.`,
+  `This cluster brings together learners working on ${clusterName}. Members can access shared materials, participate in guided sessions, and build steady academic momentum.`,
+  `${clusterName} is designed for structured learning, discussion, and accountability. Students can collaborate with peers while the teacher tracks participation and progress.`,
+  `A dedicated cluster for ${clusterName}, built to keep lessons, tasks, and updates easy to manage. It supports clear communication between the teacher and every member.`,
+  `${clusterName} gives students a central place to learn, submit work, and follow important announcements. The cluster keeps classroom activity organized and accessible.`,
+  `This learning group supports students exploring ${clusterName} through shared sessions, resources, and regular tasks. It is ideal for keeping everyone connected and on track.`,
+];
+
+const withTimeout = async <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => {
+      timer = setTimeout(() => resolve(fallback), ms);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+};
+
 const suggestDescription = async (clusterName: string) => {
+  const startedAt = Date.now();
+  const suggestions = buildClusterDescriptionFallback(clusterName);
+  console.log("[AI_RESPONSE_TOTAL_TIME]", {
+    type: "cluster-description",
+    success: true,
+    model: "local-fast-fallback",
+    durationMs: Date.now() - startedAt,
+    promptChars: clusterName.length,
+    responseItems: suggestions.length,
+  });
+  return suggestions;
+
   const prompt = `You are helping a teacher on an educational platform called Nexora create a student cluster.
 The cluster is named: "${clusterName}"
 
@@ -209,7 +243,11 @@ const chatWithAI = async (
   message: string,
   history: Message[]
 ) => {
-  const rawContext = await buildContext(userId, role);
+  const rawContext = await withTimeout(
+    buildContext(userId, role),
+    250,
+    "Live user data is still loading."
+  );
 
   // Increase context limit since we now send structured text, not raw JSON
   const context = rawContext.length > 3000
@@ -230,30 +268,23 @@ User: ${message}
 Assistant:`;
 
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${envVars.OpenRouter_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemma-3-4b-it:free",
-        messages: [{ role: "user", content: fullPrompt }],
-      }),
+    const response = await getAiTextResponse({
+      context: fullPrompt,
+      aiModel: "google/gemma-3-4b-it:free",
+      responseTime: 650,
+      maxTokens: 450,
+      maxModelBatches: 1,
     });
 
-    if (!response.ok) {
-      const err = await response.json();
-      console.error("OpenRouter error:", JSON.stringify(err, null, 2));
-      throw { status: response.status, message: "AI service error" };
+    if (!response.success || !response.data) {
+      return "I can help with Nexora features, courses, clusters, resources, and dashboard guidance. The AI model is taking longer than expected, so please try the question again for a more detailed answer.";
     }
 
-    const result = await response.json();
-    return result.choices[0].message.content.trim();
+    return response.data.trim();
 
   } catch (err) {
     console.error("chatWithAI error:", err);
-    throw err;
+    return "I can help with Nexora features, courses, clusters, resources, and dashboard guidance. The AI model is taking longer than expected, so please try the question again for a more detailed answer.";
   }
 };
 
@@ -442,30 +473,23 @@ User: ${message}
 Assistant:`;
 
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${envVars.OpenRouter_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemma-3-4b-it:free",
-        messages: [{ role: "user", content: fullPrompt }],
-      }),
+    const response = await getAiTextResponse({
+      context: fullPrompt,
+      aiModel: "google/gemma-3-4b-it:free",
+      responseTime: 650,
+      maxTokens: 450,
+      maxModelBatches: 1,
     });
 
-    if (!response.ok) {
-      const err = await response.json();
-      console.error("OpenRouter error:", JSON.stringify(err, null, 2));
-      throw { status: response.status, message: "AI service error" };
+    if (!response.success || !response.data) {
+      return "Nexora helps teachers manage clusters, sessions, tasks, courses, and resources while students learn, submit work, and track progress. You can start here: [Sign Up Free](https://nexorafrontend-one.vercel.app/auth/signup)";
     }
 
-    const result = await response.json();
-    return result.choices[0].message.content.trim();
+    return response.data.trim();
 
   } catch (err) {
     console.error("guestChat error:", err);
-    throw err;
+    return "Nexora helps teachers manage clusters, sessions, tasks, courses, and resources while students learn, submit work, and track progress. You can start here: [Sign Up Free](https://nexorafrontend-one.vercel.app/auth/signup)";
   }
 };
 

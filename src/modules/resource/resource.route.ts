@@ -1,12 +1,24 @@
 import { Router } from "express";
-import { resourceController } from "./resource.controller";
+import multer from "multer";
+import { Role } from "../../generated/prisma/enums";
 import { multerUpload } from "../../config/multer.config";
 import { checkAuth } from "../../middleware/checkAuth";
-import { Role } from "../../generated/prisma/enums";
+import { resourceController } from "./resource.controller";
 
 const router = Router();
 
-// Upload — auth optional (allow both teacher and student)
+const pdfMetadataUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 30 * 1024 * 1024 },
+});
+
+router.post(
+  "/suggest-metadata",
+  checkAuth(Role.STUDENT, Role.TEACHER),
+  pdfMetadataUpload.single("file"),
+  resourceController.suggestMetadata
+);
+
 router.post(
   "/",
   checkAuth(Role.STUDENT, Role.TEACHER),
@@ -14,19 +26,11 @@ router.post(
   resourceController.uploadResource
 );
 
-// Browse with filters + bookmark metadata (auth optional)
 router.get("/browse", resourceController.browseResources);
-
-// My resources (logged-in user's uploads)
 router.get("/my", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.myResources);
-
-// All resources (admin / raw)
 router.get("/", resourceController.allResources);
-
-// Categories
 router.get("/categories", resourceController.getCategories);
 
-// Bookmarks
 router.post("/:resourceId/bookmark", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.bookmarkResource);
 router.delete("/:resourceId/bookmark", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.removeBookmark);
 

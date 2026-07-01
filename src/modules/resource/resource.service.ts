@@ -29,6 +29,7 @@ interface ResourceFilter {
   page?: string;
   limit?: string;
   search?: string;
+  uploaderId?: string;
 }
 
 const getFilteredResources = async (filters: ResourceFilter, userId?: string) => {
@@ -42,6 +43,7 @@ const getFilteredResources = async (filters: ResourceFilter, userId?: string) =>
   if (filters.fileType) where.fileType = filters.fileType;
   if (filters.visibility) where.visibility = filters.visibility;
   if (filters.clusterId) where.clusterId = filters.clusterId;
+  if (filters.uploaderId) where.uploaderId = filters.uploaderId;
   if (filters.year) where.year = parseInt(filters.year, 10);
   if (filters.tags) {
     where.tags = { hasSome: filters.tags.split(",") };
@@ -145,4 +147,4 @@ export const resourceService = {
   bookmarkResource,
   removeBookmark,
   getCategories,
-};
+};
