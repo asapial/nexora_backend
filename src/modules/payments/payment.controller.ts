@@ -36,7 +36,7 @@ const freeEnroll = catchAsync(async (req: Request, res: Response) => {
 /** After Stripe.js confirms payment (required when webhook URL is not reachable, e.g. localhost). */
 const confirmPayment = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user!.userId;
-  const paymentIntentId = (req.body as { paymentIntentId?: string })?.paymentIntentId;
+  const paymentIntentId = (req.body as { paymentIntentId?: string; })?.paymentIntentId;
   if (!paymentIntentId?.trim()) {
     return sendResponse(res, {
       status: status.BAD_REQUEST,

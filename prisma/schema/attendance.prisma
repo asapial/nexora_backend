@@ -1,13 +1,13 @@
 model Attendance {
-  id             String           @id @default(uuid())
-  studySessionId String
+  id               String           @id @default(uuid())
+  studySessionId   String
   studentProfileId String
-  status         AttendanceStatus @default(ABSENT)
-  note           String?
-  markedAt       DateTime         @default(now())
+  status           AttendanceStatus @default(ABSENT)
+  note             String?
+  markedAt         DateTime         @default(now())
 
-  session          StudySession    @relation(fields: [studySessionId], references: [id])
-  studentProfile   StudentProfile? @relation(fields: [studentProfileId], references: [id])
+  session        StudySession    @relation(fields: [studySessionId], references: [id])
+  studentProfile StudentProfile? @relation(fields: [studentProfileId], references: [id])
 
   @@unique([studySessionId, studentProfileId])
 }

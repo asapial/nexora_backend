@@ -3,6 +3,8 @@ import { checkAuth } from "../../middleware/checkAuth";
 import { Role } from "../../generated/prisma/enums";
 import { paymentController } from "./payment.controller";
 import express from "express";
+import { validateRequest } from "../../middleware/validateRequest";
+import { paymentCourseSchema, paymentIntentSchema } from "../../validation/requestSchemas";
 
 
 const router = Router();
@@ -10,28 +12,30 @@ const router = Router();
 // POST /api/payments/create-intent  — authenticated student
 router.post(
   "/create-intent",
-  checkAuth(),
+  checkAuth(Role.STUDENT),
+  validateRequest(paymentCourseSchema),
   paymentController.createIntent
 );
 
 // POST /api/payments/confirm — finalize enrollment after client-side payment success
 router.post(
   "/confirm",
-  checkAuth(),
+  checkAuth(Role.STUDENT),
+  validateRequest(paymentIntentSchema),
   paymentController.confirmPayment
 );
 
 // POST /api/payments/sync/:courseId — recover enrollment when Stripe succeeded but webhook missed
 router.post(
   "/sync/:courseId",
-  checkAuth(),
+  checkAuth(Role.STUDENT),
   paymentController.syncCoursePayment
 );
 
 // POST /api/payments/sync-pending — finalize all pending payments that are already paid in Stripe
 router.post(
   "/sync-pending",
-  checkAuth(),
+  checkAuth(Role.STUDENT),
   paymentController.syncPendingPayments
 );
 
@@ -63,4 +67,4 @@ router.post(
   paymentController.stripeWebhook
 );
 
-export const paymentRouter=router;
+export const paymentRouter = router;

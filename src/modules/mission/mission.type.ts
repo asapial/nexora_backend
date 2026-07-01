@@ -12,7 +12,7 @@ export interface CreateContentInput {
   fileSize?: number;
 }
 
-export interface UpdateContentInput extends Partial<CreateContentInput> {}
+export interface UpdateContentInput extends Partial<CreateContentInput> { }
 
 export interface ReorderContentsInput {
   orderedIds: string[]; // mission content IDs in new order

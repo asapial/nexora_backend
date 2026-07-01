@@ -31,18 +31,18 @@ const getAccount = async (userId: string) => {
 
   const prefs = user.accountSettings
     ? {
-        timezone: user.accountSettings.timezone ?? undefined,
-        language: user.accountSettings.language ?? undefined,
-        emailNotifications: (user.accountSettings.emailNotifications ?? undefined) as
-          | Record<string, boolean>
-          | undefined,
-        pushNotifications: (user.accountSettings.pushNotifications ?? undefined) as
-          | Record<string, boolean>
-          | undefined,
-        privacy: (user.accountSettings.privacy ?? undefined) as
-          | Record<string, boolean | string>
-          | undefined,
-      }
+      timezone: user.accountSettings.timezone ?? undefined,
+      language: user.accountSettings.language ?? undefined,
+      emailNotifications: (user.accountSettings.emailNotifications ?? undefined) as
+        | Record<string, boolean>
+        | undefined,
+      pushNotifications: (user.accountSettings.pushNotifications ?? undefined) as
+        | Record<string, boolean>
+        | undefined,
+      privacy: (user.accountSettings.privacy ?? undefined) as
+        | Record<string, boolean | string>
+        | undefined,
+    }
     : null;
 
   if (user.role === Role.TEACHER && user.teacherProfile) {
@@ -420,7 +420,7 @@ const getApiKeys = async (userId: string): Promise<StoredApiKey[]> => {
 const generateApiKey = async (
   userId: string,
   label: string
-): Promise<{ apiKey: string; storedKey: StoredApiKey }> => {
+): Promise<{ apiKey: string; storedKey: StoredApiKey; }> => {
   if (!label || label.trim().length === 0) {
     throw new AppError(status.BAD_REQUEST, "A label is required for the API key.");
   }

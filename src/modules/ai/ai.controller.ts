@@ -1,5 +1,5 @@
-import { NextFunction, Request, Response } from "express"
-import { catchAsync } from "../../utils/catchAsync"
+import { NextFunction, Request, Response } from "express";
+import { catchAsync } from "../../utils/catchAsync";
 import { sendResponse } from "../../utils/sendResponse";
 import status from "http-status";
 import { aiService } from "./ai.service";
@@ -20,7 +20,7 @@ const suggestDescription = catchAsync(
     }
 
     const suggestions = await aiService.suggestDescription(
-      clusterName.trim() 
+      clusterName.trim()
     );
 
     sendResponse(res, {
@@ -109,7 +109,7 @@ const guestChat = catchAsync(
 );
 
 export const aiController = {
-    suggestDescription,
-    chat,
-    guestChat
-}
+  suggestDescription,
+  chat,
+  guestChat
+};

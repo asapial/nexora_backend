@@ -1,0 +1,63 @@
+DO $$ BEGIN
+  CREATE TYPE "ExamMode" AS ENUM ('REGULAR', 'PRO');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "ProctorSensitivity" AS ENUM ('RELAXED', 'STANDARD', 'STRICT');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "ProctorReviewDecision" AS ENUM ('PENDING', 'DISMISSED', 'CONFIRMED_CONCERN', 'NEEDS_FOLLOW_UP');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+ALTER TYPE "ExamProctorEventType" ADD VALUE IF NOT EXISTS 'FACE_NOT_VISIBLE';
+ALTER TYPE "ExamProctorEventType" ADD VALUE IF NOT EXISTS 'MULTIPLE_FACES';
+ALTER TYPE "ExamProctorEventType" ADD VALUE IF NOT EXISTS 'CAMERA_INTERRUPTED';
+ALTER TYPE "ExamProctorEventType" ADD VALUE IF NOT EXISTS 'CAMERA_PERMISSION_REVOKED';
+ALTER TYPE "ExamProctorEventType" ADD VALUE IF NOT EXISTS 'CAMERA_DEVICE_CHANGED';
+ALTER TYPE "ExamProctorEventType" ADD VALUE IF NOT EXISTS 'PREFLIGHT_FAILED';
+
+ALTER TABLE "Exam" ADD COLUMN IF NOT EXISTS "examMode" "ExamMode" NOT NULL DEFAULT 'REGULAR';
+
+CREATE TABLE IF NOT EXISTS "ExamProctorPolicy" (
+  "id" TEXT NOT NULL,
+  "examId" TEXT NOT NULL,
+  "cameraRequired" BOOLEAN NOT NULL DEFAULT true,
+  "snapshotEnabled" BOOLEAN NOT NULL DEFAULT false,
+  "sensitivity" "ProctorSensitivity" NOT NULL DEFAULT 'STANDARD',
+  "studentWarnings" BOOLEAN NOT NULL DEFAULT true,
+  "roughPaperAllowed" BOOLEAN NOT NULL DEFAULT true,
+  "evidenceRetentionDays" INTEGER NOT NULL DEFAULT 30,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "ExamProctorPolicy_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "ExamProctorPolicy_examId_fkey" FOREIGN KEY ("examId") REFERENCES "Exam"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "ExamProctorPolicy_examId_key" ON "ExamProctorPolicy"("examId");
+
+ALTER TABLE "ExamAssignment" ADD COLUMN IF NOT EXISTS "proctorConsentAt" TIMESTAMP(3);
+ALTER TABLE "ExamAssignment" ADD COLUMN IF NOT EXISTS "proctorPreflightAt" TIMESTAMP(3);
+ALTER TABLE "ExamAssignment" ADD COLUMN IF NOT EXISTS "proctorTokenHash" TEXT;
+ALTER TABLE "ExamAssignment" ADD COLUMN IF NOT EXISTS "proctorTokenExpiresAt" TIMESTAMP(3);
+
+ALTER TABLE "ExamAttempt" ADD COLUMN IF NOT EXISTS "examModeSnapshot" "ExamMode" NOT NULL DEFAULT 'REGULAR';
+ALTER TABLE "ExamAttempt" ADD COLUMN IF NOT EXISTS "cameraConsentAt" TIMESTAMP(3);
+ALTER TABLE "ExamAttempt" ADD COLUMN IF NOT EXISTS "cameraPreflightAt" TIMESTAMP(3);
+ALTER TABLE "ExamAttempt" ADD COLUMN IF NOT EXISTS "cameraMonitoringAt" TIMESTAMP(3);
+ALTER TABLE "ExamAttempt" ADD COLUMN IF NOT EXISTS "cameraInterruptedAt" TIMESTAMP(3);
+ALTER TABLE "ExamAttempt" ADD COLUMN IF NOT EXISTS "calibrationMetadata" JSONB;
+
+ALTER TABLE "ExamProctorEvent" ADD COLUMN IF NOT EXISTS "clientEventId" TEXT;
+ALTER TABLE "ExamProctorEvent" ADD COLUMN IF NOT EXISTS "durationMs" INTEGER;
+ALTER TABLE "ExamProctorEvent" ADD COLUMN IF NOT EXISTS "confidence" DOUBLE PRECISION;
+ALTER TABLE "ExamProctorEvent" ADD COLUMN IF NOT EXISTS "reviewDecision" "ProctorReviewDecision" NOT NULL DEFAULT 'PENDING';
+ALTER TABLE "ExamProctorEvent" ADD COLUMN IF NOT EXISTS "reviewNote" TEXT;
+ALTER TABLE "ExamProctorEvent" ADD COLUMN IF NOT EXISTS "reviewedAt" TIMESTAMP(3);
+ALTER TABLE "ExamProctorEvent" ADD COLUMN IF NOT EXISTS "reviewerId" TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS "ExamProctorEvent_clientEventId_key" ON "ExamProctorEvent"("clientEventId");

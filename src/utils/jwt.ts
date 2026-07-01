@@ -3,39 +3,39 @@ import jwt, { JwtPayload, SignOptions } from "jsonwebtoken";
 
 
 
-const createToken=(payload:JwtPayload,secret:string,{expiresIn}:SignOptions)=>{
-    const token = jwt.sign(payload,secret,{expiresIn:expiresIn!});
-    return token;
+const createToken = (payload: JwtPayload, secret: string, { expiresIn }: SignOptions) => {
+  const token = jwt.sign(payload, secret, { expiresIn: expiresIn! });
+  return token;
 };
 
 
-const vefifyToken=(token:string,secret:string)=>{
+const vefifyToken = (token: string, secret: string) => {
 
-    try {
-        
-        const decoded= jwt.verify(token,secret) 
-        return{
-            success:true,
-            data:decoded
-        }
-    } catch (error:any) {
-        
-        return{
-            success:false,
-            message:error.message,
-            error
-        }
-    }
-}
+  try {
 
-const decodedToken=(token:string)=>{
+    const decoded = jwt.verify(token, secret)
+    return {
+      success: true,
+      data: decoded
+    };
+  } catch (error: any) {
 
-    const decodedToken= jwt.decode(token);
-    return decodedToken;
-}
+    return {
+      success: false,
+      message: error.message,
+      error
+    };
+  }
+};
 
-export const jwtUtils={
-    createToken,
-    vefifyToken,
-    decodedToken
-}
+const decodedToken = (token: string) => {
+
+  const decodedToken = jwt.decode(token);
+  return decodedToken;
+};
+
+export const jwtUtils = {
+  createToken,
+  vefifyToken,
+  decodedToken
+};

@@ -1,8 +1,10 @@
 import { Router } from "express";
 import { resourceController } from "./resource.controller";
-import { multerUpload } from "../../config/multer.config";
+import { multerUpload, multerMemory } from "../../config/multer.config";
 import { checkAuth } from "../../middleware/checkAuth";
 import { Role } from "../../generated/prisma/enums";
+import { validateRequest } from "../../middleware/validateRequest";
+import { resourceUpdateSchema } from "../../validation/requestSchemas";
 
 const router = Router();
 
@@ -14,20 +16,39 @@ router.post(
   resourceController.uploadResource
 );
 
-// Browse with filters + bookmark metadata (auth optional)
-router.get("/browse", resourceController.browseResources);
+// Suggest AI Metadata from PDF (memory storage — no Cloudinary upload)
+router.post(
+  "/suggest-metadata",
+  checkAuth(Role.STUDENT, Role.TEACHER),
+  multerMemory.single("file"),
+  resourceController.suggestMetadata
+);
+
+// Browse with filters + bookmark metadata (authenticated users see cluster resources too)
+router.get("/browse", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.browseResources);
+
+router.get("/teacher-library", checkAuth(Role.TEACHER), resourceController.teacherLibraryResources);
 
 // My resources (logged-in user's uploads)
 router.get("/my", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.myResources);
 
 // All resources (admin / raw)
-router.get("/", resourceController.allResources);
+router.get("/", checkAuth(Role.ADMIN), resourceController.allResources);
 
 // Categories
 router.get("/categories", resourceController.getCategories);
 
+// Cloudinary signed URL — resolves /image/upload/ PDF 401 issues on unverified accounts
+router.get("/cloudinary-sign", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.cloudinarySign);
+
 // Bookmarks
 router.post("/:resourceId/bookmark", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.bookmarkResource);
 router.delete("/:resourceId/bookmark", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.removeBookmark);
+
+// Update resource metadata (uploader only)
+router.patch("/:resourceId", checkAuth(Role.STUDENT, Role.TEACHER), validateRequest(resourceUpdateSchema), resourceController.updateResource);
+
+// Delete resource (uploader only)
+router.delete("/:resourceId", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.deleteResource);
 
 export const resourceRouter = router;

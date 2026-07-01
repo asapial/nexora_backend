@@ -60,7 +60,7 @@ const getPending = async (page = 1, limit = 20) => {
 };
 
 // Admin: get all applications
-const getAll = async (params: { page?: number; limit?: number; status?: string }) => {
+const getAll = async (params: { page?: number; limit?: number; status?: string; }) => {
   const { page = 1, limit = 20, status: st } = params;
   const skip = (page - 1) * limit;
   const where: any = {};
@@ -80,7 +80,7 @@ const getAll = async (params: { page?: number; limit?: number; status?: string }
 };
 
 // Admin: approve application → create teacher account
-const approve = async (applicationId: string, adminId: string) => {
+const approve = async (applicationId: string, adminId: string | null) => {
   const application = await prisma.teacherApplication.findUnique({
     where: { id: applicationId },
     include: { user: true },
@@ -95,17 +95,26 @@ const approve = async (applicationId: string, adminId: string) => {
   // Update application status
   return prisma.teacherApplication.update({
     where: { id: applicationId },
-    data: { status: "APPROVED", reviewedAt: new Date(), reviewedById: adminId },
+    data: {
+      status: "APPROVED",
+      reviewedAt: new Date(),
+      ...(adminId && { reviewedById: adminId })
+    },
   });
 };
 
 // Admin: reject application
-const reject = async (applicationId: string, adminNote: string, adminId: string) => {
+const reject = async (applicationId: string, adminNote: string, adminId: string | null) => {
   const application = await prisma.teacherApplication.findUnique({ where: { id: applicationId } });
   if (!application) throw new AppError(status.NOT_FOUND, "Application not found.");
   return prisma.teacherApplication.update({
     where: { id: applicationId },
-    data: { status: "REJECTED", adminNote, reviewedAt: new Date(), reviewedById: adminId },
+    data: {
+      status: "REJECTED",
+      adminNote,
+      reviewedAt: new Date(),
+      ...(adminId && { reviewedById: adminId })
+    },
   });
 };
 

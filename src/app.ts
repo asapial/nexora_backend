@@ -37,13 +37,14 @@ import { homePageRouter } from "./modules/homePage/homePage.route";
 import { dashboardRouter } from "./modules/dashboard/dashboard.route";
 import { testimonialRouter } from "./modules/testimonial/testimonial.route";
 import { teacherApplicationRouter } from "./modules/teacherApplication/teacherApplication.route";
+import { examRouter } from "./modules/exam/exam.route";
 
 
 
 const app: Application = express();
 
 app.set("view engine", "ejs");
-app.set("views", path.resolve(process.cwd(), `src/templates`))
+app.set("views", path.resolve(process.cwd(), `src/templates`));
 
 
 // ── 1. CORS ─────────────────────────────────────────────────────────────────
@@ -101,7 +102,7 @@ app.use((req, res, next) => {
 });
 
 // ── 4. Body parser ──────────────────────────────────────────────────────────
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 // ── 5. Custom routes ────────────────────────────────────────────────────────
 app.use("/api/auth", authRouter);
@@ -158,10 +159,11 @@ app.use("/api/courses", courseRouter);
 app.use("/api/missions", missionRouter);
 app.use("/api/payments", paymentRouter);
 app.use("/api/settings", settingsRouter);
-app.use("/api/homePage",homePageRouter );
+app.use("/api/homePage", homePageRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/testimonials", testimonialRouter);
 app.use("/api/teacher-applications", teacherApplicationRouter);
+app.use("/api/exams", examRouter);
 
 
 // ── Teacher Dashboard APIs ───────────────────────────────────────────────────

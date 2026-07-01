@@ -1,0 +1,24 @@
+model HeroSectionTeacher {
+  id String @id @default(cuid())
+
+  // The linked user (teacher)
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Admin-supplied display overrides (null = use teacher's real profile data)
+  displayName        String?
+  displayDesignation String?
+  displayDepartment  String?
+  displayBio         String?
+
+  // Display order in the hero section
+  order Int @default(0)
+
+  // Whether this teacher is currently active in the hero section
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("hero_section_teacher")
+}

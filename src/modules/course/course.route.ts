@@ -14,7 +14,7 @@ router.get("/public", courseController.getPublicCourses);
 router.get("/:id/public", courseController.getPublicCourseById);
 
 
- 
+
 // GET    /api/teacher/courses           → list teacher's own courses
 router.get(
   "/",
@@ -145,4 +145,4 @@ router.post(
 );
 
 
-export const courseRouter=router;
+export const courseRouter = router;

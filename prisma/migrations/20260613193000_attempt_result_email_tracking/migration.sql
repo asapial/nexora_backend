@@ -1,0 +1,2 @@
+ALTER TABLE "ExamAttempt"
+ADD COLUMN IF NOT EXISTS "resultEmailSentAt" TIMESTAMP(3);

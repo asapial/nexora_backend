@@ -1,12 +1,12 @@
 
-const uploadResource=async ()=>{
-
-    
-}
+const uploadResource = async () => {
 
 
+};
 
 
-const resourceService={
 
-}
+
+const resourceService = {
+
+};

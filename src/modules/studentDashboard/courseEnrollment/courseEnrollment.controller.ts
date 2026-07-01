@@ -20,7 +20,7 @@ const listEnrollments = catchAsync(
 const getEnrollment = catchAsync(
   async (req: Request, res: Response, _n: NextFunction) => {
     const userId = req.user!.userId;
-    const { courseId } = req.params as { courseId: string };
+    const { courseId } = req.params as { courseId: string; };
     const data = await studentCourseEnrollmentService.getEnrollmentForCourse(userId, courseId);
     sendResponse(res, {
       status: status.OK,
@@ -34,7 +34,7 @@ const getEnrollment = catchAsync(
 const completeMission = catchAsync(
   async (req: Request, res: Response, _n: NextFunction) => {
     const userId = req.user!.userId;
-    const { courseId, missionId } = req.params as { courseId: string; missionId: string };
+    const { courseId, missionId } = req.params as { courseId: string; missionId: string; };
     const data = await studentCourseEnrollmentService.completeMissionForStudent(
       userId,
       courseId,

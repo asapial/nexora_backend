@@ -3,9 +3,9 @@ import { checkAuth } from "../../middleware/checkAuth";
 import { Role } from "../../generated/prisma/enums";
 import { validateRequest } from "../../middleware/validateRequest";
 import { missionController } from "./mission.controller";
-import { createContentSchema, reorderContentsSchema } from "./mission.validation";
+import { createContentSchema, reorderContentsSchema, updateContentSchema } from "./mission.validation";
 
-const router=Router();
+const router = Router();
 
 
 // GET    /api/teacher/missions/:missionId/contents
@@ -27,6 +27,7 @@ router.post(
 router.patch(
   "/:missionId/contents/:contentId",
   checkAuth(Role.TEACHER),
+  validateRequest(updateContentSchema),
   missionController.updateContent
 );
 
@@ -46,4 +47,4 @@ router.patch(
 );
 
 
-export const missionRouter=router;
+export const missionRouter = router;

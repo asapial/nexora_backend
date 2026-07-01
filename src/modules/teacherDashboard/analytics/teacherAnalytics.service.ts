@@ -26,7 +26,7 @@ const getAnalytics = async (userId: string) => {
   const sixMonthsAgo = new Date();
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
   const recentTasks = tasks.filter((t) => new Date(t.createdAt) >= sixMonthsAgo);
-  const monthlyMap: Record<string, { total: number; submitted: number }> = {};
+  const monthlyMap: Record<string, { total: number; submitted: number; }> = {};
   for (const t of recentTasks) {
     const key = new Date(t.createdAt).toISOString().slice(0, 7);
     if (!monthlyMap[key]) monthlyMap[key] = { total: 0, submitted: 0 };
@@ -77,7 +77,7 @@ const getAnalytics = async (userId: string) => {
 
 const getSessionHistory = async (
   userId: string,
-  params: { clusterId?: string; from?: string; to?: string; page?: number; limit?: number }
+  params: { clusterId?: string; from?: string; to?: string; page?: number; limit?: number; }
 ) => {
   const teacher = await prisma.teacherProfile.findFirst({ where: { userId } });
   if (!teacher) throw new AppError(status.NOT_FOUND, "Teacher not found");
@@ -138,15 +138,20 @@ const getTemplates = async (userId: string) => {
   });
 };
 
-const createTemplate = async (userId: string, payload: { title: string; description?: string }) => {
+const createTemplate = async (userId: string, payload: { title: string; description?: string; }) => {
   const teacher = await prisma.teacherProfile.findFirst({ where: { userId } });
   if (!teacher) throw new AppError(status.NOT_FOUND, "Teacher not found");
   return prisma.taskTemplate.create({
-    data: { teacherId: userId, title: payload.title, description: payload.description, teacherProfileId: teacher.id },
+    data: {
+      teacherId: userId,
+      title: payload.title,
+      ...(payload.description !== undefined && { description: payload.description }),
+      teacherProfileId: teacher.id,
+    },
   });
 };
 
-const updateTemplate = async (userId: string, id: string, payload: { title?: string; description?: string }) => {
+const updateTemplate = async (userId: string, id: string, payload: { title?: string; description?: string; }) => {
   const teacher = await prisma.teacherProfile.findFirst({ where: { userId } });
   if (!teacher) throw new AppError(status.NOT_FOUND, "Teacher not found");
   const tpl = await prisma.taskTemplate.findUnique({ where: { id } });
