@@ -13,6 +13,10 @@ model Resource {
   year        Int?
   isFeatured  Boolean    @default(false)
   viewCount   Int        @default(0)
+  fileHash    String?
+  aiProcessingStatus ResourceProcessingStatus @default(PENDING)
+  lastProcessedAt DateTime?
+  processingError String?
   //   embedding   Unsupported("vector(1536)")?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -25,6 +29,160 @@ model Resource {
   quizzes     ResourceQuiz[]
   bookmarks   ReadingListItem[]
   aiSessions  AiStudySession[]
+  extractedText ResourceText?
+  aiSummary     ResourceSummary?
+  citationsFrom ResourceCitationEdge[] @relation("ResourceCitationSource")
+  citationsTo   ResourceCitationEdge[] @relation("ResourceCitationTarget")
+
+  @@index([fileHash])
+  @@index([aiProcessingStatus])
+}
+
+model ResourceText {
+  id         String   @id @default(uuid())
+  resourceId String  @unique
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  fullText   String
+  cleanedText String
+  textHash   String
+  pageCount  Int?
+  language   String?
+  extractionMethod String?
+  extractionVersion Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([textHash])
+}
+
+model ResourceSummary {
+  id         String   @id @default(uuid())
+  resourceId String  @unique
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  modelName     String
+  promptVersion Int @default(1)
+  inputTextHash String
+
+  professionalSummary String
+  goals        String?
+  methods      String?
+  results      String?
+  conclusions  String?
+  keyContributions String[]
+  limitations  String[]
+  keywords     String[]
+
+  isVisible    Boolean @default(true)
+  generationStatus AiGenerationStatus @default(COMPLETED)
+  generationError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([resourceId])
+  @@index([inputTextHash])
+  @@index([promptVersion])
+}
+
+model ExternalCitationTarget {
+  id         String   @id @default(uuid())
+  title      String
+  authors    String?
+  publicationYear Int?
+  venue      String?
+  doi        String? @unique
+  url        String?
+
+  semanticScholarId String? @unique
+  crossrefId String?
+  openAlexId String?
+  metadataSource String?
+  metadataConfidence Float?
+
+  citationTargets ResourceCitationEdge[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([title])
+  @@index([doi])
+  @@index([semanticScholarId])
+  @@index([publicationYear])
+}
+
+model ResourceCitationEdge {
+  id        String @id @default(uuid())
+
+  sourceResourceId String
+  sourceResource Resource @relation("ResourceCitationSource", fields: [sourceResourceId], references: [id], onDelete: Cascade)
+
+  targetResourceId String?
+  targetResource Resource? @relation("ResourceCitationTarget", fields: [targetResourceId], references: [id])
+
+  externalTargetId String?
+  externalTarget ExternalCitationTarget? @relation(fields: [externalTargetId], references: [id])
+
+  relationType CitationRelationType @default(REFERENCES)
+  confidenceScore Float?
+  rawReference String?
+  contextSnippet String?
+  referenceIndex Int?
+  resolverSource String?
+  parserVersion Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sourceResourceId])
+  @@index([targetResourceId])
+  @@index([externalTargetId])
+  @@index([relationType])
+  @@index([confidenceScore])
+}
+
+model ResourceProcessingJobAudit {
+  id        String @id @default(uuid())
+  resourceId String
+  jobType   String
+  status    JobStatus
+  error     String?
+  startedAt DateTime?
+  finishedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([resourceId])
+  @@index([jobType])
+  @@index([status])
+}
+
+model AiCache {
+  id        String @id @default(uuid())
+  cacheKey  String @unique
+  taskType  String
+  modelName String
+  promptVersion Int
+  inputHash String
+  outputJson Json
+  createdAt DateTime @default(now())
+
+  @@index([taskType])
+  @@index([inputHash])
+}
+
+model MetadataCache {
+  id        String @id @default(uuid())
+  cacheKey  String @unique
+  source    String
+  query     String
+  resultJson Json
+  createdAt DateTime @default(now())
+  expiresAt DateTime?
+
+  @@index([source])
+  @@index([expiresAt])
 }
 
 model ResourceCategory {
@@ -78,4 +236,38 @@ model ResourceQuiz {
   createdAt  DateTime @default(now())
 
   resource Resource @relation(fields: [resourceId], references: [id])
+}
+
+enum ResourceProcessingStatus {
+  PENDING
+  TEXT_PROCESSING
+  TEXT_EXTRACTED
+  SUMMARY_PROCESSING
+  SUMMARY_READY
+  CITATION_PROCESSING
+  CITATIONS_READY
+  GRAPH_READY
+  FAILED
+}
+
+enum AiGenerationStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum CitationRelationType {
+  REFERENCES
+  CITED_BY
+  RELATED
+  SIMILAR
+}
+
+enum JobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  RETRYING
 }
