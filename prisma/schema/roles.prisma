@@ -71,23 +71,23 @@ enum PlanTier {
 
 // ── Admin Permission Enum ─────────────────────────────────
 enum AdminPermission {
-    // User management
-    MANAGE_STUDENTS
-    MANAGE_TEACHERS
-    MANAGE_ADMINS
+  // User management
+  MANAGE_STUDENTS
+  MANAGE_TEACHERS
+  MANAGE_ADMINS
 
-    // Content management
-    MANAGE_CLUSTERS
-    MANAGE_SESSIONS
-    MANAGE_RESOURCES
-    MANAGE_TASKS
-    MANAGE_CERTIFICATES
+  // Content management
+  MANAGE_CLUSTERS
+  MANAGE_SESSIONS
+  MANAGE_RESOURCES
+  MANAGE_TASKS
+  MANAGE_CERTIFICATES
 
-    // System
-    VIEW_ANALYTICS
-    VIEW_AUDIT_LOGS
-    MANAGE_SETTINGS
-    MANAGE_ANNOUNCEMENTS
+  // System
+  VIEW_ANALYTICS
+  VIEW_AUDIT_LOGS
+  MANAGE_SETTINGS
+  MANAGE_ANNOUNCEMENTS
 }
 
 enum StudySessionStatus {
@@ -97,14 +97,13 @@ enum StudySessionStatus {
   cancelled
 }
 
-
 enum CourseStatus {
   DRAFT
-  PENDING_APPROVAL     // teacher submitted for admin review
-  PUBLISHED            // admin approved & active
-  CLOSED               // teacher closed — no new missions, no new enrollments
-  FINISHED             // course fully completed — certificates eligible
-  REJECTED             // admin rejected
+  PENDING_APPROVAL // teacher submitted for admin review
+  PUBLISHED // admin approved & active
+  CLOSED // teacher closed — no new missions, no new enrollments
+  FINISHED // course fully completed — certificates eligible
+  REJECTED // admin rejected
 }
 
 enum MissionStatus {

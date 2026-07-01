@@ -8,7 +8,7 @@ const getMyCluster = async (studentUserId: string) => {
     where: {
       userId: studentUserId
     }
-  })
+  });
 
   if (!studentProfile) {
     throw new AppError(status.CONTINUE, "Student is not found");
@@ -123,32 +123,32 @@ const getClusterDetail = async (userId: string, clusterId: string) => {
   // Fetch this student's assigned tasks in this cluster
   const myTasks = studentProfileId
     ? await prisma.task.findMany({
-        where: {
-          studentProfileId,
-          StudySession: { clusterId },
-        },
-        include: {
-          submission: {
-            select: {
-              id: true,
-              submittedAt: true,
-              videoUrl: true,
-              textBody: true,
-              pdfUrl: true,
-              fileSize: true,
-            },
-          },
-          StudySession: {
-            select: { id: true, title: true, scheduledAt: true, status: true },
+      where: {
+        studentProfileId,
+        StudySession: { clusterId },
+      },
+      include: {
+        submission: {
+          select: {
+            id: true,
+            submittedAt: true,
+            videoUrl: true,
+            textBody: true,
+            pdfUrl: true,
+            fileSize: true,
           },
         },
-        orderBy: { createdAt: "desc" },
-      })
+        StudySession: {
+          select: { id: true, title: true, scheduledAt: true, status: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    })
     : [];
 
   // Fetch this student's attendance in this cluster
-const myAttendance = studentProfileId
-  ? await prisma.attendance.findMany({
+  const myAttendance = studentProfileId
+    ? await prisma.attendance.findMany({
       where: {
         studentProfileId,
         session: {
@@ -168,7 +168,7 @@ const myAttendance = studentProfileId
         markedAt: "desc",
       },
     })
-  : [];
+    : [];
 
   return {
     id: cluster.id,
@@ -181,10 +181,10 @@ const myAttendance = studentProfileId
     isActive: cluster.isActive,
     teacher: cluster.teacher
       ? {
-          name: cluster.teacher.user.name,
-          email: cluster.teacher.user.email,
-          image: cluster.teacher.user.image,
-        }
+        name: cluster.teacher.user.name,
+        email: cluster.teacher.user.email,
+        image: cluster.teacher.user.image,
+      }
       : null,
     memberCount: cluster._count.members,
     sessionCount: cluster._count.sessions,

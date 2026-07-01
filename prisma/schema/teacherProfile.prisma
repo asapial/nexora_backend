@@ -1,46 +1,47 @@
 model TeacherProfile {
-    id String @id @default(cuid())
+  id String @id @default(cuid())
 
-    userId String @unique
-    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    // ── Professional identity ─────────────────────────────
-    designation    String?
-    department     String?
-    institution    String?
-    bio            String?
-    website        String?
-    linkedinUrl    String?
-    specialization String?               
-    experience     Int?                  
+  // ── Professional identity ─────────────────────────────
+  designation    String?
+  department     String?
+  institution    String?
+  bio            String?
+  website        String?
+  linkedinUrl    String?
+  specialization String?
+  experience     Int?
 
-    // ── Research ──────────────────────────────────────────
-    researchInterests String[]           
-    googleScholarUrl  String?            
+  // ── Research ──────────────────────────────────────────
+  researchInterests String[]
+  googleScholarUrl  String?
 
-    // ── Availability ──────────────────────────────────────
-    officeHours String?                 
+  // ── Availability ──────────────────────────────────────
+  officeHours String?
 
-    // ── Verification ─────────────────────────────────────
-    isVerified   Boolean   @default(false)
-    verifiedAt   DateTime?
-    rejectedAt   DateTime?
-    rejectReason String?
+  // ── Verification ─────────────────────────────────────
+  isVerified   Boolean   @default(false)
+  verifiedAt   DateTime?
+  rejectedAt   DateTime?
+  rejectReason String?
 
-    // ── Timestamps ────────────────────────────────────────
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  // ── Timestamps ────────────────────────────────────────
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    // ── Owned resources ───────────────────────────────────
-    coTeacherOf   CoTeacher[]
-    sessions      StudySession[]  @relation("SessionCreator")
-    taskTemplates TaskTemplate[]
-  teacherClusters      Cluster[]            @relation("ClusterTeacher")
+  // ── Owned resources ───────────────────────────────────
+  coTeacherOf     CoTeacher[]
+  sessions        StudySession[] @relation("SessionCreator")
+  taskTemplates   TaskTemplate[]
+  exams           Exam[]
+  teacherClusters Cluster[]      @relation("ClusterTeacher")
 
-    // courses
-    courses             Course[]
-priceRequests       CoursePriceRequest[]
-revenueTransactions RevenueTransaction[]
+  // courses
+  courses             Course[]
+  priceRequests       CoursePriceRequest[]
+  revenueTransactions RevenueTransaction[]
 
-    @@map("teacher_profile")
+  @@map("teacher_profile")
 }

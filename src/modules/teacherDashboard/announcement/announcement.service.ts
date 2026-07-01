@@ -4,12 +4,12 @@ import status from "http-status";
 
 // ─── Get my clusters (for teacher) ───────────────────────────────────────────
 const getMyClusters = async (teacherUserId: string) => {
-  
-    const teacherProfile = await prisma.teacherProfile.findFirst({
+
+  const teacherProfile = await prisma.teacherProfile.findFirst({
     where: {
       userId: teacherUserId
     }
-  })
+  });
 
   if (!teacherProfile) {
     throw new AppError(status.CONTINUE, "Teacher is not found");
@@ -18,7 +18,7 @@ const getMyClusters = async (teacherUserId: string) => {
 
   const teacherId = teacherProfile.id;
 
-  
+
   return prisma.cluster.findMany({
     where: { teacherId },
     select: { id: true, name: true, _count: { select: { members: true } } },
@@ -50,6 +50,10 @@ const createAnnouncement = async (
   }
 ) => {
   const { title, body, urgency = "INFO", clusterIds = [], isGlobal = false, scheduledAt } = payload;
+  const teacherProfile = await prisma.teacherProfile.findUnique({ where: { userId: authorId } });
+  if (!teacherProfile) throw new AppError(status.NOT_FOUND, "Teacher profile not found.");
+  const ownedClusterCount = await prisma.cluster.count({ where: { id: { in: clusterIds }, teacherId: teacherProfile.id } });
+  if (ownedClusterCount !== clusterIds.length) throw new AppError(status.FORBIDDEN, "One or more clusters are not owned by you.");
 
   const announcement = await prisma.announcement.create({
     data: {
@@ -57,7 +61,7 @@ const createAnnouncement = async (
       title,
       body,
       urgency,
-      isGlobal,
+      isGlobal: false,
       publishedAt: scheduledAt ? null : new Date(),
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
       clusters: {

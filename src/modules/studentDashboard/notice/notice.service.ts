@@ -7,7 +7,7 @@ const db = prisma as any;
 
 const getNotices = async (
   userId: string,
-  filters: { clusterId?: string; urgency?: string; unread?: string }
+  filters: { clusterId?: string; urgency?: string; unread?: string; }
 ) => {
   const memberships = await prisma.clusterMember.findMany({
     where: { userId },
@@ -15,7 +15,7 @@ const getNotices = async (
   });
   const clusterIds = memberships.map((m) => m.clusterId);
 
-  const readRecords: { announcementId: string }[] = await db.announcementRead.findMany({
+  const readRecords: { announcementId: string; }[] = await db.announcementRead.findMany({
     where: { userId },
     select: { announcementId: true },
   });

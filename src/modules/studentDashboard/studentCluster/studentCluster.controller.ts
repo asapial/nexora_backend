@@ -20,7 +20,7 @@ const getMyCluster = catchAsync(
 const getClusterDetail = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const userId = req.user.userId;
-    const { clusterId } = req.params as { clusterId: string };
+    const { clusterId } = req.params as { clusterId: string; };
     const result = await studentClusterService.getClusterDetail(
       userId,
       clusterId

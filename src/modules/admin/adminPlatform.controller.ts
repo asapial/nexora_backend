@@ -87,12 +87,12 @@ const createEmailTemplate = catchAsync(async (req: Request, res: Response) => {
 });
 
 const updateEmailTemplate = catchAsync(async (req: Request, res: Response) => {
-  const data = await adminPlatformService.updateEmailTemplate(req.params.id, req.body);
+  const data = await adminPlatformService.updateEmailTemplate(req.params.id as string, req.body);
   sendResponse(res, { status: status.OK, success: true, message: "Template updated", data });
 });
 
 const deleteEmailTemplate = catchAsync(async (req: Request, res: Response) => {
-  const data = await adminPlatformService.deleteEmailTemplate(req.params.id);
+  const data = await adminPlatformService.deleteEmailTemplate(req.params.id as string);
   sendResponse(res, { status: status.OK, success: true, message: "Template deleted", data });
 });
 

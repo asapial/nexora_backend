@@ -1,5 +1,17 @@
 import { z } from "zod";
 
+const emailList = z.array(z.string().trim().toLowerCase().email()).min(1).max(100);
+
+export const createClusterSchema = z.object({
+  name: z.string().trim().min(3).max(100),
+  slug: z.string().trim().min(3).max(100).regex(/^[a-z0-9-]+$/),
+  description: z.string().trim().max(1000).optional(),
+  batchTag: z.string().trim().max(100).optional(),
+  emails: emailList.optional().default([]),
+});
+
+export const addClusterMembersSchema = z.object({ data: emailList });
+
 /* ─────────────────────────────────────────────
    Existing: update cluster
    ───────────────────────────────────────────── */
@@ -22,7 +34,7 @@ export const updateClusterSchema = z.object({
   batchTag: z.string().max(100).optional(),
 
   isActive: z.boolean().optional(),
-});
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
 /* ─────────────────────────────────────────────
    PATCH /clusters/:id/members/:userId

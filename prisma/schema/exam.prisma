@@ -1,0 +1,227 @@
+enum ExamStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ExamType {
+  MCQ
+  CQ
+  MIXED
+}
+
+enum ExamMode {
+  REGULAR
+  PRO
+}
+
+enum ProctorSensitivity {
+  RELAXED
+  STANDARD
+  STRICT
+}
+
+enum ProctorReviewDecision {
+  PENDING
+  DISMISSED
+  CONFIRMED_CONCERN
+  NEEDS_FOLLOW_UP
+}
+
+enum ExamQuestionType {
+  MCQ
+  CQ
+}
+
+enum ExamAttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  AUTO_SUBMITTED
+}
+
+enum ExamProctorEventType {
+  TAB_HIDDEN
+  WINDOW_BLUR
+  PAGE_EXIT
+  FULLSCREEN_EXIT
+  COPY_ATTEMPT
+  PASTE_ATTEMPT
+  FACE_NOT_VISIBLE
+  MULTIPLE_FACES
+  CAMERA_INTERRUPTED
+  CAMERA_PERMISSION_REVOKED
+  CAMERA_DEVICE_CHANGED
+  PREFLIGHT_FAILED
+  HEAD_TURN_HORIZONTAL
+  EYE_MOVEMENT_HORIZONTAL
+  PHONE_DETECTED
+}
+
+model Exam {
+  id              String     @id @default(cuid())
+  teacherId       String
+  clusterId       String?
+  title           String
+  description     String?
+  type            ExamType
+  examMode        ExamMode   @default(REGULAR)
+  status          ExamStatus @default(DRAFT)
+  startTime       DateTime
+  endTime         DateTime
+  durationMinutes Int?
+  rejectionReason String?
+  approvedAt      DateTime?
+  approvedById    String?
+  questionsDueAt  DateTime
+  reminderSentAt  DateTime?
+  resultsPublishedAt     DateTime?
+  answerSheetPublishedAt DateTime?
+  resultEmailsSentAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  teacher     TeacherProfile   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  cluster     Cluster?         @relation(fields: [clusterId], references: [id], onDelete: SetNull)
+  approvedBy  User?            @relation("ExamApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  questions   ExamQuestion[]
+  assignments ExamAssignment[]
+  attempts    ExamAttempt[]
+  proctorPolicy ExamProctorPolicy?
+
+  @@index([teacherId, status])
+  @@index([clusterId])
+}
+
+model ExamProctorPolicy {
+  id                    String              @id @default(cuid())
+  examId                String              @unique
+  cameraRequired        Boolean             @default(true)
+  snapshotEnabled       Boolean             @default(true)
+  sensitivity           ProctorSensitivity  @default(STANDARD)
+  studentWarnings       Boolean             @default(true)
+  roughPaperAllowed     Boolean             @default(true)
+  evidenceRetentionDays Int                 @default(30)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  exam Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
+}
+
+model ExamQuestion {
+  id          String           @id @default(cuid())
+  examId      String
+  prompt      String
+  type        ExamQuestionType
+  explanation String?
+  marks       Float            @default(1)
+  order       Int
+
+  exam    Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  options ExamOption[]
+  answers ExamAnswer[]
+
+  @@index([examId, order])
+}
+
+model ExamOption {
+  id         String  @id @default(cuid())
+  questionId String
+  text       String
+  isCorrect  Boolean @default(false)
+  order      Int
+
+  question ExamQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answers  ExamAnswer[]
+
+  @@index([questionId, order])
+}
+
+model ExamAssignment {
+  id            String    @id @default(cuid())
+  examId        String
+  userId        String
+  accessGranted Boolean   @default(false)
+  grantedAt     DateTime?
+  proctorConsentAt        DateTime?
+  proctorPreflightAt      DateTime?
+  proctorTokenHash        String?
+  proctorTokenExpiresAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  exam Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([examId, userId])
+  @@index([userId, accessGranted])
+}
+
+model ExamAttempt {
+  id              String            @id @default(cuid())
+  examId          String
+  userId          String
+  status          ExamAttemptStatus @default(IN_PROGRESS)
+  questionOrder   String[]
+  startedAt       DateTime          @default(now())
+  submittedAt     DateTime?
+  score           Float?
+  totalMarks      Float?
+  percentage      Float?
+  suspicious      Boolean           @default(false)
+  suspiciousCount Int               @default(0)
+  resultEmailSentAt  DateTime?
+  examModeSnapshot  ExamMode        @default(REGULAR)
+  cameraConsentAt   DateTime?
+  cameraPreflightAt DateTime?
+  cameraMonitoringAt DateTime?
+  cameraInterruptedAt DateTime?
+  calibrationMetadata Json?
+  proctorFeedClearedAt DateTime?
+
+  exam          Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers       ExamAnswer[]
+  proctorEvents ExamProctorEvent[]
+
+  @@unique([examId, userId])
+  @@index([examId, status])
+}
+
+model ExamAnswer {
+  id               String  @id @default(cuid())
+  attemptId        String
+  questionId       String
+  selectedOptionId String?
+  textAnswer       String?
+  isCorrect        Boolean @default(false)
+  awardedMarks     Float   @default(0)
+
+  attempt        ExamAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question       ExamQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOption ExamOption?  @relation(fields: [selectedOptionId], references: [id], onDelete: SetNull)
+
+  @@unique([attemptId, questionId])
+}
+
+model ExamProctorEvent {
+  id         String               @id @default(cuid())
+  attemptId  String
+  type       ExamProctorEventType
+  clientEventId String?           @unique
+  pageUrl    String?
+  referrer   String?
+  metadata   Json?
+  durationMs Int?
+  confidence Float?
+  evidenceUrl String?
+  reviewDecision ProctorReviewDecision @default(PENDING)
+  reviewNote String?
+  reviewedAt DateTime?
+  reviewerId String?
+  occurredAt DateTime             @default(now())
+
+  attempt ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId, occurredAt])
+}

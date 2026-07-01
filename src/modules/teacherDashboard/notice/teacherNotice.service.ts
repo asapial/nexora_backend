@@ -7,13 +7,13 @@ const db = prisma as any;
 
 const getNotices = async (
   userId: string,
-  filters: { urgency?: string; unread?: string }
+  filters: { urgency?: string; unread?: string; }
 ) => {
-  const readRecords: { announcementId: string }[] = await db.announcementRead.findMany({
+  const readRecords: { announcementId: string; }[] = await db.announcementRead.findMany({
     where: { userId },
     select: { announcementId: true },
   });
-  const readIds = new Set(readRecords.map((r: { announcementId: string }) => r.announcementId));
+  const readIds = new Set(readRecords.map((r: { announcementId: string; }) => r.announcementId));
 
   const where: Record<string, unknown> = {
     OR: [

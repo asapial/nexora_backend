@@ -5,11 +5,11 @@ import status from "http-status";
 // ─── Get all categories ───────────────────────────────────────────────────────
 const getCategories = async (teacherUserId?: string) => {
 
-    const teacherProfile = await prisma.teacherProfile.findFirst({
+  const teacherProfile = await prisma.teacherProfile.findFirst({
     where: {
       userId: teacherUserId!
     }
-  })
+  });
 
   if (!teacherProfile) {
     throw new AppError(status.CONTINUE, "Teacher is not found");
@@ -17,7 +17,6 @@ const getCategories = async (teacherUserId?: string) => {
   }
 
   const teacherId = teacherProfile.id;
-
   return prisma.resourceCategory.findMany({
     where: { OR: [{ isGlobal: true }, ...(teacherId ? [{ teacherId }] : [])] },
     include: { _count: { select: { resources: true } } },
@@ -38,11 +37,11 @@ const createCategory = async (
 ) => {
   const { name, description, color = "#14b8a6", clusterId, isGlobal = false } = payload;
 
-      const teacherProfile = await prisma.teacherProfile.findFirst({
+  const teacherProfile = await prisma.teacherProfile.findFirst({
     where: {
       userId: teacherUserId!
     }
-  })
+  });
 
   if (!teacherProfile) {
     throw new AppError(status.CONTINUE, "Teacher is not found");
@@ -50,6 +49,10 @@ const createCategory = async (
   }
 
   const teacherId = teacherProfile.id;
+  if (clusterId) {
+    const cluster = await prisma.cluster.findFirst({ where: { id: clusterId, teacherId } });
+    if (!cluster) throw new AppError(status.FORBIDDEN, "Cluster not found or not owned by you.");
+  }
 
   const existing = await prisma.resourceCategory.findFirst({
     where: { name: { equals: name, mode: "insensitive" }, teacherId },
@@ -62,7 +65,7 @@ const createCategory = async (
       color,
       teacherId: teacherId ?? null,
       clusterId: clusterId ?? null,
-      isGlobal,
+      isGlobal: false,
     },
   });
 };
@@ -71,13 +74,13 @@ const createCategory = async (
 const updateCategory = async (
   teacherUserId: string,
   id: string,
-  payload: { name?: string; description?: string; color?: string; clusterId?: string; isGlobal?: boolean }
+  payload: { name?: string; description?: string; color?: string; clusterId?: string; isGlobal?: boolean; }
 ) => {
-      const teacherProfile = await prisma.teacherProfile.findFirst({
+  const teacherProfile = await prisma.teacherProfile.findFirst({
     where: {
       userId: teacherUserId!
     }
-  })
+  });
 
   if (!teacherProfile) {
     throw new AppError(status.CONTINUE, "Teacher is not found");
@@ -85,20 +88,24 @@ const updateCategory = async (
   }
 
   const teacherId = teacherProfile.id;
+  if (payload.clusterId) {
+    const cluster = await prisma.cluster.findFirst({ where: { id: payload.clusterId, teacherId } });
+    if (!cluster) throw new AppError(status.FORBIDDEN, "Cluster not found or not owned by you.");
+  }
 
   const cat = await prisma.resourceCategory.findUnique({ where: { id } });
   if (!cat) throw new AppError(status.NOT_FOUND, "Category not found.");
   if (cat.teacherId !== teacherId) throw new AppError(status.FORBIDDEN, "Not your category.");
-  return prisma.resourceCategory.update({ where: { id }, data: payload });
+  return prisma.resourceCategory.update({ where: { id }, data: { ...payload, isGlobal: false } });
 };
 
 // ─── Delete category ──────────────────────────────────────────────────────────
 const deleteCategory = async (teacherUserId: string, id: string) => {
-      const teacherProfile = await prisma.teacherProfile.findFirst({
+  const teacherProfile = await prisma.teacherProfile.findFirst({
     where: {
       userId: teacherUserId!
     }
-  })
+  });
 
   if (!teacherProfile) {
     throw new AppError(status.CONTINUE, "Teacher is not found");
@@ -106,7 +113,7 @@ const deleteCategory = async (teacherUserId: string, id: string) => {
   }
 
   const teacherId = teacherProfile.id;
-  
+
   const cat = await prisma.resourceCategory.findUnique({ where: { id } });
   if (!cat) throw new AppError(status.NOT_FOUND, "Category not found.");
   if (cat.teacherId !== teacherId) throw new AppError(status.FORBIDDEN, "Not your category.");

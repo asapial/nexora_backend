@@ -234,15 +234,15 @@ const getTransactions = async (userId: string, query: EarningsQueryParams) => {
   const [users, courseRows] = await Promise.all([
     userIds.length
       ? prisma.user.findMany({
-          where: { id: { in: userIds } },
-          select: { id: true, name: true, email: true },
-        })
+        where: { id: { in: userIds } },
+        select: { id: true, name: true, email: true },
+      })
       : Promise.resolve([]),
     cIds.length
       ? prisma.course.findMany({
-          where: { id: { in: cIds } },
-          select: { id: true, title: true },
-        })
+        where: { id: { in: cIds } },
+        select: { id: true, title: true },
+      })
       : Promise.resolve([]),
   ]);
   const userMap = Object.fromEntries(users.map((u) => [u.id, u]));
