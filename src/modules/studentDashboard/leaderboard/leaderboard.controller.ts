@@ -6,8 +6,11 @@ import status from "http-status";
 
 const getLeaderboard = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user.userId;
-  const { clusterId, period } = req.query as { clusterId?: string; period?: "weekly" | "all-time" };
-  const result = await leaderboardService.getLeaderboard(userId, { clusterId, period });
+  const { clusterId, period } = req.query as { clusterId?: string; period?: "weekly" | "all-time"; };
+  const result = await leaderboardService.getLeaderboard(userId, {
+    ...(clusterId !== undefined && { clusterId }),
+    ...(period !== undefined && { period }),
+  });
   sendResponse(res, { status: status.OK, success: true, message: "Leaderboard fetched", data: result });
 });
 

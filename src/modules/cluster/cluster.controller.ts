@@ -4,14 +4,13 @@ import { clusterService } from "./cluster.service";
 import { sendResponse } from "../../utils/sendResponse";
 import status from "http-status";
 import { MemberSubtype } from "../../generated/prisma/client";
-import { cookieUtils } from "../../utils/cookie";
 
 
 
 const createCluster = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const data = req.body;
-    const teacherId=req.user.userId;
+    const teacherId = req.user.userId;
     const result = await clusterService.createCluster(data, teacherId as string);
     sendResponse(res, {
       status: status.CREATED,
@@ -55,7 +54,7 @@ const patchClusterById = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const data = req.body;
     const clusterId = req.params.id as string;
-    const result = await clusterService.patchClusterById(clusterId, data);
+    const result = await clusterService.patchClusterById(clusterId, data, req.user.userId, req.user.role);
     sendResponse(res, {
       status: status.OK,
       success: true,
@@ -68,7 +67,7 @@ const patchClusterById = catchAsync(
 const deleteClusterById = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const clusterId = req.params.id as string;
-    const result = await clusterService.deleteClusterById(clusterId);
+    const result = await clusterService.deleteClusterById(clusterId, req.user.userId, req.user.role);
     sendResponse(res, {
       status: status.OK,
       success: true,
@@ -84,7 +83,9 @@ const addedClusterMemberByEmail = catchAsync(
     const clusterId = req.params.id as string;
     const result = await clusterService.addedClusterMemberByEmail(
       clusterId,
-      data as string[]
+      data as string[],
+      req.user.userId,
+      req.user.role,
     );
     sendResponse(res, {
       status: status.OK,
@@ -99,12 +100,14 @@ const updateMemberSubtype = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const clusterId = req.params.id as string;
     const userId = req.params.userId as string;
-    const { subtype } = req.body as { subtype: MemberSubtype };
+    const { subtype } = req.body as { subtype: MemberSubtype; };
 
     const result = await clusterService.updateMemberSubtype(
       clusterId,
       userId,
-      subtype
+      subtype,
+      req.user.userId,
+      req.user.role,
     );
 
     const subtypeMessages: Record<MemberSubtype, string> = {
@@ -127,7 +130,7 @@ const removeMember = catchAsync(
     const clusterId = req.params.id as string;
     const userId = req.params.userId as string;
 
-    const result = await clusterService.removeMember(clusterId, userId);
+    const result = await clusterService.removeMember(clusterId, userId, req.user.userId, req.user.role);
 
     sendResponse(res, {
       status: status.OK,
@@ -144,18 +147,17 @@ const resendMemberCredentials = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const clusterId = req.params.id as string;
     const userId = req.params.userId as string;
-        const betterAuthSessionToken = cookieUtils.getBetterAuthSessionToken(req);
-
     const result = await clusterService.resendMemberCredentials(
       clusterId,
       userId,
-      betterAuthSessionToken!
+      req.user.userId,
+      req.user.role,
     );
 
     sendResponse(res, {
       status: status.OK,
       success: true,
-      message: `Fresh credentials generated and emailed to ${result.emailSentTo}. The member must change their password on next login.`,
+      message: `A secure password-reset OTP was emailed to ${result.emailSentTo}.`,
       data: result,
     });
   }

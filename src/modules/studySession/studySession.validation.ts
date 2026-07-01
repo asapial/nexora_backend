@@ -67,7 +67,7 @@ export const submitAttendanceSchema = z.object({
 });
 
 /* ── Create / Update Agenda ───────────────────────────────────────────────── */
-export const createAgendaSchema = z.object({
+const agendaBlockSchema = z.object({
   startTime: z
     .string()
     .min(1, "startTime is required")
@@ -81,6 +81,17 @@ export const createAgendaSchema = z.object({
     .min(1, "topic must not be empty")
     .max(300),
   presenter: z.string().max(150).optional(),
+});
+
+export const saveAgendaSchema = z.object({
+  blocks: z.array(agendaBlockSchema).max(100),
+});
+
+export const attendanceWarningConfigSchema = z.object({
+  threshold: z.number().int().min(1).max(100).optional(),
+  message: z.string().trim().min(1).max(1000).optional(),
+}).refine((value) => Object.keys(value).length > 0, {
+  message: "At least one field must be provided",
 });
 
 // export const createAgendaSchema = z.object({

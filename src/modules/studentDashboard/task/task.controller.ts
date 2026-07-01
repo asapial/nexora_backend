@@ -20,7 +20,7 @@ const getMyTasks = catchAsync(
 const getTaskById = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user.userId;
-    const { taskId } = req.params as { taskId: string };
+    const { taskId } = req.params as { taskId: string; };
     const result = await taskService.getTaskById(userId, taskId);
     sendResponse(res, {
       status: status.OK,
@@ -34,7 +34,7 @@ const getTaskById = catchAsync(
 const submitTask = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user.userId;
-    const { taskId } = req.params as { taskId: string };
+    const { taskId } = req.params as { taskId: string; };
     const { videoUrl, textBody, pdfUrl, fileSize } = req.body;
     const result = await taskService.submitTask(userId, taskId, { videoUrl, textBody, pdfUrl, fileSize });
     sendResponse(res, {
@@ -49,7 +49,7 @@ const submitTask = catchAsync(
 const editSubmission = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user.userId;
-    const { taskId } = req.params as { taskId: string };
+    const { taskId } = req.params as { taskId: string; };
     const { videoUrl, textBody, pdfUrl, fileSize } = req.body;
     const result = await taskService.editSubmission(userId, taskId, { videoUrl, textBody, pdfUrl, fileSize });
     sendResponse(res, {

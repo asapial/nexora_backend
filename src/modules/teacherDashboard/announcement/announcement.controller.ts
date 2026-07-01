@@ -20,7 +20,7 @@ const createAnnouncement = catchAsync(async (req: Request, res: Response, _n: Ne
 });
 
 const deleteAnnouncement = catchAsync(async (req: Request, res: Response, _n: NextFunction) => {
-  const { id } = req.params as { id: string };
+  const { id } = req.params as { id: string; };
   const result = await announcementService.deleteAnnouncement(req.user.userId, id);
   sendResponse(res, { status: status.OK, success: true, message: "Announcement deleted", data: result });
 });

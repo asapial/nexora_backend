@@ -2,6 +2,7 @@ model Resource {
   id          String     @id @default(uuid())
   uploaderId  String?
   clusterId   String?
+  clusterIds  String[]   @default([])
   categoryId  String?
   title       String
   description String?
@@ -186,19 +187,18 @@ model MetadataCache {
 }
 
 model ResourceCategory {
-  id         String   @id @default(uuid())
-  name       String
+  id          String   @id @default(uuid())
+  name        String
   description String?
-  color      String   @default("#14b8a6")
-  teacherId  String?
-  clusterId  String?
-  isGlobal   Boolean  @default(false)
-  isFeatured Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  color       String   @default("#14b8a6")
+  teacherId   String?
+  clusterId   String?
+  isGlobal    Boolean  @default(false)
+  isFeatured  Boolean  @default(false)
+  createdAt   DateTime @default(now())
 
   resources Resource[]
 }
-
 
 model ResourceComment {
   id         String   @id @default(uuid())

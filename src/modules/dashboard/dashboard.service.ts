@@ -66,7 +66,7 @@ const getTeacherDashboard = async (userId: string) => {
   ]);
 
   // Build enrollment trend (last 6 months)
-  const enrollmentTrend: { month: string; count: number }[] = [];
+  const enrollmentTrend: { month: string; count: number; }[] = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date();
     d.setMonth(d.getMonth() - i);
@@ -84,7 +84,7 @@ const getTeacherDashboard = async (userId: string) => {
   const teacherEarnings = revenueTxns.reduce((sum, t) => sum + t.teacherEarning, 0);
 
   // Revenue trend (last 6 months)
-  const revenueTrend: { month: string; amount: number }[] = [];
+  const revenueTrend: { month: string; amount: number; }[] = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date();
     d.setMonth(d.getMonth() - i);
@@ -135,8 +135,8 @@ const getStudentDashboard = async (userId: string) => {
     }),
     studentProfile
       ? prisma.clusterMember.count({
-          where: { studentProfileId: studentProfile.id, subtype: "RUNNING" },
-        })
+        where: { studentProfileId: studentProfile.id, subtype: "RUNNING" },
+      })
       : Promise.resolve(0),
     prisma.certificate.count({ where: { userId } }),
     prisma.courseEnrollment.findMany({
@@ -216,7 +216,7 @@ const getAdminDashboard = async () => {
   ]);
 
   // User growth trend (last 6 months)
-  const userGrowthTrend: { month: string; count: number }[] = [];
+  const userGrowthTrend: { month: string; count: number; }[] = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date();
     d.setMonth(d.getMonth() - i);

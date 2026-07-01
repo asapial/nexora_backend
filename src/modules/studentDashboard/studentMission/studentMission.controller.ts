@@ -6,7 +6,7 @@ import { studentMissionService } from "./studentMission.service";
 
 const getContents = catchAsync(async (req: Request, res: Response, _n: NextFunction) => {
   const userId = req.user!.userId;
-  const { missionId } = req.params as { missionId: string };
+  const { missionId } = req.params as { missionId: string; };
   const data = await studentMissionService.getMissionContentsForStudent(userId, missionId);
   sendResponse(res, {
     status: status.OK,

@@ -9,7 +9,7 @@ const getSessionsWithTasks = async (teacherUserId: string) => {
     where: {
       userId: teacherUserId
     }
-  })
+  });
 
   if (!teacherProfile) {
     throw new AppError(status.NOT_FOUND, "Teacher is not found");
@@ -85,16 +85,16 @@ const getSessionMembers = async (teacherUserId: string, sessionId: string) => {
       image: m.studentProfile?.user?.image ?? null,
       task: task
         ? {
-            id: task.id,
-            title: task.title,
-            description: task.description,
-            homework: task.homework,
-            status: task.status,
-            deadline: task.deadline,
-            finalScore: task.finalScore,
-            reviewNote: task.reviewNote,
-            submission: task.submission,
-          }
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          homework: task.homework,
+          status: task.status,
+          deadline: task.deadline,
+          finalScore: task.finalScore,
+          reviewNote: task.reviewNote,
+          submission: task.submission,
+        }
         : null,
     };
   });
@@ -199,9 +199,6 @@ const assignTaskToMember = async (
   if (!session) throw new AppError(status.NOT_FOUND, "Session not found");
   if (session.cluster.teacherId !== teacherProfile.id) {
     throw new AppError(status.FORBIDDEN, "Unauthorized");
-  }
-  if (session.status === "completed") {
-    throw new AppError(status.BAD_REQUEST, "Cannot assign tasks to a completed session");
   }
 
   // Check if task already assigned to this member for this session
@@ -319,9 +316,6 @@ const updateTask = async (
   if (task.StudySession.cluster.teacherId !== teacherProfile.id) {
     throw new AppError(status.FORBIDDEN, "Unauthorized");
   }
-  if (task.StudySession.status === "completed") {
-    throw new AppError(status.BAD_REQUEST, "Cannot edit tasks in a completed session");
-  }
 
   return prisma.task.update({
     where: { id: taskId },
@@ -350,9 +344,6 @@ const deleteTask = async (teacherUserId: string, taskId: string) => {
   if (!task) throw new AppError(status.NOT_FOUND, "Task not found");
   if (task.StudySession.cluster.teacherId !== teacherProfile.id) {
     throw new AppError(status.FORBIDDEN, "Unauthorized");
-  }
-  if (task.StudySession.status === "completed") {
-    throw new AppError(status.BAD_REQUEST, "Cannot delete tasks from a completed session");
   }
 
   // Delete submission and drafts first
@@ -400,7 +391,7 @@ const getSubmissionDetail = async (teacherUserId: string, taskId: string) => {
 const reviewSubmission = async (
   teacherId: string,
   taskId: string,
-  payload: { finalScore: number; reviewNote?: string }
+  payload: { finalScore: number; reviewNote?: string; }
 ) => {
   if (payload.finalScore < 0 || payload.finalScore > 10) {
     throw new AppError(status.BAD_REQUEST, "Score must be between 0 and 10");

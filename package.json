@@ -4,9 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "tsx --test src/**/*.test.ts",
     "dev": "npx tsx watch src/server.ts",
     "seeding": "npx tsx src/scripts/seedingAdmin.ts",
+    "seed:demo-users": "npx tsx src/scripts/seedingDemoUsers.ts",
+    "seed:courses": "npx tsx src/scripts/seedingCourses.ts",
+    "seed:test-exam": "npx tsx src/scripts/seedingTestExam.ts",
     "migrate": "npx prisma migrate dev",
     "generate": "npx prisma generate",
     "postinstall": "prisma generate",
@@ -23,6 +26,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.3.5",
     "@types/pdfkit": "^0.17.5",
+    "@types/ws": "^8.18.1",
     "prisma": "^7.5.0",
     "tsup": "^8.5.1",
     "tsx": "^4.21.0",
@@ -42,7 +46,7 @@
     "cloudinary": "^1.41.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
-    "dotenv": "^17.3.1",
+    "dotenv": "^16.6.1",
     "ejs": "^5.0.1",
     "express": "^5.2.1",
     "http-status": "^2.1.0",
@@ -52,6 +56,8 @@
     "nodemailer": "^8.0.2",
     "pdfkit": "^0.18.0",
     "stripe": "^21.0.1",
+    "unpdf": "^1.6.2",
+    "ws": "^8.21.0",
     "zod": "^4.3.6"
   }
 }

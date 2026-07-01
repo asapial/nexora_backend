@@ -25,12 +25,12 @@ const createTemplate = catchAsync(async (req: Request, res: Response) => {
 });
 
 const updateTemplate = catchAsync(async (req: Request, res: Response) => {
-  const result = await teacherAnalyticsService.updateTemplate(req.user.userId, req.params.id, req.body);
+  const result = await teacherAnalyticsService.updateTemplate(req.user.userId, req.params.id as string, req.body);
   sendResponse(res, { status: status.OK, success: true, message: "Template updated", data: result });
 });
 
 const deleteTemplate = catchAsync(async (req: Request, res: Response) => {
-  const result = await teacherAnalyticsService.deleteTemplate(req.user.userId, req.params.id);
+  const result = await teacherAnalyticsService.deleteTemplate(req.user.userId, req.params.id as string);
   sendResponse(res, { status: status.OK, success: true, message: "Template deleted", data: result });
 });
 

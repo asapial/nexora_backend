@@ -15,7 +15,7 @@ const getApproved = async () => {
 // Authenticated user: submit a testimonial
 const create = async (
   userId: string,
-  data: { name: string; role: string; quote: string; rating: number }
+  data: { name: string; role: string; quote: string; rating: number; }
 ) => {
   // Check if user already has a pending/approved testimonial
   const existing = await prisma.testimonial.findFirst({

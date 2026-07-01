@@ -59,7 +59,7 @@ async function clear2FA(userId: string, name: string) {
         twoFactorBackupCodes: null,
       },
     });
-    await prisma.twoFactor.deleteMany({ where: { userId } }).catch(() => {});
+    await prisma.twoFactor.deleteMany({ where: { userId } }).catch(() => { });
     log("🔓", `2FA cleared for ${name}`);
   }
 }

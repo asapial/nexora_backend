@@ -67,9 +67,11 @@ const finalizeSuccessfulPaymentIntent = async (intent: Stripe.PaymentIntent) => 
         }
       }
     });
-    return { enrollmentId: (await prisma.courseEnrollment.findUnique({
-      where: { courseId_userId: { courseId: payment.courseId, userId: payment.userId } },
-    }))!.id, alreadyFinalized: false as const };
+    return {
+      enrollmentId: (await prisma.courseEnrollment.findUnique({
+        where: { courseId_userId: { courseId: payment.courseId, userId: payment.userId } },
+      }))!.id, alreadyFinalized: false as const
+    };
   }
 
   await prisma.$transaction(async (tx) => {

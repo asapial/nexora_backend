@@ -20,7 +20,7 @@ const getHomework = catchAsync(
 const markHomeworkDone = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user.userId;
-    const { taskId } = req.params as { taskId: string };
+    const { taskId } = req.params as { taskId: string; };
     const result = await homeworkService.markHomeworkDone(userId, taskId);
     sendResponse(res, {
       status: status.OK,

@@ -1,16 +1,16 @@
 import { Response } from "express"
 
 interface IResponseData<T> {
-    status:number;
-    success: boolean;
-    message: string;
-    data?: T
-    meta?: {
-        page: number;
-        limit: number;
-        total: number;
-        totalPages: number;
-    }
+  status: number;
+  success: boolean;
+  message: string;
+  data?: T;
+  meta?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 const LOG_PREVIEW_LIMIT = 4000;

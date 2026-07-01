@@ -24,7 +24,7 @@ const getNotices = catchAsync(
 const markAsRead = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user.userId;
-    const { id } = req.params as { id: string };
+    const { id } = req.params as { id: string; };
     const result = await teacherNoticeService.markAsRead(userId, id);
     sendResponse(res, {
       status: status.OK,

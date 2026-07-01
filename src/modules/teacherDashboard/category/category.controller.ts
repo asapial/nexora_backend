@@ -15,13 +15,13 @@ const createCategory = catchAsync(async (req: Request, res: Response, _n: NextFu
 });
 
 const updateCategory = catchAsync(async (req: Request, res: Response, _n: NextFunction) => {
-  const { id } = req.params as { id: string };
+  const { id } = req.params as { id: string; };
   const result = await categoryService.updateCategory(req.user.userId, id, req.body);
   sendResponse(res, { status: status.OK, success: true, message: "Category updated", data: result });
 });
 
 const deleteCategory = catchAsync(async (req: Request, res: Response, _n: NextFunction) => {
-  const { id } = req.params as { id: string };
+  const { id } = req.params as { id: string; };
   const result = await categoryService.deleteCategory(req.user.userId, id);
   sendResponse(res, { status: status.OK, success: true, message: "Category deleted", data: result });
 });

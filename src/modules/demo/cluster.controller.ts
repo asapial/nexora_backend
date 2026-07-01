@@ -4,6 +4,6 @@
 
 
 
-const resourceController={
-    
-}
+const resourceController = {
+
+};

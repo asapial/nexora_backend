@@ -42,9 +42,9 @@ const getProgress = async (userId: string) => {
   const averageScore =
     scoredTasks.length > 0
       ? Math.round(
-          scoredTasks.reduce((sum, t) => sum + (t.finalScore ?? 0), 0) /
-            scoredTasks.length
-        )
+        scoredTasks.reduce((sum, t) => sum + (t.finalScore ?? 0), 0) /
+        scoredTasks.length
+      )
       : 0;
 
   // ── Attendance rate ────────────────────────────────────────────────────────
