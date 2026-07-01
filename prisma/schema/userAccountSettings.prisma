@@ -1,8 +1,8 @@
 /// App preferences: notifications, privacy toggles, locale (used by /api/settings)
 model UserAccountSettings {
-  id        String @id @default(uuid())
-  userId    String @unique
-  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   timezone String?
   language String?

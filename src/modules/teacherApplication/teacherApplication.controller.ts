@@ -35,16 +35,16 @@ const getAll = catchAsync(async (req: Request, res: Response) => {
 // Admin — POST approve application
 const approve = catchAsync(async (req: Request, res: Response) => {
   const adminUserId = req.user.userId;
-  const adminProfile = await prisma.adminProfile.findFirstOrThrow({ where: { userId: adminUserId } });
-  const data = await teacherApplicationService.approve(req.params.id as string, adminProfile.id);
+  const adminProfile = await prisma.adminProfile.findFirst({ where: { userId: adminUserId } });
+  const data = await teacherApplicationService.approve(req.params.id as string, adminProfile?.id || null);
   sendResponse(res, { status: status.OK, success: true, message: "Application approved, teacher account created", data });
 });
 
 // Admin — POST reject application
 const reject = catchAsync(async (req: Request, res: Response) => {
   const adminUserId = req.user.userId;
-  const adminProfile = await prisma.adminProfile.findFirstOrThrow({ where: { userId: adminUserId } });
-  const data = await teacherApplicationService.reject(req.params.id as string, req.body.note || "", adminProfile.id);
+  const adminProfile = await prisma.adminProfile.findFirst({ where: { userId: adminUserId } });
+  const data = await teacherApplicationService.reject(req.params.id as string, req.body.note || "", adminProfile?.id || null);
   sendResponse(res, { status: status.OK, success: true, message: "Application rejected", data });
 });
 

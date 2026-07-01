@@ -2,6 +2,8 @@ import { Router } from "express";
 import { teacherAnalyticsController } from "./teacherAnalytics.controller";
 import { checkAuth } from "../../../middleware/checkAuth";
 import { Role } from "../../../generated/prisma/enums";
+import { validateRequest } from "../../../middleware/validateRequest";
+import { taskTemplateCreateSchema, taskTemplateUpdateSchema } from "../../../validation/requestSchemas";
 
 const router = Router();
 
@@ -11,8 +13,8 @@ router.get("/session-history", checkAuth(Role.TEACHER), teacherAnalyticsControll
 
 // Task Templates
 router.get("/task-templates", checkAuth(Role.TEACHER), teacherAnalyticsController.getTemplates);
-router.post("/task-templates", checkAuth(Role.TEACHER), teacherAnalyticsController.createTemplate);
-router.patch("/task-templates/:id", checkAuth(Role.TEACHER), teacherAnalyticsController.updateTemplate);
+router.post("/task-templates", checkAuth(Role.TEACHER), validateRequest(taskTemplateCreateSchema), teacherAnalyticsController.createTemplate);
+router.patch("/task-templates/:id", checkAuth(Role.TEACHER), validateRequest(taskTemplateUpdateSchema), teacherAnalyticsController.updateTemplate);
 router.delete("/task-templates/:id", checkAuth(Role.TEACHER), teacherAnalyticsController.deleteTemplate);
 
 export const teacherAnalyticsRouter = router;

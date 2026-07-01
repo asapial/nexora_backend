@@ -15,29 +15,29 @@ import { assertSessionTeacher, findSessionOrThrow, getTeacherProfileId, resolveS
 const listSessions = async (
   userId: string,
   userRole: string,
-  query: { clusterId?: string; from?: string; to?: string }
+  query: { clusterId?: string; from?: string; to?: string; }
 ) => {
   const { clusterId, from, to } = query;
 
-     const teacherProfile= await prisma.teacherProfile.findFirst({
-    where:{
+  const teacherProfile = await prisma.teacherProfile.findFirst({
+    where: {
       userId
     }
-  })
+  });
 
-  if(!teacherProfile){
-    throw new AppError(status.CONTINUE,"Teacher is not found");
+  if (!teacherProfile) {
+    throw new AppError(status.CONTINUE, "Teacher is not found");
 
   }
 
-  const teacherId=teacherProfile.id;
+  const teacherId = teacherProfile.id;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: any = {};
 
   if (userRole === Role.TEACHER) {
     const ownedIds = (
-      await prisma.cluster.findMany({ where: { teacherId:teacherId }, select: { id: true } })
+      await prisma.cluster.findMany({ where: { teacherId: teacherId }, select: { id: true } })
     ).map((c) => c.id);
     const coIds = (
       await prisma.coTeacher.findMany({ where: { userId }, select: { clusterId: true } })
@@ -136,7 +136,7 @@ const createSession = async (userId: string, payload: ICreateSession) => {
         },
         select: {
           userId: true,
-          studentProfileId:true
+          studentProfileId: true
         }
       },
     },
@@ -175,8 +175,8 @@ const createSession = async (userId: string, payload: ICreateSession) => {
   // Resolve task mode: explicit > default "template"
   const resolvedMode: "template" | "individual" | "none" =
     payload.taskMode === "individual" ? "individual"
-    : payload.taskMode === "none" ? "none"
-    : "template";
+      : payload.taskMode === "none" ? "none"
+        : "template";
 
   const session = await prisma.$transaction(async (tx) => {
     const newSession = await tx.studySession.create({
@@ -214,15 +214,16 @@ const createSession = async (userId: string, payload: ICreateSession) => {
           select: { id: true, userId: true },
         });
         const profileUserMap = Object.fromEntries(studentProfiles.map(p => [p.id, p.userId]));
-        const notifData = customTasks
-          .map(t => ({
-            userId: profileUserMap[t.studentProfileId],
+        const notifData = customTasks.flatMap(t => {
+          const userId = profileUserMap[t.studentProfileId];
+          return userId ? [{
+            userId,
             type: "SESSION_CREATED",
             title: `New session: ${newSession.title}`,
             body: `A new session has been created in ${cluster.name}. Your task is ready.`,
             link: `/sessions/${newSession.id}`,
-          }))
-          .filter(n => n.userId);
+          }] : [];
+        });
         if (notifData.length > 0) {
           await tx.notification.createMany({ data: notifData });
         }
@@ -274,8 +275,8 @@ const createSession = async (userId: string, payload: ICreateSession) => {
     resolvedMode === "individual"
       ? (payload.individualTasks?.filter(it => it.studentProfileId && it.title?.trim()).length ?? 0)
       : resolvedMode === "none"
-      ? 0
-      : runningMembers.length;
+        ? 0
+        : runningMembers.length;
 
   return { session, tasksQueued };
 };
@@ -295,6 +296,7 @@ const getSessionById = async (
           title: true,
           status: true,
           deadline: true,
+          studentProfile: { select: { userId: true } },
           submission: {
             select: {
               id: true
@@ -319,7 +321,7 @@ const getSessionById = async (
   if (!session) throw new AppError(status.NOT_FOUND, "Session not found.");
 
   if (userRole === Role.STUDENT) {
-    const myTask = session.tasks.find((t) => t.memberId === userId) ?? null;
+    const myTask = session.tasks.find((t) => t.studentProfile.userId === userId) ?? null;
     return {
       id: session.id,
       title: session.title,
@@ -626,7 +628,7 @@ const getAttendanceWarningConfig = async (teacherUserId: string) => {
 
 const saveAttendanceWarningConfig = async (
   teacherUserId: string,
-  payload: { threshold?: number; message?: string }
+  payload: { threshold?: number; message?: string; }
 ) => {
   const teacherProfile = await prisma.teacherProfile.findFirst({
     where: { userId: teacherUserId },

@@ -1,10 +1,8 @@
 import { prisma } from "../../lib/prisma";
-import { generatePassword } from "../../utils/generatePassword";
-import { sendEmail } from "../../utils/emailSender";
-import { envVars } from "../../config/env";
 import { Role } from "../../generated/prisma/enums";
 import AppError from "../../errorHelpers/AppError";
 import status from "http-status";
+import { authService } from "../auth/auth.service";
 
 const getUsers = async (params: {
   page?: number | string;
@@ -12,17 +10,17 @@ const getUsers = async (params: {
   search?: string;
   role?: string;
 }) => {
-  const page  = parseInt(String(params.page  ?? 1)) || 1;
+  const page = parseInt(String(params.page ?? 1)) || 1;
   const limit = parseInt(String(params.limit ?? 20)) || 20;
   const search = params.search || undefined;
-  const role   = params.role   || undefined;
-  const skip   = (page - 1) * limit;
+  const role = params.role || undefined;
+  const skip = (page - 1) * limit;
 
-  const where: any = { };
-  if (role)   where.role = role;
+  const where: any = {};
+  if (role) where.role = role;
   if (search) {
     where.OR = [
-      { name:  { contains: search, mode: "insensitive" } },
+      { name: { contains: search, mode: "insensitive" } },
       { email: { contains: search, mode: "insensitive" } },
     ];
   }
@@ -32,15 +30,15 @@ const getUsers = async (params: {
     prisma.user.findMany({
       where,
       select: {
-        id:                 true,
-        name:               true,
-        email:              true,
-        role:               true,
-        image:              true,
-        createdAt:          true,
-        emailVerified:      true,
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        image: true,
+        createdAt: true,
+        emailVerified: true,
         needPasswordChange: true,
-        isDeleted:          true,
+        isDeleted: true,
       },
       orderBy: { createdAt: "desc" },
       skip,
@@ -67,7 +65,7 @@ const getUserById = async (id: string) => {
       isDeleted: true,
       teacherProfile: { select: { id: true } },
       studentProfile: { select: { id: true } },
-      adminProfile:   { select: { id: true } },
+      adminProfile: { select: { id: true } },
     },
   });
   if (!user) throw new AppError(status.NOT_FOUND, "User not found");
@@ -76,7 +74,7 @@ const getUserById = async (id: string) => {
 
 const updateUser = async (
   id: string,
-  payload: { name?: string; role?: Role }
+  payload: { name?: string; role?: Role; }
 ) => {
   const user = await prisma.user.findUnique({
     where: { id },
@@ -116,9 +114,16 @@ const resetPassword = async (id: string) => {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) throw new AppError(status.NOT_FOUND, "User not found");
 
-  const newPassword = generatePassword(12);
+  await authService.forgetPassword(user.email);
+  return { resetRequested: true, email: user.email };
 
+  /*
+   * Intentionally disabled: writing a plain generated password directly to the
+   * BetterAuth account record bypasses password hashing. Password resets must
+   * go through the OTP flow above.
+   *
   // Use Prisma to update the accounts table (BetterAuth stores hashed password here)
+  const newPassword = "";
   await prisma.account.updateMany({
     where: { userId: id, providerId: "credential" },
     data: { password: newPassword }, // plain text — BetterAuth will hash on next read; safer to just email it
@@ -137,6 +142,7 @@ const resetPassword = async (id: string) => {
   });
 
   return { reset: true, email: user.email };
+  */
 };
 
 const impersonateUser = async (targetId: string, adminUserId: string) => {

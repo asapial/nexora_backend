@@ -39,11 +39,11 @@ const reorderContents = catchAsync(async (req: Request, res: Response) => {
 
 
 
-export const missionController={
-    getContents,
-    createContent,
-    updateContent,
-    deleteContent,
-    reorderContents
+export const missionController = {
+  getContents,
+  createContent,
+  updateContent,
+  deleteContent,
+  reorderContents
 
-}
+};

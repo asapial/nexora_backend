@@ -207,7 +207,7 @@ const getAllCourses = async (params: {
   const skip = (page - 1) * limit;
   const where: any = {};
   if (st) where.status = st;
-  if (featured !== undefined) where.isFeatured = featured ? true:false;
+  if (featured !== undefined) where.isFeatured = featured ? true : false;
   if (teacherId) where.teacherId = teacherId;
   if (search) where.OR = [
     { title: { contains: search, mode: "insensitive" } },
@@ -400,10 +400,12 @@ const getAllEnrollments = async (params: {
     if (to) where.enrolledAt.lte = new Date(to);
   }
   if (search) {
-    where.user = { OR: [
-      { name: { contains: search, mode: "insensitive" } },
-      { email: { contains: search, mode: "insensitive" } },
-    ]};
+    where.user = {
+      OR: [
+        { name: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+      ]
+};
   }
   const [data, total] = await Promise.all([
     prisma.courseEnrollment.findMany({
@@ -475,7 +477,7 @@ const getRevenueSummary = async () => {
   };
 };
 
-const getRevenueTransactions = async (params: { page?: number; limit?: number; search?: string; courseId?: string }) => {
+const getRevenueTransactions = async (params: { page?: number; limit?: number; search?: string; courseId?: string; }) => {
   const { page = 1, limit = 15, search, courseId } = params;
   const skip = (page - 1) * limit;
   const where: any = {};
@@ -505,7 +507,7 @@ const getRevenueTransactions = async (params: { page?: number; limit?: number; s
 
 
 export const adminService = {
-  createTeacher,createAdmin,  getPendingCourses, getAllCourses, getCourseById, approveCourse, rejectCourse,
+  createTeacher, createAdmin, getPendingCourses, getAllCourses, getCourseById, approveCourse, rejectCourse,
   deleteCourse, toggleFeatured, setRevenuePercent,
   getPendingMissions, approveMission, rejectMission,
   getPendingPriceRequests, approvePriceRequest, rejectPriceRequest,

@@ -103,7 +103,7 @@ const createCourse = async (userId: string, input: CreateCourseInput) => {
         courseId: course.id,
         teacherId,
         requestedPrice: input.requestedPrice,
-        note: input.priceNote,
+        ...(input.priceNote !== undefined && { note: input.priceNote }),
         status: "PENDING",
       },
     });
@@ -252,7 +252,13 @@ const createPriceRequest = async (userId: string, courseId: string, input: Creat
   if (pending) throw new AppError(status.CONFLICT, "A price request is already pending admin review.");
 
   return prisma.coursePriceRequest.create({
-    data: { courseId, teacherId, requestedPrice: input.requestedPrice, note: input.note, status: "PENDING" },
+    data: {
+      courseId,
+      teacherId,
+      requestedPrice: input.requestedPrice,
+      ...(input.note !== undefined && { note: input.note }),
+      status: "PENDING",
+    },
   });
 };
 
@@ -296,7 +302,7 @@ const createMission = async (userId: string, courseId: string, input: CreateMiss
     data: {
       courseId,
       title: input.title,
-      description: input.description,
+      ...(input.description !== undefined && { description: input.description }),
       order: input.order ?? count,
       status: "DRAFT",
     },

@@ -3,17 +3,18 @@ import { catchAsync } from "../../utils/catchAsync";
 import { studySessionService } from "./studySession.service";
 import { sendResponse } from "../../utils/sendResponse";
 import status from "http-status";
+import type { IAttendanceRecord } from "./studySession.type";
 
 /* ── GET /sessions ─────────────────────────────────────────────────────────── */
 const listSessions = catchAsync(async (req: Request, res: Response) => {
   const { userId, role } = req.user;
   const q = req.query as Record<string, string>;
 
-const data = await studySessionService.listSessions(userId, role, {
-  ...(q["clusterId"] && { clusterId: q["clusterId"] }),
-  ...(q["from"] && { from: q["from"] }),
-  ...(q["to"] && { to: q["to"] }),
-});
+  const data = await studySessionService.listSessions(userId, role, {
+    ...(q["clusterId"] && { clusterId: q["clusterId"] }),
+    ...(q["from"] && { from: q["from"] }),
+    ...(q["to"] && { to: q["to"] }),
+  });
 
   sendResponse(res, {
     status: status.OK,
@@ -84,7 +85,7 @@ const deleteSession = catchAsync(async (req: Request, res: Response) => {
 const submitAttendance = catchAsync(async (req: Request, res: Response) => {
   const sessionId = req.params.id as string;
   const userId = req.user.userId;
-  const records = (req.body.attendance ?? req.body.records ?? []) as Array<{ studentId: string; status: string; note?: string }>;
+  const records = (req.body.attendance ?? req.body.records ?? []) as IAttendanceRecord[];
 
   const result = await studySessionService.submitAttendance(sessionId, userId, records);
 
@@ -113,7 +114,7 @@ const getAttendance = catchAsync(async (req: Request, res: Response) => {
 
 const getStudentAttendanceHistory = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user.userId;
-  const { studentProfileId } = req.params as { studentProfileId: string };
+  const { studentProfileId } = req.params as { studentProfileId: string; };
   const clusterId = (req.query as Record<string, string>).clusterId;
   const data = await studySessionService.getStudentAttendanceHistory(userId, studentProfileId, clusterId);
   sendResponse(res, {

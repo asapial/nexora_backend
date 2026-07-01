@@ -7,7 +7,7 @@ import { prisma } from "../../lib/prisma";
 
 function normalizeEmailsFromBody(body: unknown): string[] {
   if (!body || typeof body !== "object") return [];
-  const raw = (body as { emails?: unknown }).emails;
+  const raw = (body as { emails?: unknown; }).emails;
   if (Array.isArray(raw)) {
     return raw.map((e) => String(e).trim().toLowerCase()).filter(Boolean);
   }
@@ -80,30 +80,30 @@ const getCourseById = catchAsync(async (req: Request, res: Response) => {
 
 const approveCourse = catchAsync(async (req: Request, res: Response) => {
   const adminUserId = req.user.userId;
-  
-  const adminProfile= await prisma.adminProfile.findFirstOrThrow({
-    where:{
-      userId:adminUserId
+
+  const adminProfile = await prisma.adminProfile.findFirstOrThrow({
+    where: {
+      userId: adminUserId
     }
-  })
+  });
 
-  const adminId=adminProfile.id;
+  const adminId = adminProfile.id;
 
-  
+
   const result = await adminService.approveCourse(req.params.id as string, adminId);
   sendResponse(res, { status: status.OK, success: true, message: "Course approved", data: result });
 });
 
 const rejectCourse = catchAsync(async (req: Request, res: Response) => {
-   const adminUserId = req.user.userId;
-  
-  const adminProfile= await prisma.adminProfile.findFirstOrThrow({
-    where:{
-      userId:adminUserId
-    }
-  })
+  const adminUserId = req.user.userId;
 
-  const adminId=adminProfile.id;
+  const adminProfile = await prisma.adminProfile.findFirstOrThrow({
+    where: {
+      userId: adminUserId
+    }
+  });
+
+  const adminId = adminProfile.id;
   const result = await adminService.rejectCourse(req.params.id as string, req.body.note, adminId);
   sendResponse(res, { status: status.OK, success: true, message: "Course rejected", data: result });
 });
@@ -131,15 +131,15 @@ const getPendingMissions = catchAsync(async (req: Request, res: Response) => {
 });
 
 const approveMission = catchAsync(async (req: Request, res: Response) => {
-    const adminUserId = req.user.userId;
-  
-  const adminProfile= await prisma.adminProfile.findFirstOrThrow({
-    where:{
-      userId:adminUserId
-    }
-  })
+  const adminUserId = req.user.userId;
 
-  const adminId=adminProfile.id;
+  const adminProfile = await prisma.adminProfile.findFirstOrThrow({
+    where: {
+      userId: adminUserId
+    }
+  });
+
+  const adminId = adminProfile.id;
 
   const result = await adminService.approveMission(req.params.id as string, adminId);
   sendResponse(res, { status: status.OK, success: true, message: "Mission approved", data: result });
@@ -158,32 +158,32 @@ const getPendingPriceRequests = catchAsync(async (req: Request, res: Response) =
 });
 
 const approvePriceRequest = catchAsync(async (req: Request, res: Response) => {
-  
-    const adminUserId = req.user.userId;
-  
-  const adminProfile= await prisma.adminProfile.findFirstOrThrow({
-    where:{
-      userId:adminUserId
-    }
-  })
 
-  const adminId=adminProfile.id;
+  const adminUserId = req.user.userId;
+
+  const adminProfile = await prisma.adminProfile.findFirstOrThrow({
+    where: {
+      userId: adminUserId
+    }
+  });
+
+  const adminId = adminProfile.id;
 
   const result = await adminService.approvePriceRequest(req.params.id as string, req.body.price, adminId);
   sendResponse(res, { status: status.OK, success: true, message: "Price request approved", data: result });
 });
 
 const rejectPriceRequest = catchAsync(async (req: Request, res: Response) => {
-  
-    const adminUserId = req.user.userId;
-  
-  const adminProfile= await prisma.adminProfile.findFirstOrThrow({
-    where:{
-      userId:adminUserId
-    }
-  })
 
-  const adminId=adminProfile.id;
+  const adminUserId = req.user.userId;
+
+  const adminProfile = await prisma.adminProfile.findFirstOrThrow({
+    where: {
+      userId: adminUserId
+    }
+  });
+
+  const adminId = adminProfile.id;
 
   const result = await adminService.rejectPriceRequest(req.params.id as string, req.body.note, adminId);
   sendResponse(res, { status: status.OK, success: true, message: "Price request rejected", data: result });
@@ -208,7 +208,7 @@ const getRevenueTransactions = catchAsync(async (req: Request, res: Response) =>
 
 
 export const adminController = {
-  createTeacher,createAdmin,  getPendingCourses, getAllCourses, getCourseById, approveCourse, rejectCourse,
+  createTeacher, createAdmin, getPendingCourses, getAllCourses, getCourseById, approveCourse, rejectCourse,
   deleteCourse, toggleFeatured, setRevenuePercent,
   getPendingMissions, approveMission, rejectMission,
   getPendingPriceRequests, approvePriceRequest, rejectPriceRequest,

@@ -6,7 +6,7 @@ import { courseService } from "./course.service";
 
 const getPublicCourses = catchAsync(async (req: Request, res: Response) => {
   const result = await courseService.getPublicCourses(req.query as any);
- 
+
   sendResponse(res, {
     status: status.OK,
     success: true,
@@ -14,10 +14,10 @@ const getPublicCourses = catchAsync(async (req: Request, res: Response) => {
     data: result,
   });
 });
- 
+
 const getPublicCourseById = catchAsync(async (req: Request, res: Response) => {
-  const result = await courseService.getPublicCourseById(req.params.id);
- 
+  const result = await courseService.getPublicCourseById(req.params.id as string);
+
   sendResponse(res, {
     status: status.OK,
     success: true,
@@ -25,7 +25,7 @@ const getPublicCourseById = catchAsync(async (req: Request, res: Response) => {
     data: result,
   });
 });
- 
+
 
 const createCourse = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user!.userId;
@@ -132,29 +132,29 @@ const deleteMission = catchAsync(async (req: Request, res: Response) => {
 
 const submitMission = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user!.userId;
-  const result = await courseService.submitMission(userId, req.params.courseId  as string, req.params.missionId as string);
+  const result = await courseService.submitMission(userId, req.params.courseId as string, req.params.missionId as string);
   sendResponse(res, { status: status.OK, success: true, message: "Mission submitted for approval", data: result });
 });
 
 
 
-export const courseController={
+export const courseController = {
   getPublicCourses,
   getPublicCourseById,
-    createCourse,
-    getMyCourses,
-    getCourseById,
-    updateCourse,
-    submitCourse,
-    closeCourse,
-    finishCourse,
-    getEnrollments,
-    getEnrollmentStats,
-    createPriceRequest,
-    getPriceRequests,
-    getMissions,
-    createMission,
-    updateMission,
-    deleteMission,
-    submitMission
-}
+  createCourse,
+  getMyCourses,
+  getCourseById,
+  updateCourse,
+  submitCourse,
+  closeCourse,
+  finishCourse,
+  getEnrollments,
+  getEnrollmentStats,
+  createPriceRequest,
+  getPriceRequests,
+  getMissions,
+  createMission,
+  updateMission,
+  deleteMission,
+  submitMission
+};

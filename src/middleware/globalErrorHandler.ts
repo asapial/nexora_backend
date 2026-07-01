@@ -12,81 +12,82 @@ import { TErrorResponse, TErrorSources } from "../interfaces/error.interface";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const globalErrorHandler = async (err: any, req: Request, res: Response, next: NextFunction) => {
-    if (envVars.NODE_ENV === 'development') {
-        console.log("Error from Global Error Handler", err);
+  if (envVars.NODE_ENV === 'development') {
+    console.log("Error from Global Error Handler", err);
+  }
+
+  // Only delete uploaded files that have a Cloudinary URL (disk storage).
+  // Memory-storage files (multerMemory) set req.file.path = undefined — skip those.
+  if (req.file?.path) {
+    await deleteFileFromCloudinary(req.file.path).catch(() => { });
+  }
+
+  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+    const imageUrls = req.files.map((file) => file.path).filter(Boolean);
+    await Promise.all(imageUrls.map(url => deleteFileFromCloudinary(url).catch(() => { })));
+  }
+
+  let errorSources: TErrorSources[] = [];
+  let statusCode: number = status.INTERNAL_SERVER_ERROR;
+  let message: string = 'Internal Server Error';
+  let stack: string | undefined = undefined;
+
+  //Zod Error Patttern
+  /*
+   error.issues;
+  /* [
+    {
+      expected: 'string',
+      code: 'invalid_type',
+      path: [ 'username' , 'password' ], => username password
+      message: 'Invalid input: expected string'
+    },
+    {
+      expected: 'number',
+      code: 'invalid_type',
+      path: [ 'xp' ],
+      message: 'Invalid input: expected number'
     }
+  ]
+  */
 
-    if(req.file){
-        await deleteFileFromCloudinary(req.file.path)
-    }
+  if (err instanceof z.ZodError) {
+    const simplifiedError = handleZodError(err);
+    statusCode = simplifiedError.statusCode as number;
+    message = simplifiedError.message;
+    errorSources = [...simplifiedError.errorSources];
+    stack = err.stack;
 
-    if(req.files && Array.isArray(req.files) && req.files.length > 0){
-        const imageUrls = req.files.map((file) => file.path);
-        await Promise.all(imageUrls.map(url => deleteFileFromCloudinary(url))); 
-    }
-
-    let errorSources: TErrorSources[] = []
-    let statusCode: number = status.INTERNAL_SERVER_ERROR;
-    let message: string = 'Internal Server Error';
-    let stack: string | undefined = undefined;
-
-    //Zod Error Patttern
-    /*
-     error.issues; 
-    /* [
+  } else if (err instanceof AppError) {
+    statusCode = err.statusCode;
+    message = err.message;
+    stack = err.stack;
+    errorSources = [
       {
-        expected: 'string',
-        code: 'invalid_type',
-        path: [ 'username' , 'password' ], => username password
-        message: 'Invalid input: expected string'
-      },
-      {
-        expected: 'number',
-        code: 'invalid_type',
-        path: [ 'xp' ],
-        message: 'Invalid input: expected number'
+        path: '',
+        message: err.message
       }
-    ] 
-    */
-
-    if (err instanceof z.ZodError) {
-        const simplifiedError = handleZodError(err);
-        statusCode = simplifiedError.statusCode as number
-        message = simplifiedError.message
-        errorSources = [...simplifiedError.errorSources]
-        stack = err.stack;
-
-    } else if (err instanceof AppError) {
-        statusCode = err.statusCode;
-        message = err.message;
-        stack = err.stack;
-        errorSources = [
-            {
-                path: '',
-                message: err.message
-            }
-        ]
-    }
-    else if (err instanceof Error) {
-        statusCode = status.INTERNAL_SERVER_ERROR;
-        message = err.message
-        stack = err.stack;
-        errorSources = [
-            {
-                path: '',
-                message: err.message
-            }
-        ]
-    }
+    ];
+  }
+  else if (err instanceof Error) {
+    statusCode = status.INTERNAL_SERVER_ERROR;
+    message = err.message;
+    stack = err.stack;
+    errorSources = [
+      {
+        path: '',
+        message: err.message
+      }
+    ];
+  }
 
 
-    const errorResponse: TErrorResponse = {
-        success: false,
-        message: message,
-        errorSources,
-        error: envVars.NODE_ENV === 'development' ? err : undefined,
-        stack: envVars.NODE_ENV === 'development' ? stack : undefined,
-    }
+  const isDev = envVars.NODE_ENV === 'development';
+  const errorResponse: TErrorResponse = { success: false, message, errorSources };
+  if (isDev) {
+    errorResponse.error = err as unknown;
+    if (stack) errorResponse.stack = stack;
+  }
 
-    res.status(statusCode).json(errorResponse);
-}
+  res.status(statusCode).json(errorResponse);
+};

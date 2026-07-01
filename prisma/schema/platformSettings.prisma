@@ -60,7 +60,7 @@ model AuditLog {
   ip             String?
   createdAt      DateTime @default(now())
 
-  actor        User?  @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actor        User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
   impersonator User? @relation("ImpersonatorLog", fields: [impersonatorId], references: [id], onDelete: SetNull)
 
   @@index([actorId, createdAt])
