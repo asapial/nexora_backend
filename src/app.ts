@@ -12,6 +12,7 @@ import { studentRouter } from "./modules/student/student.route";
 import { teacherRouter } from "./modules/teacher/teacher.route";
 import { adminRouter } from "./modules/admin/admin.route";
 import { globalErrorHandler } from "./middleware/globalErrorHandler";
+import { requestLogger } from "./middleware/requestLogger";
 import { studentClusterRouter } from "./modules/studentDashboard/studentCluster/studentCluster.route";
 import { noticeRouter } from "./modules/studentDashboard/notice/notice.route";
 import { teacherAnnouncementRouter } from "./modules/teacherDashboard/announcement/announcement.route";
@@ -75,6 +76,8 @@ app.use(
     exposedHeaders: ["Set-Cookie"],
   })
 );
+
+app.use(requestLogger);
 
 // ── 2. Cookie parser (needed by BetterAuth and custom routes) ────────────────
 app.use(cookieParser());

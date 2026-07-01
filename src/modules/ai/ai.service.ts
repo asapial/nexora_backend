@@ -1,13 +1,96 @@
 import { envVars } from "../../config/env";
 import { buildContext } from "./ai.context";
-import { prisma } from "../../lib/prisma";
+import { getAiTextResponse } from "../../utils/aiResponse";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
 }
 
-// ── Platform Knowledge Base ───────────────────────────────────────────────────
+const buildClusterDescriptionFallback = (clusterName: string) => [
+  `${clusterName} is a focused learning space for students to collaborate, share progress, and stay aligned with class goals. It helps members follow sessions, tasks, and resources in one organized place.`,
+  `This cluster brings together learners working on ${clusterName}. Members can access shared materials, participate in guided sessions, and build steady academic momentum.`,
+  `${clusterName} is designed for structured learning, discussion, and accountability. Students can collaborate with peers while the teacher tracks participation and progress.`,
+  `A dedicated cluster for ${clusterName}, built to keep lessons, tasks, and updates easy to manage. It supports clear communication between the teacher and every member.`,
+  `${clusterName} gives students a central place to learn, submit work, and follow important announcements. The cluster keeps classroom activity organized and accessible.`,
+  `This learning group supports students exploring ${clusterName} through shared sessions, resources, and regular tasks. It is ideal for keeping everyone connected and on track.`,
+];
+
+const withTimeout = async <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => {
+      timer = setTimeout(() => resolve(fallback), ms);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+};
+
+const suggestDescription = async (clusterName: string) => {
+  const startedAt = Date.now();
+  const suggestions = buildClusterDescriptionFallback(clusterName);
+  console.log("[AI_RESPONSE_TOTAL_TIME]", {
+    type: "cluster-description",
+    success: true,
+    model: "local-fast-fallback",
+    durationMs: Date.now() - startedAt,
+    promptChars: clusterName.length,
+    responseItems: suggestions.length,
+  });
+  return suggestions;
+
+  const prompt = `You are helping a teacher on an educational platform called Nexora create a student cluster.
+The cluster is named: "${clusterName}"
+
+Generate exactly 6 concise, helpful cluster description suggestions (3–5 sentences each).
+Each should sound natural, professional, and specific to the cluster name.
+Return ONLY a raw JSON array of 6 strings. No markdown, no explanation, no extra text.
+Example format: ["First description.", "Second description.", "Third description."]`;
+
+  try {
+    const response = await fetch(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${envVars.OpenRouter_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemma-3-4b-it:free",
+          messages: [{ role: "user", content: prompt }],
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const err = await response.json();
+      console.error("OpenRouter error:", err);
+      throw { status: response.status, message: "AI service error" };
+    }
+
+    const result = await response.json();
+    const raw = result.choices[0].message.content.trim();
+
+    // Clean markdown if exists
+    const cleaned = raw.replace(/```json|```/g, "").trim();
+    const suggestions = JSON.parse(cleaned);
+
+    if (!Array.isArray(suggestions) || suggestions.length === 0) {
+      throw new Error("Invalid suggestions format");
+    }
+
+    return suggestions;
+  } catch (err) {
+    console.error("Service Error:", err);
+    throw err;
+  }
+};
+
+// ── Role-specific system instructions ─────────────────────────────────────────
+
 const BASE_URL = "https://nexorafrontend-one.vercel.app";
 
 const PLATFORM_KNOWLEDGE = `
@@ -115,14 +198,29 @@ function scoreSection(section: string, query: string): number {
   }, 0);
 }
 
-function retrieveKnowledge(query: string, topK = 3): string {
-  const scored = KNOWLEDGE_SECTIONS
-    .map(s => ({ s, score: scoreSection(s, query) }))
-    .sort((a, b) => b.score - a.score);
-  const relevant = scored.filter(x => x.score > 0).slice(0, topK);
-  const toUse = relevant.length >= 1 ? relevant : scored.slice(0, 2);
-  return toUse.map(x => x.s).join("\n\n---\n\n");
-}
+// ── Authenticated chat ────────────────────────────────────────────────────────
+
+const chatWithAI = async (
+  userId: string,
+  role: string,
+  userName: string,
+  message: string,
+  history: Message[]
+) => {
+  const rawContext = await withTimeout(
+    buildContext(userId, role),
+    250,
+    "Live user data is still loading."
+  );
+
+  // Increase context limit since we now send structured text, not raw JSON
+  const context = rawContext.length > 3000
+    ? rawContext.slice(0, 3000) + "\n...(truncated)"
+    : rawContext;
+
+  const systemContent = getSystemPrompt(role, userName, context);
+
+  const trimmedHistory = history.slice(-6);
 
 // ── RAG: retrieve matching resources from user's library ─────────────────────
 async function retrieveResources(userId: string, query: string): Promise<string> {
@@ -170,27 +268,23 @@ Return ONLY a raw JSON array of 6 strings. No markdown, no explanation, no extra
 Example format: ["First description.", "Second description.", "Third description."]`;
 
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${envVars.OpenRouter_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "nvidia/nemotron-nano-9b-v2:free",
-        messages: [{ role: "user", content: prompt }],
-      }),
+    const response = await getAiTextResponse({
+      context: fullPrompt,
+      aiModel: "google/gemma-3-4b-it:free",
+      responseTime: 650,
+      maxTokens: 450,
+      maxModelBatches: 1,
     });
-    if (!response.ok) throw { status: response.status, message: "AI service error" };
-    const result = await response.json();
-    const raw = result.choices[0].message.content.trim();
-    const cleaned = raw.replace(/```json|```/g, "").trim();
-    const suggestions = JSON.parse(cleaned);
-    if (!Array.isArray(suggestions) || !suggestions.length) throw new Error("Invalid format");
-    return suggestions;
+
+    if (!response.success || !response.data) {
+      return "I can help with Nexora features, courses, clusters, resources, and dashboard guidance. The AI model is taking longer than expected, so please try the question again for a more detailed answer.";
+    }
+
+    return response.data.trim();
+
   } catch (err) {
-    console.error("suggestDescription error:", err);
-    throw err;
+    console.error("chatWithAI error:", err);
+    return "I can help with Nexora features, courses, clusters, resources, and dashboard guidance. The AI model is taking longer than expected, so please try the question again for a more detailed answer.";
   }
 };
 
@@ -346,7 +440,29 @@ ${trimmedHistory.map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.cont
 User: ${message}
 Assistant:`;
 
-  return callLLM(fullPrompt);
+  try {
+    const response = await getAiTextResponse({
+      context: fullPrompt,
+      aiModel: "google/gemma-3-4b-it:free",
+      responseTime: 650,
+      maxTokens: 450,
+      maxModelBatches: 1,
+    });
+
+    if (!response.success || !response.data) {
+      return "Nexora helps teachers manage clusters, sessions, tasks, courses, and resources while students learn, submit work, and track progress. You can start here: [Sign Up Free](https://nexorafrontend-one.vercel.app/auth/signup)";
+    }
+
+    return response.data.trim();
+
+  } catch (err) {
+    console.error("guestChat error:", err);
+    return "Nexora helps teachers manage clusters, sessions, tasks, courses, and resources while students learn, submit work, and track progress. You can start here: [Sign Up Free](https://nexorafrontend-one.vercel.app/auth/signup)";
+  }
 };
 
-export const aiService = { suggestDescription, chatWithAI, guestChat };
+export const aiService = {
+  suggestDescription,
+  chatWithAI,
+  guestChat
+}
