@@ -21,6 +21,12 @@ router.post(
 );
 
 router.post(
+  "/upload-signature",
+  checkAuth(Role.STUDENT, Role.TEACHER),
+  resourceController.createUploadSignature
+);
+
+router.post(
   "/",
   checkAuth(Role.STUDENT, Role.TEACHER),
   multerUpload.single("file"),

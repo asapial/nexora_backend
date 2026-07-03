@@ -2,6 +2,8 @@ import { NextFunction, Request, Response } from "express";
 import status from "http-status";
 import zlib from "zlib";
 import AppError from "../../errorHelpers/AppError";
+import { cloudinaryUpload } from "../../config/cloudinary.config";
+import { envVars } from "../../config/env";
 import { catchAsync } from "../../utils/catchAsync";
 import { getAiResponse } from "../../utils/aiResponse";
 import { sendResponse } from "../../utils/sendResponse";
@@ -17,6 +19,16 @@ type AiSuggestions = {
 
 const MAX_AI_PDF_BYTES = 30 * 1024 * 1024;
 const MAX_AI_CONTEXT_CHARS = 18000;
+const MAX_DIRECT_UPLOAD_BYTES = 30 * 1024 * 1024;
+const SUGGESTION_COUNT = 4;
+
+const STOP_WORDS = new Set([
+  "about", "above", "after", "again", "against", "also", "among", "because", "before",
+  "being", "between", "could", "during", "first", "from", "have", "into", "more",
+  "other", "these", "those", "their", "there", "this", "through", "using", "which",
+  "while", "with", "within", "would", "study", "paper", "figure", "table", "page",
+  "chapter", "section", "abstract", "introduction", "conclusion", "references",
+]);
 
 const asArray = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.map(String).map((item) => item.trim()).filter(Boolean);
@@ -113,128 +125,312 @@ const extractPdfText = (buffer: Buffer): string => {
   return cleanText(chunks.join(" ")).slice(0, MAX_AI_CONTEXT_CHARS);
 };
 
-const normalizeSuggestions = (value: Partial<AiSuggestions> | null): AiSuggestions => {
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
+const uniqueBy = (items: string[], normalizer = (item: string) => item.toLowerCase()) => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = normalizer(item.trim());
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const fillStrings = (
+  primary: string[],
+  fallback: string[],
+  maxItems: number,
+  maxLen: number
+) => uniqueBy([...primary, ...fallback])
+  .map((item) => item.slice(0, maxLen))
+  .slice(0, maxItems);
+
+const fillStringSets = (
+  primary: string[][],
+  fallback: string[][],
+  maxSets: number,
+  maxItems: number,
+  maxLen: number
+) => {
+  const seen = new Set<string>();
+  const out: string[][] = [];
+
+  for (const set of [...primary, ...fallback]) {
+    const cleanSet = uniqueBy(set)
+      .map((item) => item.slice(0, maxLen))
+      .slice(0, maxItems);
+    const key = cleanSet.join("|").toLowerCase();
+    if (!cleanSet.length || seen.has(key)) continue;
+    seen.add(key);
+    out.push(cleanSet);
+    if (out.length >= maxSets) break;
+  }
+
+  return out;
+};
+
+const unwrapSuggestionPayload = (value: unknown): Record<string, unknown> => {
+  const root = asRecord(value);
+  const data = asRecord(root.data);
+  const nested = data.suggestions ?? (Object.keys(data).length ? data : undefined) ?? root.suggestions ?? root.metadata ?? root.result;
+  return Object.keys(asRecord(nested)).length ? asRecord(nested) : root;
+};
+
+const normalizeSuggestions = (value: Partial<AiSuggestions> | Record<string, unknown> | null): AiSuggestions => {
+  const source = unwrapSuggestionPayload(value);
   const toStrings = (input: unknown, maxItems: number, maxLen: number) =>
-    (Array.isArray(input) ? input : [])
+    (Array.isArray(input) ? input : typeof input === "string" ? [input] : [])
       .map((item) => String(item ?? "").trim())
       .filter(Boolean)
       .slice(0, maxItems)
       .map((item) => item.slice(0, maxLen));
 
-  const toStringSets = (input: unknown, maxSets: number, maxItems: number, maxLen: number) =>
-    (Array.isArray(input) ? input : [])
+  const toStringSets = (input: unknown, maxSets: number, maxItems: number, maxLen: number) => {
+    if (typeof input === "string") {
+      const singleSet = toStrings(input, maxItems, maxLen);
+      return singleSet.length ? [singleSet] : [];
+    }
+
+    if (Array.isArray(input) && input.every((item) => typeof item === "string")) {
+      const singleSet = toStrings(input, maxItems, maxLen);
+      return singleSet.length ? [singleSet] : [];
+    }
+
+    return (Array.isArray(input) ? input : [])
       .map((set) => toStrings(set, maxItems, maxLen))
       .filter((set) => set.length > 0)
       .slice(0, maxSets);
+  };
 
   return {
-    titles: toStrings(value?.titles, 4, 160),
-    descriptions: toStrings(value?.descriptions, 4, 700),
-    authorSets: toStringSets(value?.authorSets, 4, 8, 80),
-    years: toStrings(value?.years, 4, 4).filter((year) => /^\d{4}$/.test(year)),
-    tagSets: toStringSets(value?.tagSets, 4, 10, 40),
+    titles: toStrings(source.titles ?? source.titleSuggestions ?? source.title, SUGGESTION_COUNT, 160),
+    descriptions: toStrings(
+      source.descriptions ?? source.descriptionSuggestions ?? source.abstracts ?? source.summaries ?? source.description,
+      SUGGESTION_COUNT,
+      700
+    ),
+    authorSets: toStringSets(source.authorSets ?? source.authors ?? source.authorSuggestions, SUGGESTION_COUNT, 8, 80),
+    years: toStrings(source.years ?? source.publicationYears ?? source.year, SUGGESTION_COUNT, 4)
+      .filter((year) => /^\d{4}$/.test(year)),
+    tagSets: toStringSets(source.tagSets ?? source.tags ?? source.keywords, SUGGESTION_COUNT, 12, 40),
   };
 };
 
-const fallbackMetadata = (fileName: string, extractedText: string): AiSuggestions => {
-  const baseTitle = fileName
+const humanizeFileName = (fileName: string) =>
+  fileName
     .replace(/\.[^.]+$/, "")
     .replace(/[-_]+/g, " ")
     .replace(/\s+/g, " ")
     .trim() || "Uploaded Resource";
-  const words = extractedText
+
+const splitTextLines = (value: string) =>
+  value
+    .replace(/\r/g, "\n")
+    .split(/\n+/)
+    .map((line) => cleanText(line))
+    .filter((line) =>
+      line.length >= 4 &&
+      !/^page\s+\d+$/i.test(line) &&
+      !/^[-_\s]+$/.test(line)
+    );
+
+const keywordCandidates = (value: string) => {
+  const keywordMatch = value.match(/keywords?\s*[:\-]\s*([\s\S]{0,400}?)(?=\n\s*(?:abstract|introduction|page\s+\d+|1\.|\d+\s+[A-Z])|$)/i);
+  const explicitKeywords = keywordMatch?.[1]
+    ?.split(/[,;|\n]/)
+    .map((tag) => cleanText(tag).toLowerCase())
+    .filter((tag) => tag.length >= 3 && tag.length <= 40) ?? [];
+
+  const frequencies = new Map<string, number>();
+  cleanText(value)
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter((word) => word.length > 4 && !["these", "those", "their", "there", "which", "about"].includes(word));
-  const tags = [...new Set(words)].slice(0, 8);
-  const year = extractedText.match(/\b(19|20)\d{2}\b/)?.[0];
+    .filter((word) => word.length > 4 && !STOP_WORDS.has(word) && !/^\d+$/.test(word))
+    .forEach((word) => frequencies.set(word, (frequencies.get(word) ?? 0) + 1));
+
+  const frequentKeywords = [...frequencies.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([word]) => word)
+    .slice(0, 16);
+
+  return uniqueBy([...explicitKeywords, ...frequentKeywords]).slice(0, 16);
+};
+
+const extractAuthorSets = (lines: string[]) => {
+  const authorLine = lines.find((line) => /^(?:authors?|by)\s*[:\- ]/i.test(line));
+  if (!authorLine) return [];
+
+  const names = authorLine
+    .replace(/^(?:authors?|by)\s*[:\- ]/i, "")
+    .replace(/\b(?:department|university|institute|college|school)\b.*$/i, "")
+    .split(/,|;|\band\b|&/)
+    .map((name) => cleanText(name))
+    .filter((name) => /^[A-Z][A-Za-z'. -]{2,80}$/.test(name));
+
+  const uniqueNames = uniqueBy(names);
+  if (!uniqueNames.length) return [];
+
+  return fillStringSets(
+    [
+      uniqueNames,
+      uniqueNames.slice(0, 1),
+      uniqueNames.slice(0, Math.min(3, uniqueNames.length)),
+    ],
+    [],
+    SUGGESTION_COUNT,
+    8,
+    80
+  );
+};
+
+const extractAbstract = (value: string) => {
+  const match = value.match(/abstract\s*[:\-]?\s*([\s\S]{120,1200}?)(?=\n\s*(?:keywords?|introduction|1\.|\d+\s+[A-Z]|page\s+\d+)\b|$)/i);
+  return match?.[1] ? cleanText(match[1]).slice(0, 650) : "";
+};
+
+const titleCandidates = (fileName: string, lines: string[]) => {
+  const baseTitle = humanizeFileName(fileName);
+  const explicitTitle = lines
+    .find((line) => /^title\s*[:\-]/i.test(line))
+    ?.replace(/^title\s*[:\-]\s*/i, "");
+  const metadataStart = lines.findIndex((line) => /^(?:abstract|keywords?|introduction|authors?|by)\b/i.test(line));
+  const headerLines = lines
+    .slice(0, metadataStart > 0 ? metadataStart : 8)
+    .filter((line) =>
+      line.length >= 8 &&
+      line.length <= 140 &&
+      /[a-zA-Z]{4,}/.test(line) &&
+      !/(?:doi|copyright|http|www\.|issn|isbn|university|department|journal|conference)/i.test(line) &&
+      (line.match(/\d/g)?.length ?? 0) <= Math.max(4, Math.floor(line.length / 3))
+    );
+
+  return uniqueBy([explicitTitle ?? "", ...headerLines, baseTitle]).slice(0, SUGGESTION_COUNT);
+};
+
+const fallbackMetadata = (fileName: string, extractedText: string): AiSuggestions => {
+  const normalizedText = cleanText(extractedText);
+  const lines = splitTextLines(extractedText);
+  const titleSeeds = titleCandidates(fileName, lines);
+  const primaryTitle = titleSeeds[0] || humanizeFileName(fileName);
+  const tags = keywordCandidates(extractedText);
+  const topicPhrase = tags.slice(0, 4).join(", ") || "the uploaded topic";
+  const abstract = extractAbstract(extractedText);
+  const years = uniqueBy([...normalizedText.matchAll(/\b(19|20)\d{2}\b/g)].map((match) => match[0])).slice(0, SUGGESTION_COUNT);
 
   return {
-    titles: [
-      baseTitle,
-      `${baseTitle} Study Material`,
-      `${baseTitle} Reference Guide`,
-      `${baseTitle} Learning Resource`,
-    ],
-    descriptions: [
-      extractedText
-        ? extractedText.slice(0, 420)
-        : `A learning resource uploaded for study, reference, and classroom use.`,
-      `This resource can be used to support reading, discussion, and follow-up tasks.`,
-      `A structured document for students and teachers to review key concepts and related materials.`,
-      `Use this file as a reference resource for coursework, cluster learning, or independent study.`,
-    ],
-    authorSets: [],
-    years: year ? [year] : [],
-    tagSets: [tags.length ? tags : ["resource", "study", "learning", "reference"]],
+    titles: fillStrings(titleSeeds, [
+      primaryTitle,
+      `${primaryTitle} Study Resource`,
+      `${primaryTitle} Reference Notes`,
+      `Understanding ${primaryTitle}`,
+    ], SUGGESTION_COUNT, 160),
+    descriptions: fillStrings([
+      abstract,
+      normalizedText ? normalizedText.slice(0, 520) : "",
+    ], [
+      `A learning resource focused on ${topicPhrase}.`,
+      `This document supports study, discussion, and review of ${topicPhrase}.`,
+      `A reference material for coursework, classroom use, or independent reading around ${topicPhrase}.`,
+      `Use this resource to explore the main ideas, terminology, and context related to ${topicPhrase}.`,
+    ], SUGGESTION_COUNT, 700),
+    authorSets: extractAuthorSets(lines),
+    years,
+    tagSets: fillStringSets([
+      tags.slice(0, 12),
+      tags.slice(0, 8),
+      uniqueBy([...primaryTitle.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/), ...tags])
+        .filter((tag) => tag.length > 3 && !STOP_WORDS.has(tag))
+        .slice(0, 10),
+    ], [
+      ["resource", "learning", "reference", "study"],
+    ], SUGGESTION_COUNT, 12, 40),
   };
 };
 
-const legacySuggestMetadata = catchAsync(
-  async (req: Request, res: Response, _next: NextFunction) => {
-    if (!req.file?.buffer) {
-      throw new AppError(status.BAD_REQUEST, "PDF file is required.");
-    }
+const mergeSuggestions = (primary: AiSuggestions, fallback: AiSuggestions): AiSuggestions => ({
+  titles: fillStrings(primary.titles, fallback.titles, SUGGESTION_COUNT, 160),
+  descriptions: fillStrings(primary.descriptions, fallback.descriptions, SUGGESTION_COUNT, 700),
+  authorSets: fillStringSets(primary.authorSets, fallback.authorSets, SUGGESTION_COUNT, 8, 80),
+  years: fillStrings(primary.years, fallback.years, SUGGESTION_COUNT, 4).filter((year) => /^\d{4}$/.test(year)),
+  tagSets: fillStringSets(primary.tagSets, fallback.tagSets, SUGGESTION_COUNT, 12, 40),
+});
 
-    if (req.file.mimetype !== "application/pdf") {
-      throw new AppError(status.BAD_REQUEST, "Only PDF files can be analyzed.");
-    }
+const generateMetadataSuggestions = async (
+  fileName: string,
+  extractedText: string
+): Promise<AiSuggestions> => {
+  const fallback = fallbackMetadata(fileName, extractedText);
+  const context = extractedText.length >= 120
+    ? `Filename: ${fileName}
 
-    if (req.file.size > MAX_AI_PDF_BYTES) {
-      throw new AppError(413, "PDF must be 30 MB or smaller.");
-    }
+Local extractor candidates:
+${JSON.stringify(fallback, null, 2)}
 
-    const extractedText = extractPdfText(req.file.buffer);
-    const context = extractedText.length >= 400
-      ? extractedText
-      : `Filename: ${req.file.originalname}. The PDF has little extractable text, so infer conservative metadata from the filename only.`;
+Readable PDF text excerpt:
+${extractedText.slice(0, 12000)}`
+    : `Filename: ${fileName}. The PDF has little readable text, so infer conservative metadata from the filename only.`;
 
-    const fallback = fallbackMetadata(req.file.originalname, extractedText);
-    const aiResult = await getAiResponse<AiSuggestions>({
-      context: `Analyze this uploaded education/resource PDF and propose metadata.\n\n${context}`,
-      responseStyle: `Return a JSON object with exactly these keys:
+  const aiResult = await getAiResponse<Partial<AiSuggestions>>({
+    context: `Analyze this uploaded education/resource PDF and propose high-quality metadata suggestions for a teacher/student resource library.\n\n${context}`,
+    responseStyle: `Return a JSON object with exactly these keys:
 {
-  "titles": ["4 concise title suggestions"],
-  "descriptions": ["4 concise abstract/description suggestions, each under 90 words"],
-  "authorSets": [["up to 8 likely author names"], ["alternative author set"]],
-  "years": ["up to 4 likely publication years as strings"],
-  "tagSets": [["8-10 lowercase topic tags"], ["alternative tag set"]]
+  "titles": ["exactly 4 concise, polished title suggestions"],
+  "descriptions": ["exactly 4 useful descriptions, each 35-70 words"],
+  "authorSets": [["up to 8 author names copied only when explicitly present in the text"]],
+  "years": ["publication/copyright years as 4-digit strings, only if visible"],
+  "tagSets": [["exactly 8-12 lowercase topic tags per set"]]
 }`,
-      restrictedAnswer: "Do not invent precise authors or years if the document text does not support them. Use empty arrays when uncertain.",
-      responseTime: 650,
-      maxTokens: 900,
-      concurrency: 1,
-      retryNumber: 1,
-      maxModelBatches: 1,
-    });
+    restrictedAnswer: "Return valid JSON only. Use the local extractor candidates as hints, but correct obvious noise. Do not include file extensions, page numbers, URLs, DOI strings, institutions, or generic labels as titles. Do not invent authors or years. Tags must be short lowercase topical phrases, not generic words like resource or study.",
+    responseTime: 2200,
+    maxTokens: 1100,
+    concurrency: 4,
+    retryNumber: 1,
+    maxModelBatches: 1,
+  });
 
-    sendResponse(res, {
-      status: status.OK,
-      success: true,
-      message: aiResult.success
-        ? "Metadata suggestions generated successfully"
-        : "Fast metadata suggestions generated locally",
-      data: aiResult.success ? normalizeSuggestions(aiResult.data) : fallback,
-    });
+  if (!aiResult.success || !aiResult.data) return fallback;
+  return mergeSuggestions(normalizeSuggestions(aiResult.data), fallback);
+};
+
+const sanitizePublicIdPart = (value: string) =>
+  value
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .slice(0, 80) || "resource";
+
+const isPdfDescriptor = (fileName: string, fileType: string) =>
+  fileType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
+
+const resolveCloudinaryResourceType = (
+  fileName: string,
+  fileType: string
+): "image" | "video" | "raw" => {
+  if (isPdfDescriptor(fileName, fileType)) return "raw";
+  if (fileType.startsWith("image/")) return "image";
+  if (fileType.startsWith("video/")) return "video";
+  return "raw";
+};
+
+const isOwnCloudinaryUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "res.cloudinary.com" &&
+      url.pathname.startsWith(`/${envVars.CLOUDINARY.CLOUDINARY_CLOUD_NAME}/`)
+    );
+  } catch {
+    return false;
   }
-);
+};
 
 const uploadResource = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
-    if (!req.file) {
-      return sendResponse(res, {
-        status: status.BAD_REQUEST,
-        success: false,
-        message: "File is required",
-        data: null,
-      });
-    }
-
-    const uploaderId = req.user?.userId ?? null;
-    const fileUrl = req.file.path;
-    const fileType = req.file.mimetype ?? req.file.originalname.split(".").pop() ?? "other";
-
     let bodyData: Record<string, unknown> = {};
     if (req.body.data) {
       try {
@@ -245,6 +441,31 @@ const uploadResource = catchAsync(
     } else {
       bodyData = req.body;
     }
+
+    const fileUrlFromBody = typeof bodyData.fileUrl === "string" ? bodyData.fileUrl.trim() : "";
+
+    if (!req.file && !fileUrlFromBody) {
+      return sendResponse(res, {
+        status: status.BAD_REQUEST,
+        success: false,
+        message: "File is required",
+        data: null,
+      });
+    }
+
+    if (!req.file && !isOwnCloudinaryUrl(fileUrlFromBody)) {
+      return sendResponse(res, {
+        status: status.BAD_REQUEST,
+        success: false,
+        message: "Valid Cloudinary file URL is required",
+        data: null,
+      });
+    }
+
+    const uploaderId = req.user?.userId ?? null;
+    const fileUrl = req.file?.path ?? fileUrlFromBody;
+    const fileTypeFromBody = typeof bodyData.fileType === "string" ? bodyData.fileType.trim() : "";
+    const fileType = req.file?.mimetype ?? (fileTypeFromBody || "other");
 
     const payload = {
       uploaderId,
@@ -363,34 +584,88 @@ const getCategories = catchAsync(
   }
 );
 
+const createUploadSignature = catchAsync(
+  async (req: Request, res: Response, _next: NextFunction) => {
+    const fileName = typeof req.body?.fileName === "string" ? req.body.fileName.trim() : "";
+    const fileType = typeof req.body?.fileType === "string" ? req.body.fileType.trim() : "application/octet-stream";
+    const fileSize = Number(req.body?.fileSize ?? 0);
+
+    if (!fileName) {
+      throw new AppError(status.BAD_REQUEST, "File name is required.");
+    }
+
+    if (!Number.isFinite(fileSize) || fileSize <= 0) {
+      throw new AppError(status.BAD_REQUEST, "Valid file size is required.");
+    }
+
+    if (isPdfDescriptor(fileName, fileType) && fileSize > MAX_DIRECT_UPLOAD_BYTES) {
+      throw new AppError(413, "PDF must be 30 MB or smaller.");
+    }
+
+    const resourceType = resolveCloudinaryResourceType(fileName, fileType);
+    const extension = fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() : undefined;
+    const isPdf = isPdfDescriptor(fileName, fileType);
+    const rawExtension = extension || (isPdf ? "pdf" : undefined);
+    const folder = isPdf ? "nexora/pdfs" : "nexora/uploads";
+    const uniqueName = `${Math.random().toString(36).slice(2)}-${Date.now()}-${sanitizePublicIdPart(fileName)}`;
+    const publicId = `${folder}/${uniqueName}${(isPdf || (resourceType === "raw" && rawExtension)) ? `.${rawExtension}` : ""}`;
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = cloudinaryUpload.utils.api_sign_request(
+      { public_id: publicId, timestamp },
+      envVars.CLOUDINARY.CLOUDINARY_API_SECRET
+    );
+    const cloudName = envVars.CLOUDINARY.CLOUDINARY_CLOUD_NAME;
+
+    sendResponse(res, {
+      status: status.OK,
+      success: true,
+      message: "Upload signature created",
+      data: {
+        cloudName,
+        apiKey: envVars.CLOUDINARY.CLOUDINARY_API_KEY,
+        timestamp,
+        signature,
+        publicId,
+        resourceType,
+        uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
+        maxBytes: MAX_DIRECT_UPLOAD_BYTES,
+      },
+    });
+  }
+);
+
 // ── AI Metadata Suggestion ────────────────────────────────────────────────────
 const suggestMetadata = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
-    if (!req.file) {
-      return sendResponse(res, {
-        status: status.BAD_REQUEST,
-        success: false,
-        message: "PDF file is required for metadata extraction",
-        data: null,
-      });
+    const bodyText = typeof req.body?.text === "string" ? req.body.text : "";
+    const fileName = typeof req.body?.fileName === "string" && req.body.fileName.trim()
+      ? req.body.fileName.trim()
+      : req.file?.originalname ?? "Uploaded Resource";
+    const fileSize = Number(req.body?.fileSize ?? req.file?.size ?? 0);
+
+    if (fileSize > MAX_AI_PDF_BYTES) {
+      throw new AppError(413, "PDF must be 30 MB or smaller.");
     }
 
-    try {
-      const metadata = extractPdfText(req.file.buffer);
-      sendResponse(res, {
-        status: status.OK,
-        success: true,
-        message: "Metadata extracted successfully",
-        data: metadata,
-      });
-    } catch (error: any) {
-      sendResponse(res, {
-        status: status.INTERNAL_SERVER_ERROR,
-        success: false,
-        message: error.message || "Failed to extract metadata",
-        data: null,
-      });
+    let extractedText = bodyText.trim().slice(0, MAX_AI_CONTEXT_CHARS);
+
+    if (!cleanText(extractedText) && req.file?.buffer) {
+      if (req.file.mimetype !== "application/pdf") {
+        throw new AppError(status.BAD_REQUEST, "Only PDF files can be analyzed.");
+      }
+
+      extractedText = extractPdfText(req.file.buffer);
     }
+
+    const suggestions = await generateMetadataSuggestions(fileName, extractedText);
+    sendResponse(res, {
+      status: status.OK,
+      success: true,
+      message: extractedText
+        ? "Metadata suggestions generated successfully"
+        : "Metadata suggestions generated from the file name",
+      data: suggestions,
+    });
   }
 );
 
@@ -592,6 +867,7 @@ export const resourceController = {
   bookmarkResource,
   removeBookmark,
   getCategories,
+  createUploadSignature,
   cloudinarySign,
   updateResource,
   deleteResource,

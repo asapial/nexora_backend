@@ -2,7 +2,7 @@ import status from "http-status";
 import AppError from "../../errorHelpers/AppError";
 import { auth } from "../../lib/auth";
 import { prisma } from "../../lib/prisma";
-import { tokenUtils } from "../../utils/token";
+import { REFRESH_TOKEN_MAX_AGE_SECONDS, tokenUtils } from "../../utils/token";
 import { jwtUtils } from "../../utils/jwt";
 import { ILoginData, IRegisterData } from "./auth.type";
 import { coerceValue } from "../../utils/coerceValue";
@@ -13,6 +13,46 @@ import { envVars } from "../../config/env";
 type EmailOtpType = "email-verification" | "forget-password";
 
 const getOtpIdentifier = (email: string, type: EmailOtpType) => `${type}-otp-${email}`;
+
+const splitCombinedSetCookieHeader = (header: string) => {
+  const cookies: string[] = [];
+  let start = 0;
+  let inExpires = false;
+
+  for (let index = 0; index < header.length; index++) {
+    const char = header[index];
+    const lookbehind = header.slice(Math.max(0, index - 8), index + 1).toLowerCase();
+
+    if (lookbehind.endsWith("expires=")) {
+      inExpires = true;
+    }
+
+    if (inExpires && char === ";") {
+      inExpires = false;
+    }
+
+    if (char === "," && !inExpires) {
+      const nextPart = header.slice(index + 1);
+      if (/^\s*[^=;,\s]+=/.test(nextPart)) {
+        cookies.push(header.slice(start, index).trim());
+        start = index + 1;
+      }
+    }
+  }
+
+  const finalCookie = header.slice(start).trim();
+  if (finalCookie) cookies.push(finalCookie);
+  return cookies;
+};
+
+const getResponseSetCookies = (headers: Headers) => {
+  const getSetCookie = (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
+  const setCookies = getSetCookie?.call(headers);
+  if (setCookies?.length) return setCookies;
+
+  const singleSetCookie = headers.get("set-cookie");
+  return singleSetCookie ? splitCombinedSetCookieHeader(singleSetCookie) : [];
+};
 
 type TokenUser = {
   id: string;
@@ -188,10 +228,7 @@ const loginService = async (data: ILoginData, cookieHeader?: string) => {
   }
 
   // Capture Set-Cookie headers (needed for 2FA pending-session cookie)
-  const responseCookies: string[] = [];
-  response.headers.forEach((value, key) => {
-    if (key.toLowerCase() === "set-cookie") responseCookies.push(value);
-  });
+  const responseCookies = getResponseSetCookies(response.headers);
 
   let result: any;
   try {
@@ -312,7 +349,7 @@ const demoLoginService = async (role: string) => {
       id: randomUUID(),
       token,
       userId: user.id,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + REFRESH_TOKEN_MAX_AGE_SECONDS * 1000),
     },
   });
 

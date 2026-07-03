@@ -2008,6 +2008,140 @@ var sendEmail = async ({ subject, templateData, templateName, to, attachments })
   }
 };
 
+// src/utils/jwt.ts
+import jwt from "jsonwebtoken";
+var createToken = (payload, secret, { expiresIn }) => {
+  const token = jwt.sign(payload, secret, { expiresIn });
+  return token;
+};
+var vefifyToken = (token, secret) => {
+  try {
+    const decoded = jwt.verify(token, secret);
+    return {
+      success: true,
+      data: decoded
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: error.message,
+      error
+    };
+  }
+};
+var decodedToken = (token) => {
+  const decodedToken2 = jwt.decode(token);
+  return decodedToken2;
+};
+var jwtUtils = {
+  createToken,
+  vefifyToken,
+  decodedToken
+};
+
+// src/utils/cookie.ts
+var isProd = envVars.NODE_ENV === "production";
+var SESSION_COOKIE_NAME = "better-auth.session_token";
+var SECURE_SESSION_COOKIE_NAME = "__Secure-better-auth.session_token";
+var getBetterAuthSessionToken = (req) => {
+  return req.cookies[SESSION_COOKIE_NAME] || req.cookies[SECURE_SESSION_COOKIE_NAME];
+};
+var betterAuthSessionCookieName = isProd ? SECURE_SESSION_COOKIE_NAME : SESSION_COOKIE_NAME;
+var setCookie = (res, key, value, options) => {
+  res.cookie(key, value, options);
+};
+var getCookie = (req, key) => {
+  return req.cookies[key];
+};
+var clearCookie = (res, key, options) => {
+  res.clearCookie(key, options);
+};
+var cookieUtils = {
+  setCookie,
+  getCookie,
+  clearCookie,
+  getBetterAuthSessionToken,
+  betterAuthSessionCookieName
+};
+
+// src/utils/token.ts
+var isProd2 = envVars.NODE_ENV === "production";
+var ACCESS_TOKEN_EXPIRES_IN = "1d";
+var REFRESH_TOKEN_EXPIRES_IN = "7d";
+var ACCESS_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24;
+var REFRESH_TOKEN_MAX_AGE_SECONDS = ACCESS_TOKEN_MAX_AGE_SECONDS * 7;
+var authCookieOptions = {
+  httpOnly: true,
+  secure: isProd2,
+  sameSite: isProd2 ? "none" : "lax",
+  path: "/"
+};
+var createAccessToken = (payload) => {
+  const accessToken = jwtUtils.createToken(
+    payload,
+    envVars.ACCESS_TOKEN_SECRET,
+    {
+      expiresIn: ACCESS_TOKEN_EXPIRES_IN
+    }
+  );
+  return accessToken;
+};
+var createRefreshToken = (payload) => {
+  const refreshToken = jwtUtils.createToken(
+    payload,
+    envVars.REFRESH_TOKEN_SECRET,
+    {
+      expiresIn: REFRESH_TOKEN_EXPIRES_IN
+    }
+  );
+  return refreshToken;
+};
+var setAccessTokenCookie = (res, token) => {
+  cookieUtils.setCookie(res, "accessToken", token, {
+    ...authCookieOptions,
+    maxAge: ACCESS_TOKEN_MAX_AGE_SECONDS * 1e3
+  });
+};
+var setRefreshTokenCookie = (res, token) => {
+  cookieUtils.setCookie(res, "refreshToken", token, {
+    ...authCookieOptions,
+    maxAge: REFRESH_TOKEN_MAX_AGE_SECONDS * 1e3
+  });
+};
+var setBetterAuthSessionCookie = (res, token) => {
+  cookieUtils.setCookie(res, cookieUtils.betterAuthSessionCookieName, token, {
+    ...authCookieOptions,
+    maxAge: REFRESH_TOKEN_MAX_AGE_SECONDS * 1e3
+  });
+};
+var clearAccessTokenCookie = (res) => {
+  cookieUtils.clearCookie(res, "accessToken", authCookieOptions);
+};
+var clearRefreshTokenCookie = (res) => {
+  cookieUtils.clearCookie(res, "refreshToken", authCookieOptions);
+};
+var clearBetterAuthSessionCookie = (res) => {
+  cookieUtils.clearCookie(res, cookieUtils.betterAuthSessionCookieName, authCookieOptions);
+  cookieUtils.clearCookie(res, "better-auth.session_token", authCookieOptions);
+  cookieUtils.clearCookie(res, "__Secure-better-auth.session_token", authCookieOptions);
+};
+var clearAuthCookies = (res) => {
+  clearAccessTokenCookie(res);
+  clearRefreshTokenCookie(res);
+  clearBetterAuthSessionCookie(res);
+};
+var tokenUtils = {
+  createAccessToken,
+  createRefreshToken,
+  setAccessTokenCookie,
+  setRefreshTokenCookie,
+  setBetterAuthSessionCookie,
+  clearAccessTokenCookie,
+  clearRefreshTokenCookie,
+  clearBetterAuthSessionCookie,
+  clearAuthCookies
+};
+
 // src/lib/auth.ts
 var auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -2065,6 +2199,8 @@ var auth = betterAuth({
     }
   },
   session: {
+    expiresIn: REFRESH_TOKEN_MAX_AGE_SECONDS,
+    updateAge: ACCESS_TOKEN_MAX_AGE_SECONDS,
     cookieCache: {
       enabled: true,
       maxAge: 5 * 60
@@ -2171,122 +2307,6 @@ import { Router } from "express";
 // src/modules/auth/auth.service.ts
 import status2 from "http-status";
 
-// src/utils/jwt.ts
-import jwt from "jsonwebtoken";
-var createToken = (payload, secret, { expiresIn }) => {
-  const token = jwt.sign(payload, secret, { expiresIn });
-  return token;
-};
-var vefifyToken = (token, secret) => {
-  try {
-    const decoded = jwt.verify(token, secret);
-    return {
-      success: true,
-      data: decoded
-    };
-  } catch (error) {
-    return {
-      success: false,
-      message: error.message,
-      error
-    };
-  }
-};
-var decodedToken = (token) => {
-  const decodedToken2 = jwt.decode(token);
-  return decodedToken2;
-};
-var jwtUtils = {
-  createToken,
-  vefifyToken,
-  decodedToken
-};
-
-// src/utils/cookie.ts
-var isProd = envVars.NODE_ENV === "production";
-var SESSION_COOKIE_NAME = "better-auth.session_token";
-var SECURE_SESSION_COOKIE_NAME = "__Secure-better-auth.session_token";
-var getBetterAuthSessionToken = (req) => {
-  return req.cookies[SESSION_COOKIE_NAME] || req.cookies[SECURE_SESSION_COOKIE_NAME];
-};
-var betterAuthSessionCookieName = isProd ? SECURE_SESSION_COOKIE_NAME : SESSION_COOKIE_NAME;
-var setCookie = (res, key, value, options) => {
-  res.cookie(key, value, options);
-};
-var getCookie = (req, key) => {
-  return req.cookies[key];
-};
-var clearCookie = (res, key, options) => {
-  res.clearCookie(key, options);
-};
-var cookieUtils = {
-  setCookie,
-  getCookie,
-  clearCookie,
-  getBetterAuthSessionToken,
-  betterAuthSessionCookieName
-};
-
-// src/utils/token.ts
-var isProd2 = envVars.NODE_ENV === "production";
-var createAccessToken = (payload) => {
-  const accessToken = jwtUtils.createToken(
-    payload,
-    envVars.ACCESS_TOKEN_SECRET,
-    {
-      expiresIn: envVars.ACCESS_TOKEN_EXPIRES_IN
-    }
-  );
-  return accessToken;
-};
-var createRefreshToken = (payload) => {
-  const refreshToken = jwtUtils.createToken(
-    payload,
-    envVars.REFRESH_TOKEN_SECRET,
-    {
-      expiresIn: envVars.REFRESH_TOKEN_EXPIRES_IN
-    }
-  );
-  return refreshToken;
-};
-var setAccessTokenCookie = (res, token) => {
-  cookieUtils.setCookie(res, "accessToken", token, {
-    httpOnly: true,
-    secure: isProd2,
-    sameSite: isProd2 ? "none" : "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 1e3
-    // 1 day
-  });
-};
-var setRefreshTokenCookie = (res, token) => {
-  cookieUtils.setCookie(res, "refreshToken", token, {
-    httpOnly: true,
-    secure: isProd2,
-    sameSite: isProd2 ? "none" : "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7 * 1e3
-    // 7 days
-  });
-};
-var setBetterAuthSessionCookie = (res, token) => {
-  cookieUtils.setCookie(res, cookieUtils.betterAuthSessionCookieName, token, {
-    httpOnly: true,
-    secure: isProd2,
-    sameSite: isProd2 ? "none" : "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 1e3
-    // 1 day
-  });
-};
-var tokenUtils = {
-  createAccessToken,
-  createRefreshToken,
-  setAccessTokenCookie,
-  setRefreshTokenCookie,
-  setBetterAuthSessionCookie
-};
-
 // src/utils/coerceValue.ts
 function coerceValue(key, value) {
   if (key === "cgpa") {
@@ -2307,6 +2327,47 @@ function coerceValue(key, value) {
 // src/modules/auth/auth.service.ts
 import { randomBytes, randomUUID } from "crypto";
 var getOtpIdentifier = (email, type) => `${type}-otp-${email}`;
+var splitCombinedSetCookieHeader = (header) => {
+  const cookies = [];
+  let start2 = 0;
+  let inExpires = false;
+  for (let index = 0; index < header.length; index++) {
+    const char = header[index];
+    const lookbehind = header.slice(Math.max(0, index - 8), index + 1).toLowerCase();
+    if (lookbehind.endsWith("expires=")) {
+      inExpires = true;
+    }
+    if (inExpires && char === ";") {
+      inExpires = false;
+    }
+    if (char === "," && !inExpires) {
+      const nextPart = header.slice(index + 1);
+      if (/^\s*[^=;,\s]+=/.test(nextPart)) {
+        cookies.push(header.slice(start2, index).trim());
+        start2 = index + 1;
+      }
+    }
+  }
+  const finalCookie = header.slice(start2).trim();
+  if (finalCookie) cookies.push(finalCookie);
+  return cookies;
+};
+var getResponseSetCookies = (headers) => {
+  const getSetCookie = headers.getSetCookie;
+  const setCookies = getSetCookie?.call(headers);
+  if (setCookies?.length) return setCookies;
+  const singleSetCookie = headers.get("set-cookie");
+  return singleSetCookie ? splitCombinedSetCookieHeader(singleSetCookie) : [];
+};
+var buildAuthTokenPayload = (user) => ({
+  userId: user.id,
+  role: user.role,
+  name: user.name,
+  email: user.email,
+  isActive: user.isActive,
+  oneTimePassword: user.oneTimePassword,
+  emailVerified: user.emailVerified
+});
 var cleanupEmailOtp = async (email, type) => {
   await prisma.verification.deleteMany({
     where: { identifier: getOtpIdentifier(email, type) }
@@ -2427,10 +2488,7 @@ var loginService = async (data, cookieHeader) => {
   } catch {
     throw new AppError_default(status2.UNAUTHORIZED, "Invalid email or password.");
   }
-  const responseCookies = [];
-  response.headers.forEach((value, key) => {
-    if (key.toLowerCase() === "set-cookie") responseCookies.push(value);
-  });
+  const responseCookies = getResponseSetCookies(response.headers);
   let result;
   try {
     result = await response.json();
@@ -2525,7 +2583,7 @@ var demoLoginService = async (role) => {
       id: randomUUID(),
       token,
       userId: user.id,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1e3)
+      expiresAt: new Date(Date.now() + REFRESH_TOKEN_MAX_AGE_SECONDS * 1e3)
     }
   });
   const tokenPayload = {
@@ -2580,6 +2638,43 @@ var verifyLoginTOTP = async (code, cookieHeader) => {
     ...result,
     accessToken,
     refreshToken
+  };
+};
+var refreshAccessTokenService = async (refreshToken) => {
+  if (!refreshToken) {
+    throw new AppError_default(status2.UNAUTHORIZED, "Refresh token is missing. Please log in again.");
+  }
+  const verifiedToken = jwtUtils.vefifyToken(refreshToken, envVars.REFRESH_TOKEN_SECRET);
+  if (!verifiedToken.success || !verifiedToken.data || typeof verifiedToken.data !== "object") {
+    throw new AppError_default(status2.UNAUTHORIZED, "Refresh token is invalid or expired. Please log in again.");
+  }
+  const { userId } = verifiedToken.data;
+  if (!userId) {
+    throw new AppError_default(status2.UNAUTHORIZED, "Refresh token is invalid. Please log in again.");
+  }
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      role: true,
+      name: true,
+      email: true,
+      isActive: true,
+      isDeleted: true,
+      oneTimePassword: true,
+      emailVerified: true
+    }
+  });
+  if (!user || user.isDeleted) {
+    throw new AppError_default(status2.UNAUTHORIZED, "User account no longer exists. Please log in again.");
+  }
+  if (user.isActive === false) {
+    throw new AppError_default(status2.FORBIDDEN, "Your account has been deactivated. Please contact support.");
+  }
+  const { isDeleted, oneTimePassword, ...safeUser } = user;
+  return {
+    user: safeUser,
+    accessToken: tokenUtils.createAccessToken(buildAuthTokenPayload(user))
   };
 };
 var getMyData = async (userId, email) => {
@@ -2933,6 +3028,7 @@ var authService = {
   loginService,
   demoLoginService,
   verifyLoginTOTP,
+  refreshAccessTokenService,
   getMyData,
   changePasswordService,
   logoutService,
@@ -3070,6 +3166,19 @@ var getMyDataController = catchAsync(
     });
   }
 );
+var refreshAccessTokenController = catchAsync(
+  async (req, res) => {
+    const refreshToken = cookieUtils.getCookie(req, "refreshToken");
+    const result = await authService.refreshAccessTokenService(refreshToken);
+    tokenUtils.setAccessTokenCookie(res, result.accessToken);
+    sendResponse(res, {
+      status: status3.OK,
+      success: true,
+      message: "Access token refreshed successfully",
+      data: { user: result.user }
+    });
+  }
+);
 var changePasswordController = catchAsync(
   async (req, res, next) => {
     const { oldPassword, newPassword } = req.body;
@@ -3091,21 +3200,7 @@ var logoutController = catchAsync(
   async (req, res, next) => {
     const betterAuthSessionToken = cookieUtils.getBetterAuthSessionToken(req);
     const result = await authService.logoutService(betterAuthSessionToken);
-    cookieUtils.clearCookie(res, "accessToken", {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none"
-    });
-    cookieUtils.clearCookie(res, "refreshToken", {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none"
-    });
-    cookieUtils.clearCookie(res, cookieUtils.betterAuthSessionCookieName, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none"
-    });
+    tokenUtils.clearAuthCookies(res);
     sendResponse(res, {
       status: status3.OK,
       success: true,
@@ -3252,6 +3347,7 @@ var authController = {
   loginController,
   demoLoginController,
   verifyLoginTOTPController,
+  refreshAccessTokenController,
   getMyDataController,
   changePasswordController,
   logoutController,
@@ -3548,6 +3644,7 @@ router.post("/register", validateRequest(registerSchema), authController.registe
 router.post("/login", validateRequest(loginSchema), authController.loginController);
 router.post("/demo-login", validateRequest(demoLoginSchema), authController.demoLoginController);
 router.post("/verify-login-totp", authController.verifyLoginTOTPController);
+router.post("/refresh-token", authController.refreshAccessTokenController);
 router.get("/me", checkAuth(), authController.getMyDataController);
 router.post("/changePassword", checkAuth(), validateRequest(changePasswordSchema), authController.changePasswordController);
 router.post("/logout", authController.logoutController);
@@ -4548,10 +4645,11 @@ async function fetchFromModel(model, systemPrompt, userMessage, timeoutMs, maxTo
       error: { message: await response.text().catch(() => "Unknown error") }
     }));
     if (!response.ok || json?.error) {
-      const message = json?.error?.message ?? JSON.stringify(json).slice(0, 500);
-      throw new Error(`HTTP ${response.status} from model "${model}": ${message}`);
+      const message2 = json?.error?.message ?? JSON.stringify(json).slice(0, 500);
+      throw new Error(`HTTP ${response.status} from model "${model}": ${message2}`);
     }
-    const content = json?.choices?.[0]?.message?.content ?? "";
+    const message = json?.choices?.[0]?.message ?? {};
+    const content = typeof message.content === "string" && message.content.trim() ? message.content : typeof message.reasoning_content === "string" && message.reasoning_content.trim() ? message.reasoning_content : typeof message.thinking === "string" && message.thinking.trim() ? message.thinking : "";
     if (!content.trim()) {
       throw new Error(`Empty content returned by model "${model}"`);
     }
@@ -5559,6 +5657,52 @@ import status9 from "http-status";
 import zlib2 from "zlib";
 var MAX_AI_PDF_BYTES = 30 * 1024 * 1024;
 var MAX_AI_CONTEXT_CHARS2 = 18e3;
+var MAX_DIRECT_UPLOAD_BYTES = 30 * 1024 * 1024;
+var SUGGESTION_COUNT = 4;
+var STOP_WORDS = /* @__PURE__ */ new Set([
+  "about",
+  "above",
+  "after",
+  "again",
+  "against",
+  "also",
+  "among",
+  "because",
+  "before",
+  "being",
+  "between",
+  "could",
+  "during",
+  "first",
+  "from",
+  "have",
+  "into",
+  "more",
+  "other",
+  "these",
+  "those",
+  "their",
+  "there",
+  "this",
+  "through",
+  "using",
+  "which",
+  "while",
+  "with",
+  "within",
+  "would",
+  "study",
+  "paper",
+  "figure",
+  "table",
+  "page",
+  "chapter",
+  "section",
+  "abstract",
+  "introduction",
+  "conclusion",
+  "references"
+]);
 var asArray = (value) => {
   if (Array.isArray(value)) return value.map(String).map((item) => item.trim()).filter(Boolean);
   if (typeof value === "string" && value.trim()) return [value.trim()];
@@ -5630,94 +5774,197 @@ var extractPdfText2 = (buffer) => {
   }
   return cleanText(chunks.join(" ")).slice(0, MAX_AI_CONTEXT_CHARS2);
 };
+var asRecord = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+var uniqueBy = (items, normalizer = (item) => item.toLowerCase()) => {
+  const seen = /* @__PURE__ */ new Set();
+  return items.filter((item) => {
+    const key = normalizer(item.trim());
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+var fillStrings = (primary, fallback, maxItems, maxLen) => uniqueBy([...primary, ...fallback]).map((item) => item.slice(0, maxLen)).slice(0, maxItems);
+var fillStringSets = (primary, fallback, maxSets, maxItems, maxLen) => {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const set of [...primary, ...fallback]) {
+    const cleanSet = uniqueBy(set).map((item) => item.slice(0, maxLen)).slice(0, maxItems);
+    const key = cleanSet.join("|").toLowerCase();
+    if (!cleanSet.length || seen.has(key)) continue;
+    seen.add(key);
+    out.push(cleanSet);
+    if (out.length >= maxSets) break;
+  }
+  return out;
+};
+var unwrapSuggestionPayload = (value) => {
+  const root = asRecord(value);
+  const data = asRecord(root.data);
+  const nested = data.suggestions ?? (Object.keys(data).length ? data : void 0) ?? root.suggestions ?? root.metadata ?? root.result;
+  return Object.keys(asRecord(nested)).length ? asRecord(nested) : root;
+};
 var normalizeSuggestions = (value) => {
-  const toStrings = (input, maxItems, maxLen) => (Array.isArray(input) ? input : []).map((item) => String(item ?? "").trim()).filter(Boolean).slice(0, maxItems).map((item) => item.slice(0, maxLen));
-  const toStringSets = (input, maxSets, maxItems, maxLen) => (Array.isArray(input) ? input : []).map((set) => toStrings(set, maxItems, maxLen)).filter((set) => set.length > 0).slice(0, maxSets);
-  return {
-    titles: toStrings(value?.titles, 4, 160),
-    descriptions: toStrings(value?.descriptions, 4, 700),
-    authorSets: toStringSets(value?.authorSets, 4, 8, 80),
-    years: toStrings(value?.years, 4, 4).filter((year) => /^\d{4}$/.test(year)),
-    tagSets: toStringSets(value?.tagSets, 4, 10, 40)
+  const source = unwrapSuggestionPayload(value);
+  const toStrings = (input, maxItems, maxLen) => (Array.isArray(input) ? input : typeof input === "string" ? [input] : []).map((item) => String(item ?? "").trim()).filter(Boolean).slice(0, maxItems).map((item) => item.slice(0, maxLen));
+  const toStringSets = (input, maxSets, maxItems, maxLen) => {
+    if (typeof input === "string") {
+      const singleSet = toStrings(input, maxItems, maxLen);
+      return singleSet.length ? [singleSet] : [];
+    }
+    if (Array.isArray(input) && input.every((item) => typeof item === "string")) {
+      const singleSet = toStrings(input, maxItems, maxLen);
+      return singleSet.length ? [singleSet] : [];
+    }
+    return (Array.isArray(input) ? input : []).map((set) => toStrings(set, maxItems, maxLen)).filter((set) => set.length > 0).slice(0, maxSets);
   };
+  return {
+    titles: toStrings(source.titles ?? source.titleSuggestions ?? source.title, SUGGESTION_COUNT, 160),
+    descriptions: toStrings(
+      source.descriptions ?? source.descriptionSuggestions ?? source.abstracts ?? source.summaries ?? source.description,
+      SUGGESTION_COUNT,
+      700
+    ),
+    authorSets: toStringSets(source.authorSets ?? source.authors ?? source.authorSuggestions, SUGGESTION_COUNT, 8, 80),
+    years: toStrings(source.years ?? source.publicationYears ?? source.year, SUGGESTION_COUNT, 4).filter((year) => /^\d{4}$/.test(year)),
+    tagSets: toStringSets(source.tagSets ?? source.tags ?? source.keywords, SUGGESTION_COUNT, 12, 40)
+  };
+};
+var humanizeFileName = (fileName) => fileName.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim() || "Uploaded Resource";
+var splitTextLines = (value) => value.replace(/\r/g, "\n").split(/\n+/).map((line) => cleanText(line)).filter(
+  (line) => line.length >= 4 && !/^page\s+\d+$/i.test(line) && !/^[-_\s]+$/.test(line)
+);
+var keywordCandidates = (value) => {
+  const keywordMatch = value.match(/keywords?\s*[:\-]\s*([\s\S]{0,400}?)(?=\n\s*(?:abstract|introduction|page\s+\d+|1\.|\d+\s+[A-Z])|$)/i);
+  const explicitKeywords = keywordMatch?.[1]?.split(/[,;|\n]/).map((tag) => cleanText(tag).toLowerCase()).filter((tag) => tag.length >= 3 && tag.length <= 40) ?? [];
+  const frequencies = /* @__PURE__ */ new Map();
+  cleanText(value).toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((word) => word.length > 4 && !STOP_WORDS.has(word) && !/^\d+$/.test(word)).forEach((word) => frequencies.set(word, (frequencies.get(word) ?? 0) + 1));
+  const frequentKeywords = [...frequencies.entries()].sort((a, b) => b[1] - a[1]).map(([word]) => word).slice(0, 16);
+  return uniqueBy([...explicitKeywords, ...frequentKeywords]).slice(0, 16);
+};
+var extractAuthorSets = (lines) => {
+  const authorLine = lines.find((line) => /^(?:authors?|by)\s*[:\- ]/i.test(line));
+  if (!authorLine) return [];
+  const names = authorLine.replace(/^(?:authors?|by)\s*[:\- ]/i, "").replace(/\b(?:department|university|institute|college|school)\b.*$/i, "").split(/,|;|\band\b|&/).map((name) => cleanText(name)).filter((name) => /^[A-Z][A-Za-z'. -]{2,80}$/.test(name));
+  const uniqueNames = uniqueBy(names);
+  if (!uniqueNames.length) return [];
+  return fillStringSets(
+    [
+      uniqueNames,
+      uniqueNames.slice(0, 1),
+      uniqueNames.slice(0, Math.min(3, uniqueNames.length))
+    ],
+    [],
+    SUGGESTION_COUNT,
+    8,
+    80
+  );
+};
+var extractAbstract = (value) => {
+  const match = value.match(/abstract\s*[:\-]?\s*([\s\S]{120,1200}?)(?=\n\s*(?:keywords?|introduction|1\.|\d+\s+[A-Z]|page\s+\d+)\b|$)/i);
+  return match?.[1] ? cleanText(match[1]).slice(0, 650) : "";
+};
+var titleCandidates = (fileName, lines) => {
+  const baseTitle = humanizeFileName(fileName);
+  const explicitTitle = lines.find((line) => /^title\s*[:\-]/i.test(line))?.replace(/^title\s*[:\-]\s*/i, "");
+  const metadataStart = lines.findIndex((line) => /^(?:abstract|keywords?|introduction|authors?|by)\b/i.test(line));
+  const headerLines = lines.slice(0, metadataStart > 0 ? metadataStart : 8).filter(
+    (line) => line.length >= 8 && line.length <= 140 && /[a-zA-Z]{4,}/.test(line) && !/(?:doi|copyright|http|www\.|issn|isbn|university|department|journal|conference)/i.test(line) && (line.match(/\d/g)?.length ?? 0) <= Math.max(4, Math.floor(line.length / 3))
+  );
+  return uniqueBy([explicitTitle ?? "", ...headerLines, baseTitle]).slice(0, SUGGESTION_COUNT);
 };
 var fallbackMetadata = (fileName, extractedText) => {
-  const baseTitle = fileName.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim() || "Uploaded Resource";
-  const words = extractedText.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((word) => word.length > 4 && !["these", "those", "their", "there", "which", "about"].includes(word));
-  const tags = [...new Set(words)].slice(0, 8);
-  const year = extractedText.match(/\b(19|20)\d{2}\b/)?.[0];
+  const normalizedText = cleanText(extractedText);
+  const lines = splitTextLines(extractedText);
+  const titleSeeds = titleCandidates(fileName, lines);
+  const primaryTitle = titleSeeds[0] || humanizeFileName(fileName);
+  const tags = keywordCandidates(extractedText);
+  const topicPhrase = tags.slice(0, 4).join(", ") || "the uploaded topic";
+  const abstract = extractAbstract(extractedText);
+  const years = uniqueBy([...normalizedText.matchAll(/\b(19|20)\d{2}\b/g)].map((match) => match[0])).slice(0, SUGGESTION_COUNT);
   return {
-    titles: [
-      baseTitle,
-      `${baseTitle} Study Material`,
-      `${baseTitle} Reference Guide`,
-      `${baseTitle} Learning Resource`
-    ],
-    descriptions: [
-      extractedText ? extractedText.slice(0, 420) : `A learning resource uploaded for study, reference, and classroom use.`,
-      `This resource can be used to support reading, discussion, and follow-up tasks.`,
-      `A structured document for students and teachers to review key concepts and related materials.`,
-      `Use this file as a reference resource for coursework, cluster learning, or independent study.`
-    ],
-    authorSets: [],
-    years: year ? [year] : [],
-    tagSets: [tags.length ? tags : ["resource", "study", "learning", "reference"]]
+    titles: fillStrings(titleSeeds, [
+      primaryTitle,
+      `${primaryTitle} Study Resource`,
+      `${primaryTitle} Reference Notes`,
+      `Understanding ${primaryTitle}`
+    ], SUGGESTION_COUNT, 160),
+    descriptions: fillStrings([
+      abstract,
+      normalizedText ? normalizedText.slice(0, 520) : ""
+    ], [
+      `A learning resource focused on ${topicPhrase}.`,
+      `This document supports study, discussion, and review of ${topicPhrase}.`,
+      `A reference material for coursework, classroom use, or independent reading around ${topicPhrase}.`,
+      `Use this resource to explore the main ideas, terminology, and context related to ${topicPhrase}.`
+    ], SUGGESTION_COUNT, 700),
+    authorSets: extractAuthorSets(lines),
+    years,
+    tagSets: fillStringSets([
+      tags.slice(0, 12),
+      tags.slice(0, 8),
+      uniqueBy([...primaryTitle.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/), ...tags]).filter((tag) => tag.length > 3 && !STOP_WORDS.has(tag)).slice(0, 10)
+    ], [
+      ["resource", "learning", "reference", "study"]
+    ], SUGGESTION_COUNT, 12, 40)
   };
 };
-var legacySuggestMetadata = catchAsync(
-  async (req, res, _next) => {
-    if (!req.file?.buffer) {
-      throw new AppError_default(status9.BAD_REQUEST, "PDF file is required.");
-    }
-    if (req.file.mimetype !== "application/pdf") {
-      throw new AppError_default(status9.BAD_REQUEST, "Only PDF files can be analyzed.");
-    }
-    if (req.file.size > MAX_AI_PDF_BYTES) {
-      throw new AppError_default(413, "PDF must be 30 MB or smaller.");
-    }
-    const extractedText = extractPdfText2(req.file.buffer);
-    const context = extractedText.length >= 400 ? extractedText : `Filename: ${req.file.originalname}. The PDF has little extractable text, so infer conservative metadata from the filename only.`;
-    const fallback = fallbackMetadata(req.file.originalname, extractedText);
-    const aiResult = await getAiResponse({
-      context: `Analyze this uploaded education/resource PDF and propose metadata.
+var mergeSuggestions = (primary, fallback) => ({
+  titles: fillStrings(primary.titles, fallback.titles, SUGGESTION_COUNT, 160),
+  descriptions: fillStrings(primary.descriptions, fallback.descriptions, SUGGESTION_COUNT, 700),
+  authorSets: fillStringSets(primary.authorSets, fallback.authorSets, SUGGESTION_COUNT, 8, 80),
+  years: fillStrings(primary.years, fallback.years, SUGGESTION_COUNT, 4).filter((year) => /^\d{4}$/.test(year)),
+  tagSets: fillStringSets(primary.tagSets, fallback.tagSets, SUGGESTION_COUNT, 12, 40)
+});
+var generateMetadataSuggestions = async (fileName, extractedText) => {
+  const fallback = fallbackMetadata(fileName, extractedText);
+  const context = extractedText.length >= 120 ? `Filename: ${fileName}
+
+Local extractor candidates:
+${JSON.stringify(fallback, null, 2)}
+
+Readable PDF text excerpt:
+${extractedText.slice(0, 12e3)}` : `Filename: ${fileName}. The PDF has little readable text, so infer conservative metadata from the filename only.`;
+  const aiResult = await getAiResponse({
+    context: `Analyze this uploaded education/resource PDF and propose high-quality metadata suggestions for a teacher/student resource library.
 
 ${context}`,
-      responseStyle: `Return a JSON object with exactly these keys:
+    responseStyle: `Return a JSON object with exactly these keys:
 {
-  "titles": ["4 concise title suggestions"],
-  "descriptions": ["4 concise abstract/description suggestions, each under 90 words"],
-  "authorSets": [["up to 8 likely author names"], ["alternative author set"]],
-  "years": ["up to 4 likely publication years as strings"],
-  "tagSets": [["8-10 lowercase topic tags"], ["alternative tag set"]]
+  "titles": ["exactly 4 concise, polished title suggestions"],
+  "descriptions": ["exactly 4 useful descriptions, each 35-70 words"],
+  "authorSets": [["up to 8 author names copied only when explicitly present in the text"]],
+  "years": ["publication/copyright years as 4-digit strings, only if visible"],
+  "tagSets": [["exactly 8-12 lowercase topic tags per set"]]
 }`,
-      restrictedAnswer: "Do not invent precise authors or years if the document text does not support them. Use empty arrays when uncertain.",
-      responseTime: 650,
-      maxTokens: 900,
-      concurrency: 1,
-      retryNumber: 1,
-      maxModelBatches: 1
-    });
-    sendResponse(res, {
-      status: status9.OK,
-      success: true,
-      message: aiResult.success ? "Metadata suggestions generated successfully" : "Fast metadata suggestions generated locally",
-      data: aiResult.success ? normalizeSuggestions(aiResult.data) : fallback
-    });
+    restrictedAnswer: "Return valid JSON only. Use the local extractor candidates as hints, but correct obvious noise. Do not include file extensions, page numbers, URLs, DOI strings, institutions, or generic labels as titles. Do not invent authors or years. Tags must be short lowercase topical phrases, not generic words like resource or study.",
+    responseTime: 2200,
+    maxTokens: 1100,
+    concurrency: 4,
+    retryNumber: 1,
+    maxModelBatches: 1
+  });
+  if (!aiResult.success || !aiResult.data) return fallback;
+  return mergeSuggestions(normalizeSuggestions(aiResult.data), fallback);
+};
+var sanitizePublicIdPart = (value) => value.replace(/\.[^.]+$/, "").toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 80) || "resource";
+var isPdfDescriptor = (fileName, fileType) => fileType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
+var resolveCloudinaryResourceType = (fileName, fileType) => {
+  if (isPdfDescriptor(fileName, fileType)) return "raw";
+  if (fileType.startsWith("image/")) return "image";
+  if (fileType.startsWith("video/")) return "video";
+  return "raw";
+};
+var isOwnCloudinaryUrl = (value) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "res.cloudinary.com" && url.pathname.startsWith(`/${envVars.CLOUDINARY.CLOUDINARY_CLOUD_NAME}/`);
+  } catch {
+    return false;
   }
-);
+};
 var uploadResource2 = catchAsync(
   async (req, res, _next) => {
-    if (!req.file) {
-      return sendResponse(res, {
-        status: status9.BAD_REQUEST,
-        success: false,
-        message: "File is required",
-        data: null
-      });
-    }
-    const uploaderId = req.user?.userId ?? null;
-    const fileUrl = req.file.path;
-    const fileType = req.file.mimetype ?? req.file.originalname.split(".").pop() ?? "other";
     let bodyData = {};
     if (req.body.data) {
       try {
@@ -5728,6 +5975,27 @@ var uploadResource2 = catchAsync(
     } else {
       bodyData = req.body;
     }
+    const fileUrlFromBody = typeof bodyData.fileUrl === "string" ? bodyData.fileUrl.trim() : "";
+    if (!req.file && !fileUrlFromBody) {
+      return sendResponse(res, {
+        status: status9.BAD_REQUEST,
+        success: false,
+        message: "File is required",
+        data: null
+      });
+    }
+    if (!req.file && !isOwnCloudinaryUrl(fileUrlFromBody)) {
+      return sendResponse(res, {
+        status: status9.BAD_REQUEST,
+        success: false,
+        message: "Valid Cloudinary file URL is required",
+        data: null
+      });
+    }
+    const uploaderId = req.user?.userId ?? null;
+    const fileUrl = req.file?.path ?? fileUrlFromBody;
+    const fileTypeFromBody = typeof bodyData.fileType === "string" ? bodyData.fileType.trim() : "";
+    const fileType = req.file?.mimetype ?? (fileTypeFromBody || "other");
     const payload = {
       uploaderId,
       fileUrl,
@@ -5835,32 +6103,72 @@ var getCategories2 = catchAsync(
     sendResponse(res, { status: status9.OK, success: true, message: "Categories fetched", data: result });
   }
 );
+var createUploadSignature = catchAsync(
+  async (req, res, _next) => {
+    const fileName = typeof req.body?.fileName === "string" ? req.body.fileName.trim() : "";
+    const fileType = typeof req.body?.fileType === "string" ? req.body.fileType.trim() : "application/octet-stream";
+    const fileSize = Number(req.body?.fileSize ?? 0);
+    if (!fileName) {
+      throw new AppError_default(status9.BAD_REQUEST, "File name is required.");
+    }
+    if (!Number.isFinite(fileSize) || fileSize <= 0) {
+      throw new AppError_default(status9.BAD_REQUEST, "Valid file size is required.");
+    }
+    if (isPdfDescriptor(fileName, fileType) && fileSize > MAX_DIRECT_UPLOAD_BYTES) {
+      throw new AppError_default(413, "PDF must be 30 MB or smaller.");
+    }
+    const resourceType = resolveCloudinaryResourceType(fileName, fileType);
+    const extension = fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() : void 0;
+    const isPdf = isPdfDescriptor(fileName, fileType);
+    const rawExtension = extension || (isPdf ? "pdf" : void 0);
+    const folder = isPdf ? "nexora/pdfs" : "nexora/uploads";
+    const uniqueName = `${Math.random().toString(36).slice(2)}-${Date.now()}-${sanitizePublicIdPart(fileName)}`;
+    const publicId = `${folder}/${uniqueName}${isPdf || resourceType === "raw" && rawExtension ? `.${rawExtension}` : ""}`;
+    const timestamp = Math.floor(Date.now() / 1e3);
+    const signature = cloudinaryUpload.utils.api_sign_request(
+      { public_id: publicId, timestamp },
+      envVars.CLOUDINARY.CLOUDINARY_API_SECRET
+    );
+    const cloudName = envVars.CLOUDINARY.CLOUDINARY_CLOUD_NAME;
+    sendResponse(res, {
+      status: status9.OK,
+      success: true,
+      message: "Upload signature created",
+      data: {
+        cloudName,
+        apiKey: envVars.CLOUDINARY.CLOUDINARY_API_KEY,
+        timestamp,
+        signature,
+        publicId,
+        resourceType,
+        uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
+        maxBytes: MAX_DIRECT_UPLOAD_BYTES
+      }
+    });
+  }
+);
 var suggestMetadata = catchAsync(
   async (req, res, _next) => {
-    if (!req.file) {
-      return sendResponse(res, {
-        status: status9.BAD_REQUEST,
-        success: false,
-        message: "PDF file is required for metadata extraction",
-        data: null
-      });
+    const bodyText = typeof req.body?.text === "string" ? req.body.text : "";
+    const fileName = typeof req.body?.fileName === "string" && req.body.fileName.trim() ? req.body.fileName.trim() : req.file?.originalname ?? "Uploaded Resource";
+    const fileSize = Number(req.body?.fileSize ?? req.file?.size ?? 0);
+    if (fileSize > MAX_AI_PDF_BYTES) {
+      throw new AppError_default(413, "PDF must be 30 MB or smaller.");
     }
-    try {
-      const metadata = extractPdfText2(req.file.buffer);
-      sendResponse(res, {
-        status: status9.OK,
-        success: true,
-        message: "Metadata extracted successfully",
-        data: metadata
-      });
-    } catch (error) {
-      sendResponse(res, {
-        status: status9.INTERNAL_SERVER_ERROR,
-        success: false,
-        message: error.message || "Failed to extract metadata",
-        data: null
-      });
+    let extractedText = bodyText.trim().slice(0, MAX_AI_CONTEXT_CHARS2);
+    if (!cleanText(extractedText) && req.file?.buffer) {
+      if (req.file.mimetype !== "application/pdf") {
+        throw new AppError_default(status9.BAD_REQUEST, "Only PDF files can be analyzed.");
+      }
+      extractedText = extractPdfText2(req.file.buffer);
     }
+    const suggestions = await generateMetadataSuggestions(fileName, extractedText);
+    sendResponse(res, {
+      status: status9.OK,
+      success: true,
+      message: extractedText ? "Metadata suggestions generated successfully" : "Metadata suggestions generated from the file name",
+      data: suggestions
+    });
   }
 );
 var deleteResource2 = catchAsync(
@@ -5995,6 +6303,7 @@ var resourceController = {
   bookmarkResource: bookmarkResource2,
   removeBookmark: removeBookmark2,
   getCategories: getCategories2,
+  createUploadSignature,
   cloudinarySign,
   updateResource: updateResource2,
   deleteResource: deleteResource2
@@ -6011,6 +6320,11 @@ router3.post(
   checkAuth(Role.STUDENT, Role.TEACHER),
   pdfMetadataUpload.single("file"),
   resourceController.suggestMetadata
+);
+router3.post(
+  "/upload-signature",
+  checkAuth(Role.STUDENT, Role.TEACHER),
+  resourceController.createUploadSignature
 );
 router3.post(
   "/",
@@ -8833,15 +9147,28 @@ import { Router as Router11 } from "express";
 
 // src/modules/teacherDashboard/category/category.service.ts
 import status27 from "http-status";
-var getCategories3 = async (teacherUserId) => {
-  const teacherProfile = await prisma.teacherProfile.findFirst({
-    where: {
-      userId: teacherUserId
-    }
+var getOrCreateTeacherProfile = async (teacherUserId) => {
+  const user = await prisma.user.findUnique({
+    where: { id: teacherUserId },
+    select: { id: true, role: true, isActive: true, isDeleted: true }
   });
-  if (!teacherProfile) {
-    throw new AppError_default(status27.CONTINUE, "Teacher is not found");
+  if (!user || user.isDeleted) {
+    throw new AppError_default(status27.UNAUTHORIZED, "Teacher account not found.");
   }
+  if (user.role !== Role.TEACHER) {
+    throw new AppError_default(status27.FORBIDDEN, "Only teachers can manage resource categories.");
+  }
+  if (user.isActive === false) {
+    throw new AppError_default(status27.FORBIDDEN, "Your account has been deactivated. Please contact support.");
+  }
+  return prisma.teacherProfile.upsert({
+    where: { userId: teacherUserId },
+    update: {},
+    create: { userId: teacherUserId }
+  });
+};
+var getCategories3 = async (teacherUserId) => {
+  const teacherProfile = await getOrCreateTeacherProfile(teacherUserId);
   const teacherId = teacherProfile.id;
   return prisma.resourceCategory.findMany({
     where: { OR: [{ isGlobal: true }, ...teacherId ? [{ teacherId }] : []] },
@@ -8851,14 +9178,7 @@ var getCategories3 = async (teacherUserId) => {
 };
 var createCategory = async (teacherUserId, payload) => {
   const { name, description, color = "#14b8a6", clusterId, isGlobal = false } = payload;
-  const teacherProfile = await prisma.teacherProfile.findFirst({
-    where: {
-      userId: teacherUserId
-    }
-  });
-  if (!teacherProfile) {
-    throw new AppError_default(status27.CONTINUE, "Teacher is not found");
-  }
+  const teacherProfile = await getOrCreateTeacherProfile(teacherUserId);
   const teacherId = teacherProfile.id;
   if (clusterId) {
     const cluster = await prisma.cluster.findFirst({ where: { id: clusterId, teacherId } });
@@ -8879,14 +9199,7 @@ var createCategory = async (teacherUserId, payload) => {
   });
 };
 var updateCategory = async (teacherUserId, id, payload) => {
-  const teacherProfile = await prisma.teacherProfile.findFirst({
-    where: {
-      userId: teacherUserId
-    }
-  });
-  if (!teacherProfile) {
-    throw new AppError_default(status27.CONTINUE, "Teacher is not found");
-  }
+  const teacherProfile = await getOrCreateTeacherProfile(teacherUserId);
   const teacherId = teacherProfile.id;
   if (payload.clusterId) {
     const cluster = await prisma.cluster.findFirst({ where: { id: payload.clusterId, teacherId } });
@@ -8898,14 +9211,7 @@ var updateCategory = async (teacherUserId, id, payload) => {
   return prisma.resourceCategory.update({ where: { id }, data: { ...payload, isGlobal: false } });
 };
 var deleteCategory = async (teacherUserId, id) => {
-  const teacherProfile = await prisma.teacherProfile.findFirst({
-    where: {
-      userId: teacherUserId
-    }
-  });
-  if (!teacherProfile) {
-    throw new AppError_default(status27.CONTINUE, "Teacher is not found");
-  }
+  const teacherProfile = await getOrCreateTeacherProfile(teacherUserId);
   const teacherId = teacherProfile.id;
   const cat = await prisma.resourceCategory.findUnique({ where: { id } });
   if (!cat) throw new AppError_default(status27.NOT_FOUND, "Category not found.");
@@ -15543,7 +15849,7 @@ Nexora is a modern educational platform connecting teachers, students, and admin
 - Profile and settings are available at [Settings](${BASE_URL}/dashboard/settings).
 `;
 var KNOWLEDGE_SECTIONS = PLATFORM_KNOWLEDGE.split(/\n---\n/).map((section) => section.trim()).filter((section) => section.length > 30);
-var STOP_WORDS = /* @__PURE__ */ new Set([
+var STOP_WORDS2 = /* @__PURE__ */ new Set([
   "what",
   "how",
   "the",
@@ -15593,7 +15899,7 @@ var withTimeout = async (promise, ms, fallback) => {
   });
 };
 var retrieveKnowledge = (query, limit) => {
-  const terms = query.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((term) => term.length > 2 && !STOP_WORDS.has(term));
+  const terms = query.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((term) => term.length > 2 && !STOP_WORDS2.has(term));
   if (!terms.length) {
     return KNOWLEDGE_SECTIONS.slice(0, limit).join("\n\n");
   }
@@ -15606,7 +15912,7 @@ var retrieveKnowledge = (query, limit) => {
   })).sort((a, b) => b.score - a.score).slice(0, limit).map((item) => item.section).join("\n\n");
 };
 var retrieveResources = async (userId, query) => {
-  const terms = query.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((term) => term.length > 3 && !STOP_WORDS.has(term));
+  const terms = query.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((term) => term.length > 3 && !STOP_WORDS2.has(term));
   if (!terms.length) return "";
   try {
     const resources = await prisma.resource.findMany({
