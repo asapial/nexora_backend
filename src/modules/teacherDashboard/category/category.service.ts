@@ -1,20 +1,37 @@
 import { prisma } from "../../../lib/prisma";
 import AppError from "../../../errorHelpers/AppError";
 import status from "http-status";
+import { Role } from "../../../generated/prisma/enums";
+
+const getOrCreateTeacherProfile = async (teacherUserId: string) => {
+  const user = await prisma.user.findUnique({
+    where: { id: teacherUserId },
+    select: { id: true, role: true, isActive: true, isDeleted: true },
+  });
+
+  if (!user || user.isDeleted) {
+    throw new AppError(status.UNAUTHORIZED, "Teacher account not found.");
+  }
+
+  if (user.role !== Role.TEACHER) {
+    throw new AppError(status.FORBIDDEN, "Only teachers can manage resource categories.");
+  }
+
+  if (user.isActive === false) {
+    throw new AppError(status.FORBIDDEN, "Your account has been deactivated. Please contact support.");
+  }
+
+  return prisma.teacherProfile.upsert({
+    where: { userId: teacherUserId },
+    update: {},
+    create: { userId: teacherUserId },
+  });
+};
 
 // ─── Get all categories ───────────────────────────────────────────────────────
 const getCategories = async (teacherUserId?: string) => {
 
-  const teacherProfile = await prisma.teacherProfile.findFirst({
-    where: {
-      userId: teacherUserId!
-    }
-  });
-
-  if (!teacherProfile) {
-    throw new AppError(status.CONTINUE, "Teacher is not found");
-
-  }
+  const teacherProfile = await getOrCreateTeacherProfile(teacherUserId!);
 
   const teacherId = teacherProfile.id;
   return prisma.resourceCategory.findMany({
@@ -37,16 +54,7 @@ const createCategory = async (
 ) => {
   const { name, description, color = "#14b8a6", clusterId, isGlobal = false } = payload;
 
-  const teacherProfile = await prisma.teacherProfile.findFirst({
-    where: {
-      userId: teacherUserId!
-    }
-  });
-
-  if (!teacherProfile) {
-    throw new AppError(status.CONTINUE, "Teacher is not found");
-
-  }
+  const teacherProfile = await getOrCreateTeacherProfile(teacherUserId);
 
   const teacherId = teacherProfile.id;
   if (clusterId) {
@@ -76,16 +84,7 @@ const updateCategory = async (
   id: string,
   payload: { name?: string; description?: string; color?: string; clusterId?: string; isGlobal?: boolean; }
 ) => {
-  const teacherProfile = await prisma.teacherProfile.findFirst({
-    where: {
-      userId: teacherUserId!
-    }
-  });
-
-  if (!teacherProfile) {
-    throw new AppError(status.CONTINUE, "Teacher is not found");
-
-  }
+  const teacherProfile = await getOrCreateTeacherProfile(teacherUserId);
 
   const teacherId = teacherProfile.id;
   if (payload.clusterId) {
@@ -101,16 +100,7 @@ const updateCategory = async (
 
 // ─── Delete category ──────────────────────────────────────────────────────────
 const deleteCategory = async (teacherUserId: string, id: string) => {
-  const teacherProfile = await prisma.teacherProfile.findFirst({
-    where: {
-      userId: teacherUserId!
-    }
-  });
-
-  if (!teacherProfile) {
-    throw new AppError(status.CONTINUE, "Teacher is not found");
-
-  }
+  const teacherProfile = await getOrCreateTeacherProfile(teacherUserId);
 
   const teacherId = teacherProfile.id;
 

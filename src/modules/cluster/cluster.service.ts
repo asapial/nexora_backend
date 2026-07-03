@@ -115,7 +115,7 @@ const createCluster = async (clusterPayload: iCreateCluster, teacherUserId: stri
             name: existingUser.name || email.split("@")[0],
             email,
             clusterName: cluster.name,
-            loginUrl: `${envVars.FRONTEND_URL}/login`,
+            loginUrl: `${envVars.FRONTEND_URL}/auth/signin`,
           },
         });
 
@@ -149,12 +149,13 @@ const createCluster = async (clusterPayload: iCreateCluster, teacherUserId: stri
         await sendEmail({
           to: email,
           subject: `You've been added to ${cluster.name} on Nexora`,
-          templateName: "sendCredentialEmail",
+          templateName: "clusterWelcomeBack",
           templateData: {
+            name: email.split("@")[0],
             email,
             password: plainPassword,
             clusterName: cluster.name,
-            loginUrl: `${envVars.FRONTEND_URL}/login`,
+            loginUrl: `${envVars.FRONTEND_URL}/auth/signin`,
           },
         });
 
@@ -435,7 +436,7 @@ const addedClusterMemberByEmail = async (
           name: existingUser.name || email.split("@")[0],
           email,
           clusterName: cluster.name,
-          loginUrl: `${envVars.FRONTEND_URL}/login`,
+          loginUrl: `${envVars.FRONTEND_URL}/auth/signin`,
         },
       });
 
@@ -466,12 +467,13 @@ const addedClusterMemberByEmail = async (
       await sendEmail({
         to: email,
         subject: `You've been added to ${cluster.name} on Nexora`,
-        templateName: "sendCredentialEmail",
+        templateName: "clusterWelcomeBack",
         templateData: {
+          name: email.split("@")[0],
           email,
           password: plainPassword,
           clusterName: cluster.name,
-          loginUrl: `${envVars.FRONTEND_URL}/login`,
+          loginUrl: `${envVars.FRONTEND_URL}/auth/signin`,
         },
       });
 

@@ -3,11 +3,79 @@ import AppError from "../../errorHelpers/AppError";
 import { auth } from "../../lib/auth";
 import { prisma } from "../../lib/prisma";
 import { tokenUtils } from "../../utils/token";
+import { jwtUtils } from "../../utils/jwt";
 import { ILoginData, IRegisterData } from "./auth.type";
 import { coerceValue } from "../../utils/coerceValue";
 import { randomBytes, randomUUID } from "crypto";
+import { sendEmail } from "../../utils/emailSender";
+import { envVars } from "../../config/env";
 
+type EmailOtpType = "email-verification" | "forget-password";
 
+const getOtpIdentifier = (email: string, type: EmailOtpType) => `${type}-otp-${email}`;
+
+type TokenUser = {
+  id: string;
+  role: string;
+  name: string | null;
+  email: string;
+  isActive: boolean;
+  oneTimePassword?: string | null;
+  emailVerified: boolean;
+};
+
+const buildAuthTokenPayload = (user: TokenUser) => ({
+  userId: user.id,
+  role: user.role,
+  name: user.name,
+  email: user.email,
+  isActive: user.isActive,
+  oneTimePassword: user.oneTimePassword,
+  emailVerified: user.emailVerified,
+});
+
+const cleanupEmailOtp = async (email: string, type: EmailOtpType) => {
+  await prisma.verification.deleteMany({
+    where: { identifier: getOtpIdentifier(email, type) },
+  }).catch(() => { });
+};
+
+const createAndSendEmailOtp = async ({
+  email,
+  name,
+  type,
+}: {
+  email: string;
+  name?: string | null;
+  type: EmailOtpType;
+}) => {
+  const normalizedEmail = email.trim().toLowerCase();
+  const otp = await auth.api.createVerificationOTP({
+    body: {
+      email: normalizedEmail,
+      type,
+    },
+  });
+
+  try {
+    await sendEmail({
+      to: normalizedEmail,
+      subject: type === "email-verification" ? "Verify your email" : "Password Reset OTP",
+      templateName: type === "email-verification" ? "verifyOtp" : "forgetPasswordOtp",
+      templateData: {
+        name: name || normalizedEmail.split("@")[0],
+        otp,
+        email: normalizedEmail,
+        expiresIn: "5 minutes",
+      },
+    });
+  } catch (error) {
+    await cleanupEmailOtp(normalizedEmail, type);
+    throw error;
+  }
+
+  return otp;
+};
 
 const registerService = async (data: IRegisterData) => {
 
@@ -28,6 +96,13 @@ const registerService = async (data: IRegisterData) => {
 
       return studentTx;
     });
+
+    await createAndSendEmailOtp({
+      email: result.user.email,
+      name: result.user.name,
+      type: "email-verification",
+    });
+
     const accessToken = tokenUtils.createAccessToken({
       userId: result.user.id,
       role: result.user.role,
@@ -59,8 +134,13 @@ const registerService = async (data: IRegisterData) => {
         id: result.user.id
       }
     });
+    await cleanupEmailOtp(result.user.email, "email-verification");
 
-    throw new AppError(status.INTERNAL_SERVER_ERROR, "Student profile creation failed");
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    throw new AppError(status.INTERNAL_SERVER_ERROR, "Registration could not be completed. Please try again.");
 
   }
 
@@ -299,6 +379,53 @@ const verifyLoginTOTP = async (code: string, cookieHeader: string) => {
   };
 };
 
+const refreshAccessTokenService = async (refreshToken?: string) => {
+  if (!refreshToken) {
+    throw new AppError(status.UNAUTHORIZED, "Refresh token is missing. Please log in again.");
+  }
+
+  const verifiedToken = jwtUtils.vefifyToken(refreshToken, envVars.REFRESH_TOKEN_SECRET);
+
+  if (!verifiedToken.success || !verifiedToken.data || typeof verifiedToken.data !== "object") {
+    throw new AppError(status.UNAUTHORIZED, "Refresh token is invalid or expired. Please log in again.");
+  }
+
+  const { userId } = verifiedToken.data as { userId?: string; };
+
+  if (!userId) {
+    throw new AppError(status.UNAUTHORIZED, "Refresh token is invalid. Please log in again.");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      role: true,
+      name: true,
+      email: true,
+      isActive: true,
+      isDeleted: true,
+      oneTimePassword: true,
+      emailVerified: true,
+    },
+  });
+
+  if (!user || user.isDeleted) {
+    throw new AppError(status.UNAUTHORIZED, "User account no longer exists. Please log in again.");
+  }
+
+  if (user.isActive === false) {
+    throw new AppError(status.FORBIDDEN, "Your account has been deactivated. Please contact support.");
+  }
+
+  const { isDeleted, oneTimePassword, ...safeUser } = user;
+
+  return {
+    user: safeUser,
+    accessToken: tokenUtils.createAccessToken(buildAuthTokenPayload(user)),
+  };
+};
+
 
 const getMyData = async (userId: string, email: string) => {
   const isUserExists = await prisma.user.findUnique({
@@ -457,10 +584,12 @@ const verifyEmail = async (email: string, otp: string) => {
 };
 
 const resendVerificationEmail = async (email: string) => {
+  const normalizedEmail = email.trim().toLowerCase();
+
   // Verify the user actually exists
   const user = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true, emailVerified: true, isDeleted: true },
+    where: { email: normalizedEmail },
+    select: { id: true, name: true, email: true, emailVerified: true, isDeleted: true },
   });
 
 
@@ -480,16 +609,19 @@ const resendVerificationEmail = async (email: string) => {
     );
   }
 
-  // Use BetterAuth's emailOTP plugin to generate + send a fresh OTP
-  await auth.api.sendVerificationEmail({
-    body: { email },
+  await createAndSendEmailOtp({
+    email: user.email,
+    name: user.name,
+    type: "email-verification",
   });
 };
 
 const forgetPassword = async (email: string) => {
+  const normalizedEmail = email.trim().toLowerCase();
+
   const isUserExist = await prisma.user.findUnique({
     where: {
-      email,
+      email: normalizedEmail,
     }
   });
 
@@ -505,10 +637,10 @@ const forgetPassword = async (email: string) => {
     throw new AppError(status.NOT_FOUND, "User not found");
   }
 
-  await auth.api.requestPasswordResetEmailOTP({
-    body: {
-      email,
-    }
+  await createAndSendEmailOtp({
+    email: isUserExist.email,
+    name: isUserExist.name,
+    type: "forget-password",
   });
 };
 
@@ -727,6 +859,7 @@ export const authService = {
   loginService,
   demoLoginService,
   verifyLoginTOTP,
+  refreshAccessTokenService,
   getMyData,
   changePasswordService,
   logoutService,
@@ -738,4 +871,3 @@ export const authService = {
   googleLoginSuccess,
   updateProfileService
 }
-

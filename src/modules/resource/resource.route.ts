@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { Role } from "../../generated/prisma/enums";
 import { multerUpload } from "../../config/multer.config";
-import { checkAuth } from "../../middleware/checkAuth";
+import { checkAuth, optionalAuth } from "../../middleware/checkAuth";
 import { resourceAiController } from "./resourceAi.controller";
 import { resourceController } from "./resource.controller";
 
@@ -27,15 +27,17 @@ router.post(
   resourceController.uploadResource
 );
 
-router.get("/browse", resourceController.browseResources);
+router.get("/browse", optionalAuth, resourceController.browseResources);
+router.get("/teacher-library", checkAuth(Role.TEACHER), resourceController.teacherLibraryResources);
 router.get("/my", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.myResources);
-router.get("/", resourceController.allResources);
 router.get("/categories", resourceController.getCategories);
+router.get("/cloudinary-sign", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.cloudinarySign);
+router.get("/", resourceController.allResources);
 
-router.get("/:resourceId/processing-status", resourceAiController.processingStatus);
-router.get("/:resourceId/summary", resourceAiController.summary);
-router.get("/:resourceId/citations", resourceAiController.citations);
-router.get("/:resourceId/graph", resourceAiController.graph);
+router.get("/:resourceId/processing-status", checkAuth(Role.ADMIN, Role.TEACHER, Role.STUDENT), resourceAiController.processingStatus);
+router.get("/:resourceId/summary", checkAuth(Role.ADMIN, Role.TEACHER, Role.STUDENT), resourceAiController.summary);
+router.get("/:resourceId/citations", checkAuth(Role.ADMIN, Role.TEACHER, Role.STUDENT), resourceAiController.citations);
+router.get("/:resourceId/graph", checkAuth(Role.ADMIN, Role.TEACHER, Role.STUDENT), resourceAiController.graph);
 router.post(
   "/:resourceId/process-ai",
   checkAuth(Role.ADMIN, Role.TEACHER, Role.STUDENT),
@@ -59,5 +61,7 @@ router.post(
 
 router.post("/:resourceId/bookmark", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.bookmarkResource);
 router.delete("/:resourceId/bookmark", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.removeBookmark);
+router.patch("/:resourceId", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.updateResource);
+router.delete("/:resourceId", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.deleteResource);
 
 export const resourceRouter = router;

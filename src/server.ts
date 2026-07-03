@@ -6,6 +6,35 @@ import { attachExamProctorWebSocket } from "./modules/exam/exam.websocket";
 
 const PORT = process.env.PORT || 5000;
 
+const isMissingTableError = (error: unknown) => {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2021"
+  );
+};
+
+const createBackgroundJob = (label: string, run: () => Promise<unknown>) => {
+  let disabledBecauseSchemaIsMissing = false;
+
+  return () => {
+    if (disabledBecauseSchemaIsMissing) return;
+
+    run().catch((error) => {
+      if (isMissingTableError(error)) {
+        disabledBecauseSchemaIsMissing = true;
+        console.warn(
+          `[ExamShield] ${label} disabled because required database tables are missing. Run "npx prisma migrate deploy" to apply pending migrations.`
+        );
+        return;
+      }
+
+      console.error(`[ExamShield] ${label} failed:`, error);
+    });
+  };
+};
+
 async function main() {
   try {
     await prisma.$connect();
@@ -18,12 +47,8 @@ async function main() {
     });
 
     // Idempotent hourly sweep for teachers who missed the 24-hour question deadline.
-    const runExamReminderSweep = () => examService.remindOverdueTeachers().catch((error) => {
-      console.error("[ExamShield] Reminder sweep failed:", error);
-    });
-    const runEvidenceCleanup = () => examService.cleanupExpiredProctorEvidence().catch((error) => {
-      console.error("[ExamShield] Evidence cleanup failed:", error);
-    });
+    const runExamReminderSweep = createBackgroundJob("Reminder sweep", examService.remindOverdueTeachers);
+    const runEvidenceCleanup = createBackgroundJob("Evidence cleanup", examService.cleanupExpiredProctorEvidence);
     runExamReminderSweep();
     runEvidenceCleanup();
     setInterval(runExamReminderSweep, 60 * 60 * 1000).unref();

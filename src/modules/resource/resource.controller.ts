@@ -171,7 +171,7 @@ const fallbackMetadata = (fileName: string, extractedText: string): AiSuggestion
   };
 };
 
-const suggestMetadata = catchAsync(
+const legacySuggestMetadata = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     if (!req.file?.buffer) {
       throw new AppError(status.BAD_REQUEST, "PDF file is required.");
@@ -258,6 +258,7 @@ const uploadResource = catchAsync(
       year: bodyData.year ? Number(bodyData.year) : undefined,
       isFeatured: bodyData.isFeatured ?? false,
       categoryId: bodyData.categoryId ?? undefined,
+      clusterIds: [...asArray(bodyData.clusterIds), ...asArray(bodyData["clusterIds[]"])],
       clusterId: bodyData.clusterId ?? asArray(bodyData["clusterIds[]"])[0] ?? undefined,
     };
 
@@ -320,6 +321,23 @@ const myResources = catchAsync(
   }
 );
 
+const teacherLibraryResources = catchAsync(
+  async (req: Request, res: Response, _next: NextFunction) => {
+    const userId = req.user!.userId;
+    const result = await resourceService.getTeacherLibraryResources(
+      req.query as Record<string, string>,
+      userId
+    );
+    sendResponse(res, {
+      status: status.OK,
+      success: true,
+      message: "Teacher library resources fetched successfully",
+      data: result.resources,
+      meta: result.meta,
+    });
+  }
+);
+
 const bookmarkResource = catchAsync(
   async (req: Request, res: Response, _next: NextFunction) => {
     const userId = req.user!.userId;
@@ -358,7 +376,7 @@ const suggestMetadata = catchAsync(
     }
 
     try {
-      const metadata = await extractMetadataFromPdf(req.file.buffer);
+      const metadata = extractPdfText(req.file.buffer);
       sendResponse(res, {
         status: status.OK,
         success: true,
@@ -446,13 +464,12 @@ const cloudinarySign = catchAsync(
     if (inline === "true") {
       let upstream: globalThis.Response;
       const storageHeaders = req.headers.range ? { Range: req.headers.range } : undefined;
+      const storageRequestInit = storageHeaders ? { headers: storageHeaders } : undefined;
 
       try {
-        upstream = await fetch(resourceType === "raw" ? url : signedCloudinaryUrl, {
-          headers: storageHeaders,
-        });
+        upstream = await fetch(resourceType === "raw" ? url : signedCloudinaryUrl, storageRequestInit);
         if (!upstream.ok && resourceType === "raw") {
-          upstream = await fetch(signedCloudinaryUrl, { headers: storageHeaders });
+          upstream = await fetch(signedCloudinaryUrl, storageRequestInit);
         }
       } catch {
         return sendResponse(res, {
@@ -548,7 +565,7 @@ const updateResource = catchAsync(
     const { resourceId } = req.params as { resourceId: string; };
     const body = req.body as {
       title?: string; description?: string; authors?: string[];
-      tags?: string[]; year?: string; categoryId?: string;
+      tags?: string[]; year?: string; categoryId?: string | null;
       clusterIds?: string[]; visibility?: string;
     };
     const result = await resourceService.updateResource(resourceId, userId, {
@@ -575,4 +592,7 @@ export const resourceController = {
   bookmarkResource,
   removeBookmark,
   getCategories,
+  cloudinarySign,
+  updateResource,
+  deleteResource,
 };
