@@ -1,4 +1,4 @@
-import { betterAuth, boolean } from "better-auth";
+import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { bearer, emailOTP, twoFactor } from "better-auth/plugins";
 
@@ -6,6 +6,7 @@ import { prisma } from "./prisma";
 import { Role } from "../generated/prisma/enums";
 import { envVars } from "../config/env";
 import { sendEmail } from "../utils/emailSender";
+import { ACCESS_TOKEN_MAX_AGE_SECONDS, REFRESH_TOKEN_MAX_AGE_SECONDS } from "../utils/token";
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -21,7 +22,7 @@ export const auth = betterAuth({
   },
 
   emailVerification: {
-    sendOnSignUp: true,
+    sendOnSignUp: false,
     autoSignInAfterVerification: true,
   },
 
@@ -69,6 +70,8 @@ export const auth = betterAuth({
   },
 
   session: {
+    expiresIn: REFRESH_TOKEN_MAX_AGE_SECONDS,
+    updateAge: ACCESS_TOKEN_MAX_AGE_SECONDS,
     cookieCache: {
       enabled: true,
       maxAge: 5 * 60,

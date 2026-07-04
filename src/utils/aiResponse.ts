@@ -102,7 +102,15 @@ async function fetchFromModel(
       throw new Error(`HTTP ${response.status} from model "${model}": ${message}`);
     }
 
-    const content: string = json?.choices?.[0]?.message?.content ?? "";
+    const message = json?.choices?.[0]?.message ?? {};
+    const content: string =
+      (typeof message.content === "string" && message.content.trim())
+        ? message.content
+        : (typeof message.reasoning_content === "string" && message.reasoning_content.trim())
+          ? message.reasoning_content
+          : (typeof message.thinking === "string" && message.thinking.trim())
+            ? message.thinking
+            : "";
     if (!content.trim()) {
       throw new Error(`Empty content returned by model "${model}"`);
     }
