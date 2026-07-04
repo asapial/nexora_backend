@@ -63,7 +63,7 @@ const create = async (userId: string, payload: any) => {
       startTime, endTime: new Date(payload.endTime), durationMinutes: payload.durationMinutes ?? null,
       questionsDueAt: new Date(startTime.getTime() - 24 * 60 * 60 * 1000),
       questions: { create: createQuestionRows(payload.questions) },
-      proctorPolicy: payload.examMode === "PRO" ? { create: payload.proctorPolicy } : undefined,
+      ...(payload.examMode === "PRO" ? { proctorPolicy: { create: payload.proctorPolicy } } : {}),
     },
     include: { cluster: true, proctorPolicy: true, questions: { include: { options: true } } },
   });
@@ -421,7 +421,8 @@ const clearProctorFeed = async (userId: string, examId: string, attemptId: strin
     deletedEventIds.push(event.id);
   }
 
-  const feedClearedAt = evidenceDeletionFailures.length === 0 ? new Date() : attempt.proctorFeedClearedAt;
+  const eventOccurredAt = new Date();
+  const feedClearedAt = evidenceDeletionFailures.length === 0 ? eventOccurredAt : attempt.proctorFeedClearedAt;
   await prisma.$transaction([
     prisma.examProctorEvent.deleteMany({ where: { id: { in: deletedEventIds } } }),
     ...(feedClearedAt && evidenceDeletionFailures.length === 0
@@ -435,22 +436,20 @@ const clearProctorFeed = async (userId: string, examId: string, attemptId: strin
     student: attempt.user.name,
     studentEmail: attempt.user.email,
     type: "FEED_CLEARED",
-    occurredAt: feedClearedAt,
+    occurredAt: eventOccurredAt,
     durationMs: null,
     confidence: null,
     evidenceUrl: null,
-    metadata: null,
+    metadata: { deletedEventIds, evidenceDeletionFailures: evidenceDeletionFailures.length },
     reviewDecision: "PENDING",
     reviewNote: null,
     suspicious: attempt.suspicious,
     suspiciousCount: attempt.suspiciousCount,
-    feedClearedAt: evidenceDeletionFailures.length === 0 ? feedClearedAt : undefined,
-    deletedEventIds,
-    evidenceDeletionFailures: evidenceDeletionFailures.length,
+    ...(evidenceDeletionFailures.length === 0 ? { feedClearedAt: eventOccurredAt } : {}),
   });
   return {
     attemptId,
-    feedClearedAt: evidenceDeletionFailures.length === 0 ? feedClearedAt : undefined,
+    ...(evidenceDeletionFailures.length === 0 ? { feedClearedAt: eventOccurredAt } : {}),
     deletedEventIds,
     deletedWarnings: deletedEventIds.length,
     preservedConfirmedViolations: attempt.suspiciousCount,
@@ -484,18 +483,22 @@ const updateResultPublication = async (
   if (publication.answerSheetPublished && !publication.resultsPublished && !exam.resultsPublishedAt) {
     throw new AppError(status.BAD_REQUEST, "Publish results before publishing answer sheets");
   }
+  const data: {
+    resultsPublishedAt?: Date | null;
+    answerSheetPublishedAt?: Date | null;
+  } = {};
+  if (publication.resultsPublished !== undefined) {
+    data.resultsPublishedAt = publication.resultsPublished ? new Date() : null;
+  }
+  if (publication.resultsPublished === false) {
+    data.answerSheetPublishedAt = null;
+  } else if (publication.answerSheetPublished !== undefined) {
+    data.answerSheetPublishedAt = publication.answerSheetPublished ? new Date() : null;
+  }
+
   return prisma.exam.update({
     where: { id: examId },
-    data: {
-      resultsPublishedAt: publication.resultsPublished === undefined
-        ? undefined
-        : publication.resultsPublished ? new Date() : null,
-      answerSheetPublishedAt: publication.resultsPublished === false
-        ? null
-        : publication.answerSheetPublished === undefined
-        ? undefined
-        : publication.answerSheetPublished ? new Date() : null,
-    },
+    data,
   });
 };
 

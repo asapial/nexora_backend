@@ -147,6 +147,29 @@ const updateCourse = async (userId: string, courseId: string, input: UpdateCours
   return prisma.course.update({ where: { id: courseId }, data: input });
 };
 
+const deleteCourse = async (userId: string, courseId: string) => {
+  const teacherId = await getTeacherIdByUserId(userId);
+  const course = await prisma.course.findFirst({
+    where: { id: courseId, teacherId },
+    include: { _count: { select: { enrollments: true, payments: true } } },
+  });
+  if (!course) throw new AppError(status.NOT_FOUND, "Course not found.");
+  if (!["DRAFT", "REJECTED", "PENDING_APPROVAL"].includes(course.status)) {
+    throw new AppError(status.BAD_REQUEST, "Only draft, rejected, or pending courses can be deleted. Close published courses instead.");
+  }
+  if (course._count.enrollments > 0 || course._count.payments > 0) {
+    throw new AppError(status.CONFLICT, "Courses with enrollments or payments cannot be deleted.");
+  }
+
+  await prisma.$transaction([
+    prisma.coursePriceRequest.deleteMany({ where: { courseId } }),
+    prisma.courseMission.deleteMany({ where: { courseId } }),
+    prisma.course.delete({ where: { id: courseId } }),
+  ]);
+
+  return { deleted: true };
+};
+
 const submitCourse = async (userId: string, courseId: string) => {
   const teacherId = await getTeacherIdByUserId(userId);
   const course = await prisma.course.findFirst({ where: { id: courseId, teacherId } });
@@ -349,6 +372,7 @@ export const courseService = {
   getMyCourses,
   getCourseById,
   updateCourse,
+  deleteCourse,
   submitCourse,
   closeCourse,
   finishCourse,

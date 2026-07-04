@@ -51,6 +51,12 @@ const updateCourse = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, { status: status.OK, success: true, message: "Course updated", data: result });
 });
 
+const deleteCourse = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user!.userId;
+  const result = await courseService.deleteCourse(userId, req.params.id as string);
+  sendResponse(res, { status: status.OK, success: true, message: "Course deleted", data: result });
+});
+
 const submitCourse = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user!.userId;
   const result = await courseService.submitCourse(userId, req.params.id as string);
@@ -145,6 +151,7 @@ export const courseController = {
   getMyCourses,
   getCourseById,
   updateCourse,
+  deleteCourse,
   submitCourse,
   closeCourse,
   finishCourse,

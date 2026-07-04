@@ -53,9 +53,10 @@ const createTeacher = async (emails: string[]) => {
         templateName: "teacherWelcome",
         templateData: {
           name: email.split("@")[0] as string,
+          roleName: "Teacher",
           email,
           password: plainPassword,
-          loginUrl: `${envVars.FRONTEND_URL}/login`,
+          loginUrl: `${envVars.FRONTEND_URL}/auth/signin`,
         },
       });
 
@@ -77,8 +78,10 @@ const createTeacher = async (emails: string[]) => {
         subject: `Welcome to Nexora - Promoted to Teacher`,
         templateName: "teacherWelcome",
         templateData: {
+          name: existingUser.name || email.split("@")[0],
+          roleName: "Teacher",
           email,
-          loginUrl: `${envVars.FRONTEND_URL}/login`,
+          loginUrl: `${envVars.FRONTEND_URL}/auth/signin`,
         },
       });
 
@@ -134,13 +137,14 @@ const createAdmin = async (emails: string[]) => {
       // Send Welcome Email with Password
       await sendEmail({
         to: email,
-        subject: `Welcome to Nexora - Teacher Account Created`,
+        subject: `Welcome to Nexora - Admin Account Created`,
         templateName: "teacherWelcome",
         templateData: {
           name: email.split("@")[0] as string,
+          roleName: "Admin",
           email,
           password: plainPassword,
-          loginUrl: `${envVars.FRONTEND_URL}/login`,
+          loginUrl: `${envVars.FRONTEND_URL}/auth/signin`,
         },
       });
 
@@ -159,11 +163,13 @@ const createAdmin = async (emails: string[]) => {
       // Send Welcome Email without password
       await sendEmail({
         to: email,
-        subject: `Welcome to Nexora - Promoted to Teacher`,
+        subject: `Welcome to Nexora - Promoted to Admin`,
         templateName: "teacherWelcome",
         templateData: {
+          name: existingUser.name || email.split("@")[0],
+          roleName: "Admin",
           email,
-          loginUrl: `${envVars.FRONTEND_URL}/login`,
+          loginUrl: `${envVars.FRONTEND_URL}/auth/signin`,
         },
       });
 

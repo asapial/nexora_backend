@@ -120,6 +120,22 @@ const getMyDataController = catchAsync(
   }
 );
 
+const refreshAccessTokenController = catchAsync(
+  async (req: Request, res: Response) => {
+    const refreshToken = cookieUtils.getCookie(req, "refreshToken");
+    const result = await authService.refreshAccessTokenService(refreshToken);
+
+    tokenUtils.setAccessTokenCookie(res, result.accessToken);
+
+    sendResponse(res, {
+      status: status.OK,
+      success: true,
+      message: "Access token refreshed successfully",
+      data: { user: result.user },
+    });
+  }
+);
+
 const changePasswordController = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
 
@@ -152,21 +168,7 @@ const logoutController = catchAsync(
 
     const result = await authService.logoutService(betterAuthSessionToken!);
 
-    cookieUtils.clearCookie(res, 'accessToken', {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-    });
-    cookieUtils.clearCookie(res, 'refreshToken', {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-    });
-    cookieUtils.clearCookie(res, cookieUtils.betterAuthSessionCookieName, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-    });
+    tokenUtils.clearAuthCookies(res);
 
     sendResponse(res, {
       status: status.OK,
@@ -365,6 +367,7 @@ export const authController = {
   loginController,
   demoLoginController,
   verifyLoginTOTPController,
+  refreshAccessTokenController,
   getMyDataController,
   changePasswordController,
   logoutController,

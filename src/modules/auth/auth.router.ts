@@ -12,6 +12,7 @@ router.post("/register", validateRequest(registerSchema), authController.registe
 router.post("/login", validateRequest(loginSchema), authController.loginController);
 router.post("/demo-login", validateRequest(demoLoginSchema), authController.demoLoginController);
 router.post("/verify-login-totp", authController.verifyLoginTOTPController);
+router.post("/refresh-token", authController.refreshAccessTokenController);
 router.get("/me", checkAuth(), authController.getMyDataController);
 router.post("/changePassword", checkAuth(), validateRequest(changePasswordSchema), authController.changePasswordController);
 router.post("/logout", authController.logoutController);
