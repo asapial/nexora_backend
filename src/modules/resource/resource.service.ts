@@ -138,6 +138,15 @@ const uploadResource = async (resourcePayload: any) => {
   });
 };
 
+// Compute and persist the server-side SHA-256 file hash for a freshly uploaded PDF.
+// This is what enables the "first user processes, everyone else reuses" rule on re-uploads.
+const computeAndPersistFileHash = async (resourceId: string, buffer: Buffer) => {
+  const { createHash } = await import("crypto");
+  const fileHash = createHash("sha256").update(buffer).digest("hex");
+  await prisma.resource.update({ where: { id: resourceId }, data: { fileHash } });
+  return fileHash;
+};
+
 const allResources = async () =>
   prisma.resource.findMany({
     where: { visibility: "PUBLIC" },
@@ -310,6 +319,7 @@ const deleteResource = async (resourceId: string, userId: string) => {
 
 export const resourceService = {
   uploadResource,
+  computeAndPersistFileHash,
   allResources,
   getFilteredResources,
   getTeacherLibraryResources,

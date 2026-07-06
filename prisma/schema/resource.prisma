@@ -67,6 +67,7 @@ model ResourceSummary {
   promptVersion Int @default(1)
   inputTextHash String
 
+  // ── English (canonical) ────────────────────────────────────────────────────
   professionalSummary String
   goals        String?
   methods      String?
@@ -75,6 +76,19 @@ model ResourceSummary {
   keyContributions String[]
   limitations  String[]
   keywords     String[]
+
+  // ── Native Bangla (mirror of the above; always set when AI succeeds) ───────
+  // Each of these mirrors the English field but in fluent native Bangla (বাংলা),
+  // never transliteration. Null when AI generation didn't produce Bangla output
+  // (older rows, fallbacks, or language not detected).
+  professionalSummaryBn String?
+  goalsBn       String?
+  methodsBn     String?
+  resultsBn     String?
+  conclusionsBn String?
+  keyContributionsBn String[] @default([])
+  limitationsBn  String[]   @default([])
+  keywordsBn     String[]   @default([])
 
   isVisible    Boolean @default(true)
   generationStatus AiGenerationStatus @default(COMPLETED)

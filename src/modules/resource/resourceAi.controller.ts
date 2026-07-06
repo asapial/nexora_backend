@@ -50,19 +50,19 @@ const processAi = catchAsync(async (req: Request, res: Response) => {
     regenerateSummary: Boolean(req.body?.regenerateSummary),
     reanalyzeCitations: Boolean(req.body?.reanalyzeCitations),
   });
-  sendResponse(res, { status: status.ACCEPTED, success: true, message: "Resource AI processing completed", data: result });
+  sendResponse(res, { status: status.ACCEPTED, success: true, message: "Resource AI processing queued", data: result });
 });
 
 const regenerateSummary = catchAsync(async (req: Request, res: Response) => {
   await assertReadableResource(req);
   const result = await processResourceSummary(resourceIdFrom(req), true);
-  sendResponse(res, { status: status.ACCEPTED, success: true, message: "Resource AI summary regenerated", data: result });
+  sendResponse(res, { status: status.ACCEPTED, success: true, message: "Resource AI summary queued", data: result });
 });
 
 const reanalyzeCitations = catchAsync(async (req: Request, res: Response) => {
   await assertReadableResource(req);
   const result = await processResourceAi(resourceIdFrom(req), { reanalyzeCitations: true });
-  sendResponse(res, { status: status.ACCEPTED, success: true, message: "Resource citations reanalyzed", data: result.citationsFrom });
+  sendResponse(res, { status: status.ACCEPTED, success: true, message: "Resource citations queued", data: result });
 });
 
 const updateSummaryVisibility = catchAsync(async (req: Request, res: Response) => {

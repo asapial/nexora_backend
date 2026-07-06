@@ -25,6 +25,7 @@ declare global {
  *
  * PRIMARY AUTH  → JWT access token (cookie: "accessToken")
  *   • Always required.
+ *   • Missing/expired access tokens are renewed through /api/auth/refresh-token.
  *   • Set on the FRONTEND domain for ALL login methods (email/password AND
  *     Google OAuth), so it is always forwarded when Next.js proxies requests.
  *
@@ -49,10 +50,14 @@ export const checkAuth = (...authRoles: Role[]) => async (req: Request, res: Res
     const verifiedToken = jwtUtils.vefifyToken(accessToken, envVars.ACCESS_TOKEN_SECRET);
 
     if (!verifiedToken.success || !verifiedToken.data) {
-      throw new AppError(status.UNAUTHORIZED, "Unauthorized access! Access token is invalid or expired.");
+      throw new AppError(status.UNAUTHORIZED, "Unauthorized access! Please log in to continue.");
     }
 
-    const { userId } = verifiedToken.data as { userId: string; role: Role; email: string; };
+    const { userId } = verifiedToken.data as { userId?: string; role?: Role; email?: string; };
+
+    if (!userId) {
+      throw new AppError(status.UNAUTHORIZED, "Unauthorized access! Please log in to continue.");
+    }
 
     // ── 2. DB user check — ensure account still exists and is active ──────
     const user = await prisma.user.findUnique({

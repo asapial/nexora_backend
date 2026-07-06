@@ -7,6 +7,7 @@ import { envVars } from "../../config/env";
 import { catchAsync } from "../../utils/catchAsync";
 import { getAiResponse } from "../../utils/aiResponse";
 import { sendResponse } from "../../utils/sendResponse";
+import { hydrateResourceAiFromExisting, processResourceAi } from "./resourceAi.service";
 import { resourceService } from "./resource.service";
 
 type AiSuggestions = {
@@ -34,6 +35,12 @@ const asArray = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.map(String).map((item) => item.trim()).filter(Boolean);
   if (typeof value === "string" && value.trim()) return [value.trim()];
   return [];
+};
+
+const normalizeSha256 = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return /^[a-f0-9]{64}$/.test(normalized) ? normalized : null;
 };
 
 const cleanText = (value: string) =>
@@ -466,11 +473,13 @@ const uploadResource = catchAsync(
     const fileUrl = req.file?.path ?? fileUrlFromBody;
     const fileTypeFromBody = typeof bodyData.fileType === "string" ? bodyData.fileType.trim() : "";
     const fileType = req.file?.mimetype ?? (fileTypeFromBody || "other");
+    const fileHash = normalizeSha256(bodyData.fileHash);
 
     const payload = {
       uploaderId,
       fileUrl,
       fileType,
+      fileHash: fileHash ?? undefined,
       title: bodyData.title ?? "",
       description: bodyData.description ?? undefined,
       visibility: bodyData.visibility ?? "PUBLIC",
@@ -484,6 +493,37 @@ const uploadResource = catchAsync(
     };
 
     const result = await resourceService.uploadResource(payload);
+    const isPdf = isPdfDescriptor(fileUrl, fileType);
+
+    // ── Best-effort AI ingestion kickoff ────────────────────────────────────
+    // Real-world academic readers (Elicit, ChatPDF, Humata) start the
+    // summary/citations/graph pipeline at upload time so the FIRST user to
+    // open the document doesn't have to click "Process PDF" and so subsequent
+    // users re-use cached artifacts via the fileHash. We never block the
+    // upload response on this — failures are logged, not surfaced to the user.
+    if (isPdf) {
+      void (async () => {
+        try {
+          let resolvedFileHash = fileHash ?? null;
+          if (!resolvedFileHash && req.file?.buffer) {
+            resolvedFileHash = await resourceService.computeAndPersistFileHash(result.id, req.file.buffer);
+          }
+
+          const shared = resolvedFileHash
+            ? await hydrateResourceAiFromExisting(result.id, { fileHash: resolvedFileHash })
+            : { hydrated: false, copiedText: false, copiedSummary: false, copiedCitations: 0, sourceResourceId: null };
+
+          if (!shared.hydrated) {
+            await processResourceAi(result.id, { regenerateSummary: false, reanalyzeCitations: false });
+          }
+        } catch (error: unknown) {
+          console.warn("[resource-ai] auto-ingest failed after upload", {
+            resourceId: result.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      })();
+    }
 
     sendResponse(res, {
       status: status.CREATED,

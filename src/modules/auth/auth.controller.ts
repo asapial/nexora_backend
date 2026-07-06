@@ -7,6 +7,7 @@ import { tokenUtils } from "../../utils/token";
 import { cookieUtils } from "../../utils/cookie";
 import { envVars } from "../../config/env";
 import { auth } from "../../lib/auth";
+import AppError from "../../errorHelpers/AppError";
 
 
 // catchAsync(
@@ -123,7 +124,20 @@ const getMyDataController = catchAsync(
 const refreshAccessTokenController = catchAsync(
   async (req: Request, res: Response) => {
     const refreshToken = cookieUtils.getCookie(req, "refreshToken");
-    const result = await authService.refreshAccessTokenService(refreshToken);
+    let result: Awaited<ReturnType<typeof authService.refreshAccessTokenService>>;
+
+    try {
+      result = await authService.refreshAccessTokenService(refreshToken);
+    } catch (error) {
+      if (
+        error instanceof AppError &&
+        (error.statusCode === status.UNAUTHORIZED || error.statusCode === status.FORBIDDEN)
+      ) {
+        tokenUtils.clearAuthCookies(res);
+      }
+
+      throw error;
+    }
 
     tokenUtils.setAccessTokenCookie(res, result.accessToken);
 
