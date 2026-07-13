@@ -41,6 +41,7 @@ router.get("/cloudinary-sign", checkAuth(Role.STUDENT, Role.TEACHER), resourceCo
 router.get("/", resourceController.allResources);
 
 router.get("/:resourceId/processing-status", checkAuth(Role.ADMIN, Role.TEACHER, Role.STUDENT), resourceAiController.processingStatus);
+router.get("/:resourceId/extracted-text-preview", checkAuth(Role.ADMIN, Role.TEACHER, Role.STUDENT), resourceAiController.extractedTextPreview);
 router.get("/:resourceId/summary", checkAuth(Role.ADMIN, Role.TEACHER, Role.STUDENT), resourceAiController.summary);
 router.get("/:resourceId/citations", checkAuth(Role.ADMIN, Role.TEACHER, Role.STUDENT), resourceAiController.citations);
 router.get("/:resourceId/graph", checkAuth(Role.ADMIN, Role.TEACHER, Role.STUDENT), resourceAiController.graph);
@@ -63,6 +64,11 @@ router.post(
   "/:resourceId/citations/reanalyze",
   checkAuth(Role.ADMIN, Role.TEACHER, Role.STUDENT),
   resourceAiController.reanalyzeCitations
+);
+router.post(
+  "/:resourceId/graph/regenerate",
+  checkAuth(Role.ADMIN, Role.TEACHER, Role.STUDENT),
+  resourceAiController.regenerateGraph
 );
 
 router.post("/:resourceId/bookmark", checkAuth(Role.STUDENT, Role.TEACHER), resourceController.bookmarkResource);

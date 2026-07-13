@@ -7,8 +7,13 @@ import { prisma } from "../../lib/prisma";
 import { getAiResponse, repairModelJson } from "../../utils/aiResponse";
 import { cloudinaryUpload } from "../../config/cloudinary.config";
 
-const SUMMARY_PROMPT_VERSION = 2;
+const SUMMARY_PROMPT_VERSION = 4;
 const CITATION_PARSER_VERSION = 1;
+const RESEARCH_GRAPH_VERSION = 2;
+const RESEARCH_GRAPH_FIRST_LAYER_LIMIT = 10;
+const RESEARCH_GRAPH_SECOND_LAYER_PARENTS = 4;
+const RESEARCH_GRAPH_SECOND_LAYER_LIMIT = 3;
+const RESEARCH_GRAPH_RELATED_LIMIT = 8;
 const MAX_TEXT_CHARS = 60000;
 const MAX_AI_CONTEXT_CHARS = 22000;
 const MIN_EXTRACTED_TEXT_CHARS = 80;
@@ -57,6 +62,65 @@ const aiReferenceListSchema = z.preprocess((value) => {
 
 type SummaryOutput = z.infer<typeof summarySchema>;
 type ParsedReference = z.infer<typeof aiReferenceSchema>;
+
+type ResearchGraphNode = {
+  id: string;
+  type: "current-resource" | "reference-paper" | "citing-paper" | "second-layer-paper" | "related-paper";
+  label: string;
+  data: Record<string, unknown>;
+};
+
+type ResearchGraphEdge = {
+  id: string;
+  source: string;
+  target: string;
+  type: "REFERENCES" | "CITED_BY" | "RELATED";
+  label: "References" | "Cited by" | "Related work";
+  confidenceScore: number;
+};
+
+type SemanticScholarPaper = {
+  paperId?: string | null;
+  title?: string | null;
+  authors?: Array<{ authorId?: string | null; name?: string | null }> | null;
+  year?: number | null;
+  externalIds?: { DOI?: string | null; ArXiv?: string | null; [key: string]: unknown } | null;
+  openAccessPdf?: { url?: string | null; status?: string | null } | null;
+  url?: string | null;
+  venue?: string | null;
+  abstract?: string | null;
+  citationCount?: number | null;
+};
+
+type SemanticScholarCitation = {
+  citingPaper?: SemanticScholarPaper | null;
+  contexts?: string[] | null;
+  isInfluential?: boolean | null;
+};
+
+type SemanticScholarReference = {
+  citedPaper?: SemanticScholarPaper | null;
+  contexts?: string[] | null;
+  isInfluential?: boolean | null;
+};
+
+type OpenAlexWork = {
+  id?: string | null;
+  doi?: string | null;
+  title?: string | null;
+  display_name?: string | null;
+  publication_year?: number | null;
+  cited_by_count?: number | null;
+  referenced_works?: string[] | null;
+  related_works?: string[] | null;
+  authorships?: Array<{ author?: { display_name?: string | null } | null }> | null;
+  primary_location?: {
+    landing_page_url?: string | null;
+    pdf_url?: string | null;
+    source?: { display_name?: string | null } | null;
+  } | null;
+  abstract_inverted_index?: Record<string, number[]> | null;
+};
 
 const hash = (value: Buffer | string) => crypto.createHash("sha256").update(value).digest("hex");
 
@@ -227,6 +291,130 @@ const fetchResourcePdf = async (fileUrl: string): Promise<Buffer> => {
   }
 };
 
+type PaperIdentity = {
+  detectedTitle: string;
+  detectedAuthors: string[];
+  sourceType: "FULL_PAPER" | "RESEARCH_SUMMARY" | "EXTRACTED_TEXT";
+  titleMismatch: boolean;
+};
+
+const normalizeIdentityText = (value: string) => value
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, " ")
+  .trim();
+
+const identityTitleSimilarity = (left: string, right: string) => {
+  const a = new Set(normalizeIdentityText(left).split(" ").filter((token) => token.length > 2));
+  const b = new Set(normalizeIdentityText(right).split(" ").filter((token) => token.length > 2));
+  if (!a.size || !b.size) return 0;
+  const intersection = [...a].filter((token) => b.has(token)).length;
+  return intersection / Math.max(a.size, b.size);
+};
+
+/** Remove page-break boilerplate from prepared research packs while preserving
+ * the actual paper title and numbered analytical sections. */
+const prepareAcademicText = (text: string) => text
+  .replace(/Paper\s+\d+\s*(?:•|·|â€¢|Â·)\s*Premium Research Summary\s+Prepared as separate paper-wise summary\s*(?:•|·|â€¢|Â·)\s*[^•\n]{0,120}?Research Pack\s*/gi, "")
+  .replace(/[—-]+\s*End of Paper Summary\s*[—-]+/gi, "")
+  .replace(/\s*[▪◦]\s*/g, "\n• ")
+  .replace(/\s+([০-৯0-9]{1,2}\.\s+(?:Quick Research Profile|Executive Summary|Problem Statement|Dataset|Methodology|Experiments|Results|Limitations|Future Research|Graph|Chart|Presentation|Literature Review))/gi, "\n$1")
+  .replace(/[ \t]+/g, " ")
+  .replace(/\n{3,}/g, "\n\n")
+  .trim();
+
+const inferPaperIdentity = (
+  cleanedText: string,
+  resource: { title: string; authors?: string[] },
+): PaperIdentity => {
+  const sourceType: PaperIdentity["sourceType"] = /Premium Research Summary|Quick Research Profile|Executive Summary/i.test(cleanedText)
+    ? "RESEARCH_SUMMARY"
+    : /\bAbstract\b[\s\S]{50,}\b(?:Introduction|Methods?|Methodology)\b/i.test(cleanedText)
+      ? "FULL_PAPER"
+      : "EXTRACTED_TEXT";
+  let detectedTitle = resource.title.trim();
+  let detectedAuthors = resource.authors?.filter(Boolean) ?? [];
+
+  const packMarker = /Research Pack\s+/i.exec(cleanedText);
+  if (packMarker?.index !== undefined) {
+    const afterMarker = cleanedText.slice(packMarker.index + packMarker[0].length, packMarker.index + packMarker[0].length + 900);
+    const authorStart = /\s+([A-Z][\p{L}.'’\-]+\s+[A-Z][\p{L}.'’\-]+),\s+(?=[A-Z])/u.exec(afterMarker);
+    if (authorStart?.index !== undefined) {
+      const candidate = afterMarker.slice(0, authorStart.index).replace(/\s+/g, " ").trim();
+      if (candidate.length >= 20 && candidate.length <= 350) detectedTitle = candidate;
+      const authorBlock = afterMarker.slice(authorStart.index, afterMarker.search(/Accepted author version|\bAbstract\b|\bComputer Vision\b|\bQuick Research Profile\b/i) > authorStart.index
+        ? afterMarker.search(/Accepted author version|\bAbstract\b|\bComputer Vision\b|\bQuick Research Profile\b/i)
+        : Math.min(afterMarker.length, authorStart.index + 300));
+      detectedAuthors = authorBlock
+        .split(/,|\band\b/)
+        .map((author) => author.replace(/\s+/g, " ").trim())
+        .filter((author) => /^[A-Z][\p{L}.'’\-]+(?:\s+[A-Z][\p{L}.'’\-]+)+$/u.test(author))
+        .slice(0, 20);
+    }
+  }
+
+  return {
+    detectedTitle,
+    detectedAuthors,
+    sourceType,
+    titleMismatch: identityTitleSimilarity(resource.title, detectedTitle) < 0.42,
+  };
+};
+
+const extractLabeledValue = (text: string, label: string, nextLabels: string[]) => {
+  const lower = text.toLowerCase();
+  const startLabel = lower.indexOf(label.toLowerCase());
+  if (startLabel < 0) return null;
+  const start = startLabel + label.length;
+  const ends = nextLabels
+    .map((next) => lower.indexOf(next.toLowerCase(), start))
+    .filter((index) => index > start);
+  const end = ends.length ? Math.min(...ends) : Math.min(text.length, start + 900);
+  const value = text.slice(start, end).replace(/^\s*[:\-–—]\s*/, "").replace(/\s+/g, " ").trim();
+  return value.length >= 8 ? value.slice(0, 1200) : null;
+};
+
+const structuredPackFallback = (
+  resource: { title: string; description: string | null; tags: string[]; authors?: string[] },
+  cleanedText: string,
+): SummaryOutput | null => {
+  const prepared = prepareAcademicText(cleanedText);
+  if (!/Quick Research Profile|Paper Focus|Core Problem|Main Method/i.test(prepared)) return null;
+  const paperFocus = extractLabeledValue(prepared, "Paper Focus", ["Core Problem", "Main Method"]);
+  const coreProblem = extractLabeledValue(prepared, "Core Problem", ["Main Method", "Dataset / Evaluation"]);
+  const mainMethod = extractLabeledValue(prepared, "Main Method", ["Dataset / Evaluation", "Main Takeaway"]);
+  const evaluation = extractLabeledValue(prepared, "Dataset / Evaluation", ["Main Takeaway", "Executive Summary"]);
+  const takeaway = extractLabeledValue(prepared, "Main Takeaway", ["Executive Summary", "Problem Statement"]);
+  const identity = inferPaperIdentity(cleanedText, resource);
+  const statements = [paperFocus, coreProblem, mainMethod, evaluation, takeaway].filter((value): value is string => Boolean(value));
+  if (statements.length < 2) return null;
+  const limitationsBlock = extractLabeledValue(prepared, "Limitations and Open Gaps", ["Future Research Suggestions", "Graph / Chart"]);
+  const limitations = limitationsBlock
+    ? limitationsBlock.split(/\s*•\s*|;\s+/).map((item) => item.trim()).filter((item) => item.length > 12).slice(0, 6)
+    : [];
+  const keywordTokens = identity.detectedTitle
+    .split(/[:\-–—,]/)
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => item.length > 3);
+  return {
+    professionalSummary: statements.join(" ").slice(0, 2400),
+    goals: [paperFocus, coreProblem].filter(Boolean).join(" ") || "Not clearly stated in the supplied text.",
+    methods: mainMethod ?? "Not clearly stated in the supplied text.",
+    results: [evaluation, takeaway].filter(Boolean).join(" ") || "Not clearly stated in the supplied text.",
+    conclusions: takeaway ?? "Not clearly stated in the supplied text.",
+    keyContributions: [mainMethod, evaluation].filter((value): value is string => Boolean(value)).slice(0, 6),
+    limitations,
+    keywords: [...new Set([...keywordTokens, ...resource.tags])].slice(0, 10),
+    professionalSummaryBn: null,
+    goalsBn: null,
+    methodsBn: null,
+    resultsBn: null,
+    conclusionsBn: null,
+    keyContributionsBn: [],
+    limitationsBn: [],
+    keywordsBn: [],
+  };
+};
+
 /**
  * Deterministic local fallback when the AI response is unusable. Builds a
  * visibly useful summary from whatever signals we DO have (title, description,
@@ -238,7 +426,10 @@ const fetchResourcePdf = async (fileUrl: string): Promise<Buffer> => {
  * "EN (mirrored)" suffix in the UI to set user expectations correctly.
  */
 const fallbackSummary = (resource: { title: string; description: string | null; tags: string[] }, cleanedText: string): SummaryOutput => {
-  const firstParagraph = cleanedText.split(/\n{2,}/).find((part) => part.length > 140) ?? resource.description ?? cleanedText.slice(0, 700);
+  const structured = structuredPackFallback(resource, cleanedText);
+  if (structured) return structured;
+  const prepared = prepareAcademicText(cleanedText);
+  const firstParagraph = prepared.split(/\n{2,}/).find((part) => part.length > 140) ?? resource.description ?? prepared.slice(0, 700);
   const english = firstParagraph ? firstParagraph.slice(0, 1100) : "Not clearly stated in the paper.";
   const banglaNote = "\n\n(বাংলা সারাংশ AI দ্বারা তৈরি করা যায়নি — ইংরেজি সারাংশ দেখানো হচ্ছে।)";
   return {
@@ -359,6 +550,14 @@ const copySharedAiArtifacts = async (
       keyContributions,
       limitations,
       keywords,
+      professionalSummaryBn,
+      goalsBn,
+      methodsBn,
+      resultsBn,
+      conclusionsBn,
+      keyContributionsBn,
+      limitationsBn,
+      keywordsBn,
       generationStatus,
       generationError,
     } = source.aiSummary;
@@ -377,6 +576,14 @@ const copySharedAiArtifacts = async (
         keyContributions,
         limitations,
         keywords,
+        professionalSummaryBn,
+        goalsBn,
+        methodsBn,
+        resultsBn,
+        conclusionsBn,
+        keyContributionsBn,
+        limitationsBn,
+        keywordsBn,
         isVisible: true,
         generationStatus,
         generationError,
@@ -393,6 +600,14 @@ const copySharedAiArtifacts = async (
         keyContributions,
         limitations,
         keywords,
+        professionalSummaryBn,
+        goalsBn,
+        methodsBn,
+        resultsBn,
+        conclusionsBn,
+        keyContributionsBn,
+        limitationsBn,
+        keywordsBn,
         isVisible: true,
         generationStatus,
         generationError,
@@ -507,6 +722,9 @@ const getOrCreateSummary = async (resource: ResourceForAi, cleanedText: string, 
       const translated = await translateSummaryToBangla(parsed, modelName);
       parsed = { ...parsed, ...translated };
     }
+    if (parsed && (!parsed.professionalSummaryBn || parsed.professionalSummaryBn.trim().length < 20)) {
+      parsed = withBnMirror(parsed, modelName);
+    }
   }
 
   await prisma.aiCache.upsert({
@@ -580,34 +798,58 @@ const getOrCreateSummary = async (resource: ResourceForAi, cleanedText: string, 
  * it was the deterministic local path.
  */
 const generateBilingualSummary = async (resource: ResourceForAi, cleanedText: string): Promise<SummaryOutput & { __model?: string }> => {
-  const prompt = `Paper/resource title: ${resource.title}\nAuthors: ${resource.authors?.join(", ") || "Unknown"}\nDescription: ${resource.description || ""}\n\nExtracted text:\n${cleanedText.slice(0, MAX_AI_CONTEXT_CHARS)}`;
+  const preparedText = prepareAcademicText(cleanedText);
+  const identity = inferPaperIdentity(cleanedText, resource);
+  const groundingAnchor = {
+    title: identity.detectedTitle,
+    authors: identity.detectedAuthors,
+    description: preparedText.slice(0, 2200),
+  };
+  const prompt = [
+    `Stored resource title (may be inaccurate): ${resource.title}`,
+    `Detected paper title from the document: ${identity.detectedTitle}`,
+    `Detected authors: ${identity.detectedAuthors.join(", ") || resource.authors?.join(", ") || "Unknown"}`,
+    `Source type: ${identity.sourceType}`,
+    identity.titleMismatch
+      ? `IMPORTANT: The stored resource title conflicts with the document. Summarize the detected paper only.`
+      : `The stored title and document identity are consistent.`,
+    `\nPrepared extracted text:\n${preparedText.slice(0, MAX_AI_CONTEXT_CHARS)}`,
+  ].join("\n");
 
-  // Tighter response-style description + explicit bilingual requirement.
+  // High-quality academic-style response. Demands concrete, dense prose in
+  // both English and native বাংলা, with hard limits on field sizes to keep the
+  // JSON small enough to fit in a single response.
   const responseStyle = [
-    `Return a single JSON object only. No markdown fences, no prose, no commentary.`,
-    `Required top-level keys (all must be present, even if empty):`,
-    `- "professionalSummary"  (English, 3-6 sentences, dense academic prose)`,
-    `- "goals"               (English, 1-3 sentences or null)`,
-    `- "methods"             (English, 1-3 sentences or null)`,
-    `- "results"             (English, 1-3 sentences or null)`,
-    `- "conclusions"         (English, 1-3 sentences or null)`,
-    `- "keyContributions"    (English, array of 0-8 short noun phrases)`,
-    `- "limitations"         (English, array of 0-8 short noun phrases)`,
-    `- "keywords"            (English, array of 0-12 short noun phrases)`,
-    `- "professionalSummaryBn" (BANGLA — fluent native বাংলা, NOT transliteration, same length and meaning as professionalSummary)`,
-    `- "goalsBn"               (BANGLA — native বাংলা or null)`,
-    `- "methodsBn"             (BANGLA — native বাংলা or null)`,
-    `- "resultsBn"             (BANGLA — native বাংলা or null)`,
-    `- "conclusionsBn"         (BANGLA — native বাংলা or null)`,
-    `- "keyContributionsBn"    (BANGLA — array of native বাংলা phrases or [])`,
-    `- "limitationsBn"         (BANGLA — array of native বাংলা phrases or [])`,
-    `- "keywordsBn"            (BANGLA — array of native বাংলা words or [])`,
+    `Return a single JSON object only. No markdown fences, no prose, no commentary, no code-block wrappers.`,
+    `All fields must be present (use null or [] when a fact is genuinely absent — never omit a key).`,
+    ``,
+    `── Quality bar (apply to every field) ──`,
+    `Write in the voice of a careful academic reviewer, not a generic press release. Every sentence must add new information; no filler. Prefer concrete terms (dataset names, model names, metrics, sample sizes) over vague ones. Quote or paraphrase actual content from the supplied text — never invent facts.`,
+    ``,
+    `── English fields ──`,
+    `- "professionalSummary"  : 4-6 sentences, dense academic prose, ONE paragraph. State the problem, the approach, the headline result (with metric if available), and the implication. No headings, no bullet points.`,
+    `- "goals"               : 1-3 sentences. The specific research question / objective the paper sets out to answer. May be null if the paper does not state one.`,
+    `- "methods"             : 1-3 sentences. The core technique, dataset, or experimental setup. Name the method, the data, and the evaluation protocol.`,
+    `- "results"             : 1-3 sentences. The main quantitative or qualitative findings, with at least one concrete number, percentage, or named outcome if the paper provides one.`,
+    `- "conclusions"         : 1-3 sentences. The authors' interpretation and the broader significance.`,
+    `- "keyContributions"    : 3-6 short noun phrases (each ≤ 9 words). Each phrase should name ONE concrete contribution (a method, a dataset, a finding). Do not duplicate the professionalSummary.`,
+    `- "limitations"         : 2-5 short noun phrases. Honest limitations the paper itself acknowledges OR that are directly visible from the text. Do not invent generic ones.`,
+    `- "keywords"            : 5-10 short noun phrases. Domain-specific terms, technique names, dataset names. Lowercase.`,
+    ``,
+    `── Bangla (বাংলা) mirror fields ──`,
+    `These must be a true native-Bangla translation of the English field, NOT transliteration and NOT Latin-script Bangla. Use the Bengali script (অ-ঔ, ক-হ) throughout. The tone, length, and information density must match the English field.`,
+    `- "professionalSummaryBn" : same 4-6 sentences as the English professionalSummary, rewritten in fluent native বাংলা.`,
+    `- "goalsBn" / "methodsBn" / "resultsBn" / "conclusionsBn" : same length and meaning as the English counterpart, in native বাংলা. May be null only if the English counterpart is null.`,
+    `- "keyContributionsBn" : 3-6 বাংলা noun phrases, one per English contribution, same order.`,
+    `- "limitationsBn"      : 2-5 বাংলা noun phrases, one per English limitation, same order.`,
+    `- "keywordsBn"         : 5-10 বাংলা words/phrases, one per English keyword, same order.`,
   ].join("\n");
 
   const restrictedAnswer = [
-    `Summarize only facts present in the supplied text. If a field is genuinely missing, write "Not clearly stated in the paper." (in English) and its বাংলা equivalent "সুস্পষ্টভাবে উল্লেখ নেই।" for the Bn field.`,
-    `Never leave professionalSummary empty. Never return an empty object.`,
-    `For Bn fields, use natural native Bangla script (অ-ঔ, ক-হ) — do not write Bangla in Latin letters and do not transliterate.`,
+    `Summarize ONLY facts present in the supplied text. If a field is genuinely missing, write the English sentinel "Not clearly stated in the paper." and the Bangla sentinel "সুস্পষ্টভাবে উল্লেখ নেই।" for the Bn field.`,
+    `Never leave professionalSummary empty. Never return an empty object. Never invent citations, authors, or numerical results that do not appear in the supplied text.`,
+    `For all Bn fields, use natural native Bangla script (অ-ঔ, ক-হ). Do not write Bangla in Latin letters. Do not transliterate English terms letter-by-letter into Bengali script. Technical terms that have an established Bangla convention (e.g. "তথ্যসেট", "নিউরাল নেটওয়ার্ক", "ক্লাস্টারিং") may be used, otherwise keep the English term in Latin script inside the Bangla sentence.`,
+    `For Bangla array fields (keyContributionsBn, limitationsBn, keywordsBn), each item must be a single short phrase, not a full sentence.`,
   ].join(" ");
 
   try {
@@ -615,9 +857,10 @@ const generateBilingualSummary = async (resource: ResourceForAi, cleanedText: st
       context: prompt,
       responseStyle,
       restrictedAnswer,
-      // Generous timeout — the bilingual prompt is large.
-      responseTime: 20_000,
-      maxTokens: 2400,
+      // Generous timeout — the bilingual prompt is large and the new
+      // quality bar demands dense academic prose, so the response can be long.
+      responseTime: 25_000,
+      maxTokens: 3200,
       concurrency: 2,
       // Try each free model up to 2 times before moving to the next.
       retryNumber: 2,
@@ -633,7 +876,7 @@ const generateBilingualSummary = async (resource: ResourceForAi, cleanedText: st
       // certainly returned content for a different paper. Discard and fall back
       // to the deterministic local summary (which is built from the real
       // extracted text and will look honest next to the title).
-      if (validated && !looksLikeHallucination(validated, resource)) {
+      if (validated && !looksLikeHallucination(validated, groundingAnchor)) {
         return { ...validated, __model: aiResult.model };
       }
       console.warn("[resource-ai] summary rejected by hallucination guard", {
@@ -648,7 +891,7 @@ const generateBilingualSummary = async (resource: ResourceForAi, cleanedText: st
     if (raw) {
       const repaired = repairModelJson<SummaryOutput>(raw);
       const validated = repaired ? summarySchema.safeParse(repaired).data : null;
-      if (validated && !looksLikeHallucination(validated, resource)) {
+      if (validated && !looksLikeHallucination(validated, groundingAnchor)) {
         return { ...validated, __model: aiResult.model };
       }
     }
@@ -656,9 +899,9 @@ const generateBilingualSummary = async (resource: ResourceForAi, cleanedText: st
     // Last-ditch: derive the schema from the loose object the model returned,
     // accepting whatever shape we got and filling the Bn fields with English
     // as a visible-but-clearly-mirror fallback so the UI never renders empty.
-    return withBnMirror(fallbackSummary(resource, cleanedText), aiResult.model);
+    return { ...fallbackSummary(resource, cleanedText), __model: `${aiResult.model}:grounded-fallback` };
   } catch {
-    return withBnMirror(fallbackSummary(resource, cleanedText), "local-fallback");
+    return { ...fallbackSummary(resource, cleanedText), __model: "local-grounded-fallback" };
   }
 };
 
@@ -709,16 +952,19 @@ const translateSummaryToBangla = async (
     if (!sourceList?.length) continue;
     try {
       const aiResult = await getAiResponse<{ bn: string[] }>({
-        context: `Translate each English phrase into a concise fluent native Bangla (বাংলা) equivalent. Preserve order. Use Bengali script only. Return JSON only.\n\nPhrases:\n${sourceList.map((p, i) => `${i + 1}. ${p}`).join("\n")}`,
-        responseStyle: `Return JSON with one key: "bn" which is an array of Bangla translations in the same order.`,
-        restrictedAnswer: `Never transliterate. Same length as input.`,
-        responseTime: 10_000,
-        maxTokens: 400,
+        context: `Translate each English phrase into a concise fluent native Bangla (বাংলা) equivalent. Preserve the input order and length exactly. Use Bengali script (অ-ঔ, ক-হ) for every word. Do NOT transliterate English letter-by-letter. Technical terms without a Bangla convention may stay in Latin script inside the Bangla phrase.\n\nPhrases (one per line, preserve numbering):\n${sourceList.map((p, i) => `${i + 1}. ${p}`).join("\n")}`,
+        responseStyle: `Return JSON with one key: "bn" which is an array of Bangla translations in the SAME order, with the SAME length as the input.`,
+        restrictedAnswer: `Never transliterate. Never return an empty array when the input is non-empty. Same length as input.`,
+        responseTime: 12_000,
+        maxTokens: 600,
         concurrency: 2,
         retryNumber: 1,
         maxModelBatches: 2,
       });
-      (translations as Record<string, string[]>)[bnKey] = aiResult.data?.bn ?? [];
+      const arr = aiResult.data?.bn;
+      (translations as Record<string, string[]>)[bnKey] = Array.isArray(arr) && arr.length === sourceList.length
+        ? arr
+        : [];
     } catch {
       (translations as Record<string, string[]>)[bnKey] = [];
     }
@@ -933,6 +1179,754 @@ const parseReferences = async (references: string[], textHash: string) => {
 
 const normalizeTitle = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
+const semanticScholarFields = [
+  "title",
+  "authors",
+  "year",
+  "externalIds",
+  "openAccessPdf",
+  "url",
+  "venue",
+  "abstract",
+  "citationCount",
+].join(",");
+
+const semanticScholarHeaders = () => ({
+  "User-Agent": "Nexora/1.0 (mailto:support@nexora.local)",
+  "Content-Type": "application/json",
+  ...(process.env.SEMANTIC_SCHOLAR_API_KEY
+    ? { "x-api-key": process.env.SEMANTIC_SCHOLAR_API_KEY }
+    : {}),
+});
+
+const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+/** Small retry wrapper for the public scholarly API. Graph generation is a
+ * background job, so a short 429/5xx backoff is preferable to dropping the
+ * entire network snapshot. */
+const semanticScholarRequest = async <T>(url: string, init: RequestInit = {}): Promise<T> => {
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetch(url, {
+      ...init,
+      headers: { ...semanticScholarHeaders(), ...(init.headers ?? {}) },
+      signal: AbortSignal.timeout(12_000),
+    });
+    lastStatus = response.status;
+    if (response.ok) return response.json() as Promise<T>;
+    if (response.status !== 429 && response.status < 500) break;
+    await wait(600 * (attempt + 1));
+  }
+  throw new Error(`Semantic Scholar request failed (${lastStatus || "network error"}).`);
+};
+
+const titleSimilarity = (left: string, right: string) => {
+  const a = normalizeTitle(left).replace(/\bpdf\b/g, "").trim();
+  const b = normalizeTitle(right).replace(/\bpdf\b/g, "").trim();
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const aTokens = new Set(a.split(" ").filter((token) => token.length > 1));
+  const bTokens = new Set(b.split(" ").filter((token) => token.length > 1));
+  const intersection = [...aTokens].filter((token) => bTokens.has(token)).length;
+  const union = new Set([...aTokens, ...bTokens]).size || 1;
+  const overlap = intersection / union;
+  return Math.min(1, overlap + (a.includes(b) || b.includes(a) ? 0.2 : 0));
+};
+
+const semanticPaperUrl = (paper: SemanticScholarPaper) => {
+  const doi = normalizeDoi(paper.externalIds?.DOI);
+  if (doi) return `https://doi.org/${doi}`;
+  return paper.url ?? paper.openAccessPdf?.url ?? (paper.paperId
+    ? `https://www.semanticscholar.org/paper/${paper.paperId}`
+    : null);
+};
+
+const graphNodeFromSemanticPaper = (
+  paper: SemanticScholarPaper,
+  type: ResearchGraphNode["type"],
+  relation: "CITED_BY" | "RELATED",
+  depth: number,
+  extra: Record<string, unknown> = {},
+): ResearchGraphNode | null => {
+  if (!paper.paperId || !paper.title) return null;
+  return {
+    id: `s2:${paper.paperId}`,
+    type,
+    label: paper.title,
+    data: {
+      title: paper.title,
+      authors: paper.authors?.map((author) => author.name).filter(Boolean) ?? [],
+      publicationYear: paper.year ?? null,
+      venue: paper.venue ?? null,
+      citationCount: paper.citationCount ?? null,
+      abstract: paper.abstract ?? null,
+      doi: normalizeDoi(paper.externalIds?.DOI),
+      url: semanticPaperUrl(paper),
+      openAccessUrl: paper.openAccessPdf?.url ?? null,
+      semanticScholarId: paper.paperId,
+      relation,
+      depth,
+      ...extra,
+    },
+  };
+};
+
+const graphEdge = (
+  source: string,
+  target: string,
+  type: ResearchGraphEdge["type"],
+  confidenceScore = 1,
+): ResearchGraphEdge => ({
+  id: `graph:${hash(`${source}|${target}|${type}`).slice(0, 20)}`,
+  source,
+  target,
+  type,
+  label: type === "CITED_BY" ? "Cited by" : type === "RELATED" ? "Related work" : "References",
+  confidenceScore,
+});
+
+const resolveSemanticScholarRoot = async (resource: {
+  title: string;
+  tags: string[];
+  authors?: string[];
+  extractedText?: string | null;
+}) => {
+  const identity = resource.extractedText
+    ? inferPaperIdentity(resource.extractedText, resource)
+    : {
+        detectedTitle: resource.title,
+        detectedAuthors: resource.authors ?? [],
+        sourceType: "EXTRACTED_TEXT" as const,
+        titleMismatch: false,
+      };
+  const queryTitle = identity.detectedTitle || resource.title;
+  // A tag belonging to a wrongly titled resource can resolve to a completely
+  // different paper. Only trust tag-based DOI lookup when the title agrees
+  // with the identity detected inside the document.
+  const doi = (identity.titleMismatch ? [] : resource.tags)
+    .map((tag) => normalizeDoi(tag))
+    .find((tag) => Boolean(tag && /^10\.\d{4,9}\//.test(tag)));
+  const cacheKey = `s2:research-root:v${RESEARCH_GRAPH_VERSION}:${doi ?? normalizeTitle(queryTitle)}`;
+  const cached = await prisma.metadataCache.findUnique({ where: { cacheKey } }).catch(() => null);
+  if (cached && (!cached.expiresAt || cached.expiresAt > new Date())) {
+    return cached.resultJson as SemanticScholarPaper;
+  }
+
+  let match: SemanticScholarPaper | null = null;
+  if (doi) {
+    match = await semanticScholarRequest<SemanticScholarPaper>(
+      `https://api.semanticscholar.org/graph/v1/paper/DOI:${encodeURIComponent(doi)}?fields=${semanticScholarFields}`,
+    ).catch(() => null);
+  }
+  if (!match?.paperId) {
+    const result = await semanticScholarRequest<{ data?: SemanticScholarPaper[] }>(
+      `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(queryTitle)}&limit=5&fields=${semanticScholarFields}`,
+    );
+    const ranked = (result.data ?? [])
+      .map((paper) => ({ paper, score: titleSimilarity(queryTitle, paper.title ?? "") }))
+      .sort((a, b) => b.score - a.score);
+    const best = ranked[0];
+    match = best && best.score >= 0.42 ? best.paper : null;
+  }
+  if (!match?.paperId) return null;
+
+  await prisma.metadataCache.upsert({
+    where: { cacheKey },
+    create: {
+      cacheKey,
+      source: "semantic-scholar",
+      query: doi ?? queryTitle,
+      resultJson: match as any,
+      expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+    },
+    update: {
+      resultJson: match as any,
+      expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+    },
+  });
+  return match;
+};
+
+const fetchCitingPapers = async (paperId: string, limit: number) => {
+  const response = await semanticScholarRequest<{ data?: SemanticScholarCitation[] }>(
+    `https://api.semanticscholar.org/graph/v1/paper/${encodeURIComponent(paperId)}/citations?limit=${limit}&fields=contexts,isInfluential,${semanticScholarFields}`,
+  );
+  return (response.data ?? [])
+    .filter((citation) => Boolean(citation.citingPaper?.paperId && citation.citingPaper?.title))
+    .sort((left, right) => {
+      const influence = Number(Boolean(right.isInfluential)) - Number(Boolean(left.isInfluential));
+      if (influence) return influence;
+      return (right.citingPaper?.citationCount ?? 0) - (left.citingPaper?.citationCount ?? 0);
+    });
+};
+
+const fetchReferencedPapers = async (paperId: string, limit = 40) => {
+  const response = await semanticScholarRequest<{ data?: SemanticScholarReference[] }>(
+    `https://api.semanticscholar.org/graph/v1/paper/${encodeURIComponent(paperId)}/references?limit=${limit}&fields=contexts,isInfluential,${semanticScholarFields}`,
+  );
+  return (response.data ?? [])
+    .filter((reference) => Boolean(reference.citedPaper?.paperId && reference.citedPaper?.title))
+    .sort((left, right) => {
+      const influence = Number(Boolean(right.isInfluential)) - Number(Boolean(left.isInfluential));
+      if (influence) return influence;
+      return (right.citedPaper?.citationCount ?? 0) - (left.citedPaper?.citationCount ?? 0);
+    });
+};
+
+const persistSemanticScholarReferences = async (
+  resourceId: string,
+  rootPaper: SemanticScholarPaper,
+) => {
+  if (!rootPaper.paperId) return 0;
+  const references = await fetchReferencedPapers(rootPaper.paperId);
+  if (!references.length) return 0;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.resourceCitationEdge.deleteMany({
+      where: { sourceResourceId: resourceId, resolverSource: "semantic-scholar-graph" },
+    });
+    for (const [index, reference] of references.entries()) {
+      const paper = reference.citedPaper!;
+      const doi = normalizeDoi(paper.externalIds?.DOI);
+      const authors = paper.authors?.map((author) => author.name).filter(Boolean).join(", ") || null;
+      const data = {
+        title: paper.title!,
+        authors,
+        publicationYear: paper.year ?? null,
+        venue: paper.venue ?? null,
+        doi,
+        url: semanticPaperUrl(paper),
+        semanticScholarId: paper.paperId!,
+        metadataSource: "semantic-scholar",
+        metadataConfidence: reference.isInfluential ? 0.99 : 0.96,
+      };
+      const external = doi
+        ? await tx.externalCitationTarget.upsert({ where: { doi }, create: data, update: data })
+        : await tx.externalCitationTarget.upsert({
+            where: { semanticScholarId: paper.paperId! },
+            create: data,
+            update: data,
+          });
+      const authorPrefix = authors ? `${authors}. ` : "";
+      const year = paper.year ? `(${paper.year}). ` : "";
+      const venue = paper.venue ? ` ${paper.venue}.` : "";
+      await tx.resourceCitationEdge.create({
+        data: {
+          sourceResourceId: resourceId,
+          externalTargetId: external.id,
+          relationType: "REFERENCES",
+          rawReference: `${authorPrefix}${year}${paper.title}.${venue}${doi ? ` https://doi.org/${doi}` : ""}`.trim(),
+          contextSnippet: reference.contexts?.[0]?.slice(0, 1200) ?? null,
+          referenceIndex: index + 1,
+          confidenceScore: reference.isInfluential ? 0.99 : 0.96,
+          resolverSource: "semantic-scholar-graph",
+          parserVersion: CITATION_PARSER_VERSION,
+        },
+      });
+    }
+  }, { timeout: 30_000 });
+  return references.length;
+};
+
+const fetchRelatedPapers = async (paperId: string) => {
+  const response = await semanticScholarRequest<{ recommendedPapers?: SemanticScholarPaper[] }>(
+    `https://api.semanticscholar.org/recommendations/v1/papers?limit=${RESEARCH_GRAPH_RELATED_LIMIT}&fields=${semanticScholarFields}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ positivePaperIds: [paperId], negativePaperIds: [] }),
+    },
+  );
+  return response.recommendedPapers ?? [];
+};
+
+const openAlexRequest = async <T>(url: string): Promise<T> => {
+  const response = await fetch(url, {
+    headers: { "User-Agent": "Nexora/1.0 (mailto:support@nexora.local)", Accept: "application/json" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`OpenAlex request failed (${response.status}).`);
+  const payload: unknown = await response.json();
+  // Some edge proxies return a JSON-encoded JSON string. Accept both shapes.
+  return (typeof payload === "string" ? JSON.parse(payload) : payload) as T;
+};
+
+const openAlexShortId = (value?: string | null) => value?.match(/W\d+$/)?.[0] ?? null;
+const openAlexDoi = (value?: string | null) => normalizeDoi(value?.replace(/^https?:\/\/doi\.org\//i, ""));
+
+const openAlexAbstract = (index?: Record<string, number[]> | null) => {
+  if (!index) return null;
+  const words: Array<[number, string]> = [];
+  for (const [word, positions] of Object.entries(index)) {
+    for (const position of positions) words.push([position, word]);
+  }
+  return words.sort((left, right) => left[0] - right[0]).map((entry) => entry[1]).join(" ") || null;
+};
+
+const openAlexWorkUrl = (work: OpenAlexWork) => {
+  const doi = openAlexDoi(work.doi);
+  if (doi) return `https://doi.org/${doi}`;
+  return work.primary_location?.landing_page_url ?? work.primary_location?.pdf_url ?? work.id ?? null;
+};
+
+const graphNodeFromOpenAlexWork = (
+  work: OpenAlexWork,
+  type: ResearchGraphNode["type"],
+  relation: "CITED_BY" | "RELATED",
+  depth: number,
+): ResearchGraphNode | null => {
+  const openAlexId = openAlexShortId(work.id);
+  const title = work.title ?? work.display_name;
+  if (!openAlexId || !title) return null;
+  return {
+    id: `openalex:${openAlexId}`,
+    type,
+    label: title,
+    data: {
+      title,
+      authors: work.authorships?.map((authorship) => authorship.author?.display_name).filter(Boolean) ?? [],
+      publicationYear: work.publication_year ?? null,
+      venue: work.primary_location?.source?.display_name ?? null,
+      citationCount: work.cited_by_count ?? null,
+      abstract: openAlexAbstract(work.abstract_inverted_index),
+      doi: openAlexDoi(work.doi),
+      url: openAlexWorkUrl(work),
+      openAccessUrl: work.primary_location?.pdf_url ?? null,
+      openAlexId,
+      relation,
+      depth,
+    },
+  };
+};
+
+const resolveOpenAlexRoot = async (title: string) => {
+  const response = await openAlexRequest<{ results?: OpenAlexWork[] }>(
+    `https://api.openalex.org/works?search=${encodeURIComponent(title)}&per-page=10`,
+  );
+  const ranked = (response.results ?? [])
+    .map((work) => ({ work, score: titleSimilarity(title, work.title ?? work.display_name ?? "") }))
+    .filter((candidate) => candidate.score >= 0.42)
+    .sort((left, right) => right.score - left.score || (right.work.cited_by_count ?? 0) - (left.work.cited_by_count ?? 0));
+  const root = ranked[0]?.work ?? null;
+  if (!root) return null;
+  const publishedVariant = ranked
+    .map((candidate) => candidate.work)
+    .filter((work) => {
+      const doi = openAlexDoi(work.doi);
+      return Boolean(doi && !doi.startsWith("10.48550/arxiv."));
+    })
+    .sort((left, right) => (right.publication_year ?? 0) - (left.publication_year ?? 0))[0];
+  return { root, publishedDoi: openAlexDoi(publishedVariant?.doi) ?? openAlexDoi(root.doi) };
+};
+
+const fetchOpenAlexCitingWorks = async (workId: string, limit: number) => {
+  const response = await openAlexRequest<{ results?: OpenAlexWork[] }>(
+    `https://api.openalex.org/works?filter=cites:${encodeURIComponent(workId)}&sort=cited_by_count:desc&per-page=${limit}`,
+  );
+  return response.results ?? [];
+};
+
+const fetchOpenAlexWorksByIds = async (ids: string[]) => {
+  const shortIds = ids.map((id) => openAlexShortId(id)).filter((id): id is string => Boolean(id)).slice(0, RESEARCH_GRAPH_RELATED_LIMIT);
+  if (!shortIds.length) return [];
+  const response = await openAlexRequest<{ results?: OpenAlexWork[] }>(
+    `https://api.openalex.org/works?filter=openalex_id:${shortIds.map(encodeURIComponent).join("|")}&per-page=${shortIds.length}`,
+  );
+  return response.results ?? [];
+};
+
+type CrossrefReference = {
+  DOI?: string;
+  author?: string;
+  year?: string;
+  "article-title"?: string;
+  "journal-title"?: string;
+  unstructured?: string;
+};
+
+const persistCrossrefReferences = async (resourceId: string, doi: string) => {
+  const response = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, {
+    headers: { "User-Agent": "Nexora/1.0 (mailto:support@nexora.local)" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`Crossref reference request failed (${response.status}).`);
+  const payload = await response.json() as { message?: { reference?: CrossrefReference[] } };
+  const references = (payload.message?.reference ?? []).slice(0, 40);
+  if (!references.length) return 0;
+
+  const enriched: Array<{ reference: CrossrefReference; metadata: Record<string, any> | null }> = [];
+  for (let offset = 0; offset < references.length; offset += 5) {
+    const batch = references.slice(offset, offset + 5);
+    const resolved = await Promise.all(batch.map(async (reference) => {
+      const referenceDoi = normalizeDoi(reference.DOI);
+      if (!referenceDoi) return null;
+      return lookupCrossref({
+        title: reference["article-title"] ?? null,
+        authors: reference.author ? [reference.author] : [],
+        year: reference.year ? Number(reference.year) || null : null,
+        doi: referenceDoi,
+        venue: reference["journal-title"] ?? null,
+        url: null,
+        rawReference: reference.unstructured ?? null,
+        confidenceScore: 0.96,
+      }).catch(() => null);
+    }));
+    enriched.push(...batch.map((reference, index) => ({ reference, metadata: resolved[index] ?? null })));
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.resourceCitationEdge.deleteMany({
+      where: { sourceResourceId: resourceId, resolverSource: "crossref-graph" },
+    });
+    for (const [index, item] of enriched.entries()) {
+      const referenceDoi = normalizeDoi(item.reference.DOI);
+      const title = item.metadata?.title
+        ?? item.reference["article-title"]
+        ?? item.reference.unstructured
+        ?? (referenceDoi ? `DOI ${referenceDoi}` : `Reference ${index + 1}`);
+      const publicationYear = item.metadata?.publicationYear
+        ?? (item.reference.year ? Number(item.reference.year) || null : null);
+      const url = item.metadata?.url
+        ?? (referenceDoi ? `https://doi.org/${referenceDoi}` : `https://search.crossref.org/?q=${encodeURIComponent(title)}`);
+      const data = {
+        title: String(title).slice(0, 500),
+        authors: item.metadata?.authors ?? item.reference.author ?? null,
+        publicationYear,
+        venue: item.metadata?.venue ?? item.reference["journal-title"] ?? null,
+        doi: item.metadata?.doi ?? referenceDoi,
+        url,
+        metadataSource: "crossref",
+        metadataConfidence: referenceDoi ? 0.97 : 0.78,
+      };
+      const external = data.doi
+        ? await tx.externalCitationTarget.upsert({ where: { doi: data.doi }, create: data, update: data })
+        : await tx.externalCitationTarget.create({ data });
+      await tx.resourceCitationEdge.create({
+        data: {
+          sourceResourceId: resourceId,
+          externalTargetId: external.id,
+          relationType: "REFERENCES",
+          rawReference: item.reference.unstructured
+            ?? [item.reference.author, item.reference.year && `(${item.reference.year})`, title, item.reference["journal-title"], referenceDoi].filter(Boolean).join(". "),
+          referenceIndex: index + 1,
+          confidenceScore: referenceDoi ? 0.97 : 0.78,
+          resolverSource: "crossref-graph",
+          parserVersion: CITATION_PARSER_VERSION,
+        },
+      });
+    }
+  }, { timeout: 30_000 });
+  return enriched.length;
+};
+
+const buildReferenceGraph = async (resourceId: string) => {
+  const resource = await prisma.resource.findUnique({
+    where: { id: resourceId },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      authors: true,
+      year: true,
+      tags: true,
+      extractedText: { select: { cleanedText: true } },
+      citationsFrom: {
+        include: {
+          targetResource: { select: { id: true, title: true, authors: true, year: true, fileUrl: true } },
+          externalTarget: true,
+        },
+        orderBy: [{ referenceIndex: "asc" }, { createdAt: "asc" }],
+      },
+    },
+  });
+  if (!resource) throw new AppError(404, "Resource not found.");
+
+  const identity = resource.extractedText?.cleanedText
+    ? inferPaperIdentity(resource.extractedText.cleanedText, resource)
+    : {
+        detectedTitle: resource.title,
+        detectedAuthors: resource.authors,
+        sourceType: "EXTRACTED_TEXT" as const,
+        titleMismatch: false,
+      };
+
+  const rootId = `resource:${resource.id}`;
+  const nodes = new Map<string, ResearchGraphNode>();
+  const edges = new Map<string, ResearchGraphEdge>();
+  nodes.set(rootId, {
+    id: rootId,
+    type: "current-resource",
+    label: identity.detectedTitle,
+    data: {
+      title: identity.detectedTitle,
+      storedTitle: resource.title,
+      description: resource.description,
+      authors: identity.detectedAuthors.length ? identity.detectedAuthors : resource.authors,
+      publicationYear: resource.year,
+      relation: "ROOT",
+      depth: 0,
+      sourceType: identity.sourceType,
+      titleMismatch: identity.titleMismatch,
+    },
+  });
+
+  for (const citation of resource.citationsFrom) {
+    const target = citation.targetResource ?? citation.externalTarget;
+    const targetId = citation.targetResource
+      ? `resource:${citation.targetResource.id}`
+      : citation.externalTarget
+        ? `external:${citation.externalTarget.id}`
+        : `reference:${citation.id}`;
+    const targetTitle = target?.title ?? citation.rawReference ?? "Unresolved reference";
+    nodes.set(targetId, {
+      id: targetId,
+      type: "reference-paper",
+      label: targetTitle,
+      data: {
+        title: targetTitle,
+        authors: target?.authors ?? null,
+        publicationYear: "year" in (target ?? {})
+          ? (target as { year?: number | null }).year ?? null
+          : (target as { publicationYear?: number | null } | null)?.publicationYear ?? null,
+        venue: "venue" in (target ?? {}) ? (target as { venue?: string | null }).venue ?? null : null,
+        doi: "doi" in (target ?? {}) ? (target as { doi?: string | null }).doi ?? null : null,
+        url: "url" in (target ?? {})
+          ? (target as { url?: string | null }).url ?? null
+          : "fileUrl" in (target ?? {})
+            ? (target as { fileUrl?: string | null }).fileUrl ?? null
+            : null,
+        relation: "REFERENCES",
+        depth: -1,
+        referenceIndex: citation.referenceIndex,
+      },
+    });
+    const edge = graphEdge(rootId, targetId, "REFERENCES", citation.confidenceScore ?? 0.55);
+    edges.set(edge.id, edge);
+  }
+  return { resource, identity, rootId, nodes, edges };
+};
+
+/** Build and persist a Connected-Papers-style hybrid network: parsed
+ * references, papers citing the selected paper, one additional cited-by
+ * generation, and provider-recommended related work. */
+export const rebuildResourceResearchGraph = async (resourceId: string) => {
+  const { resource, identity, rootId, nodes, edges } = await buildReferenceGraph(resourceId);
+  let providerPaperId: string | null = null;
+  let citationCount: number | null = null;
+  let providerWarning: string | null = null;
+  let graphProvider = "local-references";
+
+  try {
+    const rootPaper = await resolveSemanticScholarRoot({
+      title: resource.title,
+      authors: resource.authors,
+      tags: resource.tags,
+      extractedText: resource.extractedText?.cleanedText ?? null,
+    });
+    if (!rootPaper?.paperId) {
+      providerWarning = "No confident Semantic Scholar match was found; showing the paper's parsed references only.";
+    } else {
+      providerPaperId = rootPaper.paperId;
+      citationCount = rootPaper.citationCount ?? null;
+      graphProvider = "semantic-scholar";
+
+      // Prepared summaries and excerpts often omit the bibliography entirely.
+      // Once the document is confidently matched, use the provider's official
+      // outgoing references and persist them so the References tab is useful,
+      // clickable, and stable across page reloads.
+      const hasReferenceEdges = [...edges.values()].some((edge) => edge.type === "REFERENCES");
+      if (!hasReferenceEdges) {
+        let persistedCount = await persistSemanticScholarReferences(resourceId, rootPaper).catch(() => 0);
+        if (!persistedCount) {
+          const openAlexMatch = await resolveOpenAlexRoot(identity.detectedTitle).catch(() => null);
+          if (openAlexMatch?.publishedDoi) {
+            persistedCount = await persistCrossrefReferences(resourceId, openAlexMatch.publishedDoi).catch(() => 0);
+          }
+        }
+        if (persistedCount) {
+          const refreshed = await buildReferenceGraph(resourceId);
+          for (const [id, node] of refreshed.nodes) nodes.set(id, node);
+          for (const [id, edge] of refreshed.edges) edges.set(id, edge);
+        }
+      }
+      const rootNode = nodes.get(rootId)!;
+      nodes.set(rootId, {
+        ...rootNode,
+        data: {
+          ...rootNode.data,
+          providerPaperId,
+          citationCount,
+          venue: rootPaper.venue ?? null,
+          doi: normalizeDoi(rootPaper.externalIds?.DOI),
+          url: semanticPaperUrl(rootPaper),
+        },
+      });
+
+      const firstLayer = await fetchCitingPapers(rootPaper.paperId, RESEARCH_GRAPH_FIRST_LAYER_LIMIT);
+      for (const citation of firstLayer) {
+        const node = graphNodeFromSemanticPaper(
+          citation.citingPaper!,
+          "citing-paper",
+          "CITED_BY",
+          1,
+          { isInfluential: Boolean(citation.isInfluential), context: citation.contexts?.[0] ?? null },
+        );
+        if (!node) continue;
+        nodes.set(node.id, node);
+        const edge = graphEdge(rootId, node.id, "CITED_BY", citation.isInfluential ? 1 : 0.88);
+        edges.set(edge.id, edge);
+      }
+
+      const secondLayerParents = firstLayer.slice(0, RESEARCH_GRAPH_SECOND_LAYER_PARENTS);
+      for (const parentCitation of secondLayerParents) {
+        const parent = parentCitation.citingPaper;
+        if (!parent?.paperId) continue;
+        const grandchildren = await fetchCitingPapers(parent.paperId, RESEARCH_GRAPH_SECOND_LAYER_LIMIT).catch(() => []);
+        for (const citation of grandchildren) {
+          if (citation.citingPaper?.paperId === rootPaper.paperId) continue;
+          const node = graphNodeFromSemanticPaper(
+            citation.citingPaper!,
+            "second-layer-paper",
+            "CITED_BY",
+            2,
+            { isInfluential: Boolean(citation.isInfluential), context: citation.contexts?.[0] ?? null },
+          );
+          if (!node) continue;
+          nodes.set(node.id, node);
+          const edge = graphEdge(`s2:${parent.paperId}`, node.id, "CITED_BY", citation.isInfluential ? 0.96 : 0.82);
+          edges.set(edge.id, edge);
+        }
+      }
+
+      const related = await fetchRelatedPapers(rootPaper.paperId).catch(() => []);
+      for (const paper of related) {
+        if (!paper.paperId || paper.paperId === rootPaper.paperId || nodes.has(`s2:${paper.paperId}`)) continue;
+        const node = graphNodeFromSemanticPaper(paper, "related-paper", "RELATED", 1);
+        if (!node) continue;
+        nodes.set(node.id, node);
+        const edge = graphEdge(rootId, node.id, "RELATED", 0.76);
+        edges.set(edge.id, edge);
+      }
+    }
+  } catch (error: unknown) {
+    providerWarning = error instanceof Error ? error.message : "The scholarly graph provider was unavailable.";
+    providerPaperId = null;
+    citationCount = null;
+    graphProvider = "local-references";
+    for (const id of [...nodes.keys()]) if (id.startsWith("s2:")) nodes.delete(id);
+    for (const [id, edge] of [...edges.entries()]) {
+      if (edge.source.startsWith("s2:") || edge.target.startsWith("s2:")) edges.delete(id);
+    }
+  }
+
+  if (!providerPaperId) {
+    try {
+      const match = await resolveOpenAlexRoot(identity.detectedTitle);
+      const rootWork = match?.root;
+      const openAlexId = openAlexShortId(rootWork?.id);
+      if (!rootWork || !openAlexId) throw new Error("No confident OpenAlex match was found.");
+
+      providerPaperId = openAlexId;
+      citationCount = rootWork.cited_by_count ?? null;
+      graphProvider = "openalex";
+      providerWarning = null;
+
+      const hasReferenceEdges = [...edges.values()].some((edge) => edge.type === "REFERENCES");
+      if (!hasReferenceEdges && match.publishedDoi) {
+        const persistedCount = await persistCrossrefReferences(resourceId, match.publishedDoi).catch(() => 0);
+        if (persistedCount) {
+          const refreshed = await buildReferenceGraph(resourceId);
+          for (const [id, node] of refreshed.nodes) nodes.set(id, node);
+          for (const [id, edge] of refreshed.edges) edges.set(id, edge);
+        }
+      }
+
+      const rootNode = nodes.get(rootId)!;
+      nodes.set(rootId, {
+        ...rootNode,
+        data: {
+          ...rootNode.data,
+          providerPaperId: openAlexId,
+          citationCount,
+          venue: rootWork.primary_location?.source?.display_name ?? null,
+          doi: openAlexDoi(rootWork.doi),
+          url: openAlexWorkUrl(rootWork),
+        },
+      });
+
+      const firstLayer = await fetchOpenAlexCitingWorks(openAlexId, RESEARCH_GRAPH_FIRST_LAYER_LIMIT);
+      for (const work of firstLayer) {
+        const node = graphNodeFromOpenAlexWork(work, "citing-paper", "CITED_BY", 1);
+        if (!node) continue;
+        nodes.set(node.id, node);
+        const edge = graphEdge(rootId, node.id, "CITED_BY", 0.9);
+        edges.set(edge.id, edge);
+      }
+
+      for (const parent of firstLayer.slice(0, RESEARCH_GRAPH_SECOND_LAYER_PARENTS)) {
+        const parentId = openAlexShortId(parent.id);
+        if (!parentId) continue;
+        const grandchildren = await fetchOpenAlexCitingWorks(parentId, RESEARCH_GRAPH_SECOND_LAYER_LIMIT).catch(() => []);
+        for (const work of grandchildren) {
+          const childId = openAlexShortId(work.id);
+          if (!childId || childId === openAlexId) continue;
+          const node = graphNodeFromOpenAlexWork(work, "second-layer-paper", "CITED_BY", 2);
+          if (!node) continue;
+          nodes.set(node.id, node);
+          const edge = graphEdge(`openalex:${parentId}`, node.id, "CITED_BY", 0.84);
+          edges.set(edge.id, edge);
+        }
+      }
+
+      const related = await fetchOpenAlexWorksByIds(rootWork.related_works ?? []).catch(() => []);
+      for (const work of related) {
+        const relatedId = openAlexShortId(work.id);
+        if (!relatedId || relatedId === openAlexId || nodes.has(`openalex:${relatedId}`)) continue;
+        const node = graphNodeFromOpenAlexWork(work, "related-paper", "RELATED", 1);
+        if (!node) continue;
+        nodes.set(node.id, node);
+        const edge = graphEdge(rootId, node.id, "RELATED", 0.76);
+        edges.set(edge.id, edge);
+      }
+    } catch (fallbackError: unknown) {
+      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : "OpenAlex was unavailable.";
+      providerWarning = providerWarning
+        ? `${providerWarning} ${fallbackMessage}`
+        : fallbackMessage;
+    }
+  }
+
+  const nodeRows = [...nodes.values()];
+  const edgeRows = [...edges.values()];
+  const snapshot = await prisma.resourceResearchGraph.upsert({
+    where: { resourceId },
+    create: {
+      resourceId,
+      provider: graphProvider,
+      providerPaperId,
+      graphVersion: RESEARCH_GRAPH_VERSION,
+      nodes: nodeRows as any,
+      edges: edgeRows as any,
+      citationCount,
+      generationStatus: "COMPLETED",
+      generationError: providerWarning,
+      generatedAt: new Date(),
+    },
+    update: {
+      provider: graphProvider,
+      providerPaperId,
+      graphVersion: RESEARCH_GRAPH_VERSION,
+      nodes: nodeRows as any,
+      edges: edgeRows as any,
+      citationCount,
+      generationStatus: "COMPLETED",
+      generationError: providerWarning,
+      generatedAt: new Date(),
+    },
+  });
+
+  return snapshot;
+};
+
 const lookupCrossref = async (reference: ParsedReference) => {
   const doi = normalizeDoi(reference.doi);
   const cacheKey = doi ? `crossref:doi:${doi}` : `crossref:title:${normalizeTitle(reference.title ?? "")}:${reference.year ?? ""}`;
@@ -1094,7 +2088,7 @@ const audit = async (resourceId: string, jobType: string, status: "PROCESSING" |
   return prisma.resourceProcessingJobAudit.create({ data });
 };
 
-type AiProcessMode = "full" | "summary" | "citations";
+type AiProcessMode = "full" | "summary" | "citations" | "graph";
 
 type QueuedResourceAiJob = {
   resourceId: string;
@@ -1130,6 +2124,7 @@ const resourceAiJobRegistry = createResourceAiJobRegistry();
 const processingStatusForMode = (mode: AiProcessMode): ResourceProcessingStatus => {
   if (mode === "summary") return ResourceProcessingStatus.SUMMARY_PROCESSING;
   if (mode === "citations") return ResourceProcessingStatus.CITATION_PROCESSING;
+  if (mode === "graph") return ResourceProcessingStatus.GRAPH_PROCESSING;
   return ResourceProcessingStatus.TEXT_PROCESSING;
 };
 
@@ -1191,6 +2186,8 @@ const runResourceAi = async (resource: ResourceForAi, options: { regenerateSumma
     }
 
     if (shared.copiedCitations > 0 && !options.reanalyzeCitations) {
+      await prisma.resource.update({ where: { id: resourceId }, data: { aiProcessingStatus: "GRAPH_PROCESSING" } });
+      await rebuildResourceResearchGraph(resourceId);
       const updated = await prisma.resource.update({
         where: { id: resourceId },
         data: { aiProcessingStatus: "GRAPH_READY", lastProcessedAt: new Date(), processingError: null },
@@ -1225,10 +2222,11 @@ const runResourceAi = async (resource: ResourceForAi, options: { regenerateSumma
       });
     }
 
-    const finalStatus = parsedReferences.length ? "GRAPH_READY" : "CITATIONS_READY";
+    await prisma.resource.update({ where: { id: resourceId }, data: { aiProcessingStatus: "GRAPH_PROCESSING" } });
+    await rebuildResourceResearchGraph(resourceId);
     const updated = await prisma.resource.update({
       where: { id: resourceId },
-      data: { aiProcessingStatus: finalStatus, lastProcessedAt: new Date(), processingError: null },
+      data: { aiProcessingStatus: "GRAPH_READY", lastProcessedAt: new Date(), processingError: null },
       include: { extractedText: true, aiSummary: true, citationsFrom: true },
     });
     await audit(resourceId, "resource-ai", "COMPLETED");
@@ -1280,16 +2278,35 @@ const runResourceSummary = async (resource: ResourceForAi, regenerate = false) =
   const resourceId = resource.id;
   try {
     await audit(resourceId, "resource-summary", "PROCESSING");
-    const { extracted, textHash, fileHash } = await extractAndStoreResourceText(resource);
-    const shared = await hydrateResourceAiFromExisting(resourceId, {
-      fileHash,
-      textHash,
-      skipSummary: regenerate,
-      skipCitations: true,
-    });
-    const summary = shared.copiedSummary && !regenerate
-      ? await prisma.resourceSummary.findUniqueOrThrow({ where: { resourceId } })
-      : await generateResourceSummary(resource, extracted.cleanedText, textHash, regenerate);
+    // Reuse already-extracted text if it exists and the stored fileHash matches
+    // the resource's current fileHash — otherwise we'd needlessly re-fetch the
+    // PDF and re-parse 60k+ characters on every regenerate call.
+    const [existingText, existingSummary] = await Promise.all([
+      prisma.resourceText.findUnique({ where: { resourceId } }),
+      prisma.resourceSummary.findUnique({ where: { resourceId } }),
+    ]);
+    // Reuse extracted text + cached summary only when the user has NOT
+    // explicitly clicked Regenerate. The completion flag guarantees the
+    // stored summary matches the stored text.
+    const reuseText =
+      !regenerate &&
+      existingText !== null &&
+      existingText.cleanedText.length > 0 &&
+      existingSummary?.generationStatus === "COMPLETED";
+
+    if (reuseText && existingText && existingSummary) {
+      await prisma.resource.update({
+        where: { id: resourceId },
+        data: { aiProcessingStatus: "SUMMARY_READY", lastProcessedAt: new Date(), processingError: null },
+      });
+      await audit(resourceId, "resource-summary", "COMPLETED");
+      return existingSummary;
+    }
+
+    const extracted = await extractAndStoreResourceText(resource);
+    const cleanedText = extracted.extracted.cleanedText;
+    const textHash = extracted.textHash;
+    const summary = await generateResourceSummary(resource, cleanedText, textHash, regenerate);
     await audit(resourceId, "resource-summary", "COMPLETED");
     return summary;
   } catch (error: unknown) {
@@ -1307,6 +2324,34 @@ export const processResourceSummary = async (resourceId: string, regenerate = fa
   });
 };
 
+const runResourceResearchGraph = async (resourceId: string) => {
+  try {
+    await audit(resourceId, "resource-research-graph", "PROCESSING");
+    const graph = await rebuildResourceResearchGraph(resourceId);
+    await prisma.resource.update({
+      where: { id: resourceId },
+      data: { aiProcessingStatus: "GRAPH_READY", lastProcessedAt: new Date(), processingError: null },
+    });
+    await audit(resourceId, "resource-research-graph", "COMPLETED");
+    return graph;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    await prisma.resource.update({
+      where: { id: resourceId },
+      data: { aiProcessingStatus: "FAILED", processingError: message },
+    });
+    await audit(resourceId, "resource-research-graph", "FAILED", message);
+    throw error;
+  }
+};
+
+export const processResourceResearchGraph = async (resourceId: string) => {
+  const resource = await assertPdfResourceForAi(resourceId, "AI processing");
+  return queueResourceAiJob(resource, "graph", async () => {
+    await runResourceResearchGraph(resourceId);
+  });
+};
+
 // How long a job can sit in a processing state before we consider it stuck.
 const STUCK_JOB_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -1315,6 +2360,7 @@ const PROCESSING_STATES_SET = new Set<ResourceProcessingStatus>([
   ResourceProcessingStatus.TEXT_EXTRACTED,
   ResourceProcessingStatus.SUMMARY_PROCESSING,
   ResourceProcessingStatus.CITATION_PROCESSING,
+  ResourceProcessingStatus.GRAPH_PROCESSING,
 ]);
 
 export const getProcessingStatus = async (resourceId: string) => {
@@ -1327,6 +2373,7 @@ export const getProcessingStatus = async (resourceId: string) => {
       processingError: true,
       extractedText: { select: { id: true, pageCount: true, updatedAt: true } },
       aiSummary: { select: { id: true, isVisible: true, generationStatus: true, updatedAt: true } },
+      researchGraph: { select: { id: true, provider: true, generatedAt: true, generationStatus: true } },
       _count: { select: { citationsFrom: true } },
     },
   });
@@ -1356,6 +2403,7 @@ export const getProcessingStatus = async (resourceId: string) => {
           processingError: true,
           extractedText: { select: { id: true, pageCount: true, updatedAt: true } },
           aiSummary: { select: { id: true, isVisible: true, generationStatus: true, updatedAt: true } },
+          researchGraph: { select: { id: true, provider: true, generatedAt: true, generationStatus: true } },
           _count: { select: { citationsFrom: true } },
         },
       });
@@ -1371,6 +2419,9 @@ export const getProcessingStatus = async (resourceId: string) => {
     text: resource.extractedText ? { status: "READY", pageCount: resource.extractedText.pageCount, updatedAt: resource.extractedText.updatedAt } : { status: "PENDING" },
     summary: resource.aiSummary ? { status: resource.aiSummary.generationStatus, isVisible: resource.aiSummary.isVisible, updatedAt: resource.aiSummary.updatedAt } : { status: "PENDING" },
     citations: { status: resource._count.citationsFrom > 0 ? "READY" : "PENDING", count: resource._count.citationsFrom },
+    graph: resource.researchGraph
+      ? { status: resource.researchGraph.generationStatus, provider: resource.researchGraph.provider, generatedAt: resource.researchGraph.generatedAt }
+      : { status: "PENDING" },
   };
 };
 
@@ -1379,18 +2430,42 @@ export const getSummary = async (resourceId: string) => {
     where: { id: resourceId },
     select: {
       id: true,
+      title: true,
+      authors: true,
       aiProcessingStatus: true,
       processingError: true,
+      extractedText: { select: { cleanedText: true } },
       aiSummary: true,
     },
   });
   if (!resource) throw new AppError(404, "Resource not found.");
+  const identity = resource.extractedText?.cleanedText
+    ? inferPaperIdentity(resource.extractedText.cleanedText, resource)
+    : {
+        detectedTitle: resource.title,
+        detectedAuthors: resource.authors,
+        sourceType: "EXTRACTED_TEXT" as const,
+        titleMismatch: false,
+      };
+  const warning = identity.sourceType === "RESEARCH_SUMMARY"
+    ? "This result is grounded in a prepared research summary rather than the complete paper. Verify fine-grained claims against the original publication."
+    : identity.titleMismatch
+      ? "The paper title detected inside the document differs from the resource title. The summary uses the detected document identity."
+      : null;
   return {
     resourceId,
     status: resource.aiProcessingStatus,
     processingError: resource.processingError,
     summaryStatus: resource.aiSummary ? (resource.aiSummary.isVisible ? resource.aiSummary.generationStatus : "HIDDEN") : "PENDING",
     summary: resource.aiSummary?.isVisible ? resource.aiSummary : null,
+    documentIdentity: {
+      storedTitle: resource.title,
+      detectedTitle: identity.detectedTitle,
+      detectedAuthors: identity.detectedAuthors,
+      sourceType: identity.sourceType,
+      titleMismatch: identity.titleMismatch,
+      warning,
+    },
   };
 };
 
@@ -1425,6 +2500,35 @@ export const getGraph = async (resourceId: string, query: Record<string, string 
   const includeExternal = query.includeExternal !== "false";
   const minConfidence = Math.max(0, Math.min(1, Number(query.minConfidence ?? 0) || 0));
   const limit = Math.max(1, Math.min(200, Number(query.limit ?? 50) || 50));
+  const snapshot = await prisma.resourceResearchGraph.findUnique({ where: { resourceId } });
+  if (snapshot) {
+    const snapshotNodes = Array.isArray(snapshot.nodes) ? snapshot.nodes as unknown as ResearchGraphNode[] : [];
+    const snapshotEdges = Array.isArray(snapshot.edges) ? snapshot.edges as unknown as ResearchGraphEdge[] : [];
+    const filteredEdges = snapshotEdges
+      .filter((edge) => (edge.confidenceScore ?? 0) >= minConfidence)
+      .filter((edge) => includeExternal || (!edge.source.startsWith("external:") && !edge.target.startsWith("external:") && !edge.source.startsWith("s2:") && !edge.target.startsWith("s2:")))
+      .slice(0, limit);
+    const visibleNodeIds = new Set(filteredEdges.flatMap((edge) => [edge.source, edge.target]));
+    visibleNodeIds.add(`resource:${resourceId}`);
+    const nodes = snapshotNodes.filter((node) => visibleNodeIds.has(node.id));
+    return {
+      resourceId,
+      nodes,
+      edges: filteredEdges,
+      generatedAt: snapshot.generatedAt,
+      provider: snapshot.provider,
+      providerPaperId: snapshot.providerPaperId,
+      citationCount: snapshot.citationCount,
+      graphVersion: snapshot.graphVersion,
+      warning: snapshot.generationError,
+      stats: {
+        references: filteredEdges.filter((edge) => edge.type === "REFERENCES").length,
+        citedBy: filteredEdges.filter((edge) => edge.type === "CITED_BY" && edge.source === `resource:${resourceId}`).length,
+        secondLayer: filteredEdges.filter((edge) => edge.type === "CITED_BY" && edge.source !== `resource:${resourceId}`).length,
+        related: filteredEdges.filter((edge) => edge.type === "RELATED").length,
+      },
+    };
+  }
   const current = await prisma.resource.findUnique({ where: { id: resourceId }, select: { id: true, title: true, authors: true, year: true } });
   if (!current) throw new AppError(404, "Resource not found.");
 
@@ -1462,12 +2566,88 @@ export const getGraph = async (resourceId: string, query: Record<string, string 
     }];
   });
 
-  return { resourceId, nodes: [...nodes.values()], edges: graphEdges };
+  return {
+    resourceId,
+    nodes: [...nodes.values()],
+    edges: graphEdges,
+    generatedAt: null,
+    provider: "legacy-reference-graph",
+    providerPaperId: null,
+    citationCount: null,
+    graphVersion: 0,
+    warning: "Rebuild the graph to add cited-by layers and related work.",
+    stats: {
+      references: graphEdges.length,
+      citedBy: 0,
+      secondLayer: 0,
+      related: 0,
+    },
+  };
+};
+
+/**
+ * Return a short preview of the extracted text so the frontend can show the
+ * user what the AI is going to summarize before they trigger generation.
+ * We deliberately do NOT return the full extractedText (it can be 60k+ chars)
+ * — just the first `maxChars` characters plus page count metadata. If no
+ * extraction has happened yet we return a `{ status: "PENDING" }` envelope so
+ * the UI can distinguish "text exists but no summary yet" from "PDF hasn't
+ * been read at all".
+ */
+const PREVIEW_DEFAULT_CHARS = 1800;
+const PREVIEW_MAX_CHARS = 6000;
+
+export const getExtractedTextPreview = async (resourceId: string) => {
+  const resource = await prisma.resource.findUnique({
+    where: { id: resourceId },
+    select: {
+      id: true,
+      title: true,
+      fileType: true,
+      extractedText: {
+        select: { cleanedText: true, pageCount: true, updatedAt: true, language: true },
+      },
+    },
+  });
+  if (!resource) throw new AppError(404, "Resource not found.");
+  if (!resource.extractedText) {
+    return {
+      resourceId: resource.id,
+      title: resource.title,
+      fileType: resource.fileType,
+      status: "PENDING" as const,
+      preview: null,
+      pageCount: null,
+      totalChars: 0,
+    };
+  }
+  const maxChars = Math.min(PREVIEW_MAX_CHARS, Math.max(120, PREVIEW_DEFAULT_CHARS));
+  const cleaned = resource.extractedText.cleanedText ?? "";
+  const preview = cleaned.slice(0, maxChars);
+  return {
+    resourceId: resource.id,
+    title: resource.title,
+    fileType: resource.fileType,
+    status: "READY" as const,
+    preview,
+    pageCount: resource.extractedText.pageCount ?? null,
+    language: resource.extractedText.language ?? null,
+    totalChars: cleaned.length,
+    truncated: cleaned.length > preview.length,
+    updatedAt: resource.extractedText.updatedAt,
+  };
 };
 
 export const __resourceAiInternals = {
   extractPdfText,
+  prepareAcademicText,
+  inferPaperIdentity,
+  structuredPackFallback,
   fallbackSummary,
+  getOrCreateSummary,
   splitReferences,
   detectReferenceSection,
+  titleSimilarity,
+  graphNodeFromSemanticPaper,
+  persistCrossrefReferences,
 };

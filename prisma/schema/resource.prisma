@@ -1,37 +1,38 @@
 model Resource {
-  id          String     @id @default(uuid())
-  uploaderId  String?
-  clusterId   String?
-  clusterIds  String[]   @default([])
-  categoryId  String?
-  title       String
-  description String?
-  fileUrl     String
-  fileType    String
-  visibility  Visibility @default(PUBLIC)
-  tags        String[]
-  authors     String[]
-  year        Int?
-  isFeatured  Boolean    @default(false)
-  viewCount   Int        @default(0)
-  fileHash    String?
+  id                 String                   @id @default(uuid())
+  uploaderId         String?
+  clusterId          String?
+  clusterIds         String[]                 @default([])
+  categoryId         String?
+  title              String
+  description        String?
+  fileUrl            String
+  fileType           String
+  visibility         Visibility               @default(PUBLIC)
+  tags               String[]
+  authors            String[]
+  year               Int?
+  isFeatured         Boolean                  @default(false)
+  viewCount          Int                      @default(0)
+  fileHash           String?
   aiProcessingStatus ResourceProcessingStatus @default(PENDING)
-  lastProcessedAt DateTime?
-  processingError String?
+  lastProcessedAt    DateTime?
+  processingError    String?
   //   embedding   Unsupported("vector(1536)")?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
 
-  uploader    User?                @relation(fields: [uploaderId], references: [id], onDelete: SetNull)
-  cluster     Cluster?             @relation(fields: [clusterId], references: [id])
-  category    ResourceCategory?    @relation(fields: [categoryId], references: [id])
-  comments    ResourceComment[]
-  annotations ResourceAnnotation[]
-  quizzes     ResourceQuiz[]
-  bookmarks   ReadingListItem[]
-  aiSessions  AiStudySession[]
+  uploader      User?                  @relation(fields: [uploaderId], references: [id], onDelete: SetNull)
+  cluster       Cluster?               @relation(fields: [clusterId], references: [id])
+  category      ResourceCategory?      @relation(fields: [categoryId], references: [id])
+  comments      ResourceComment[]
+  annotations   ResourceAnnotation[]
+  quizzes       ResourceQuiz[]
+  bookmarks     ReadingListItem[]
+  aiSessions    AiStudySession[]
   extractedText ResourceText?
   aiSummary     ResourceSummary?
+  researchGraph ResourceResearchGraph?
   citationsFrom ResourceCitationEdge[] @relation("ResourceCitationSource")
   citationsTo   ResourceCitationEdge[] @relation("ResourceCitationTarget")
 
@@ -39,18 +40,43 @@ model Resource {
   @@index([aiProcessingStatus])
 }
 
-model ResourceText {
+/// Persisted, provider-backed literature graph for a resource. The JSON
+/// snapshot supports edges between external papers (for second-level cited-by
+/// relationships), which ResourceCitationEdge cannot represent on its own.
+model ResourceResearchGraph {
   id         String   @id @default(uuid())
-  resourceId String  @unique
+  resourceId String   @unique
   resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
 
-  fullText   String
-  cleanedText String
-  textHash   String
-  pageCount  Int?
-  language   String?
-  extractionMethod String?
-  extractionVersion Int @default(1)
+  provider         String             @default("semantic-scholar")
+  providerPaperId  String?
+  graphVersion     Int                @default(1)
+  nodes            Json
+  edges            Json
+  citationCount    Int?
+  generationStatus AiGenerationStatus @default(COMPLETED)
+  generationError  String?
+  generatedAt      DateTime           @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([providerPaperId])
+  @@index([generatedAt])
+}
+
+model ResourceText {
+  id         String   @id @default(uuid())
+  resourceId String   @unique
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  fullText          String
+  cleanedText       String
+  textHash          String
+  pageCount         Int?
+  language          String?
+  extractionMethod  String?
+  extractionVersion Int     @default(1)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -60,37 +86,37 @@ model ResourceText {
 
 model ResourceSummary {
   id         String   @id @default(uuid())
-  resourceId String  @unique
+  resourceId String   @unique
   resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
 
   modelName     String
-  promptVersion Int @default(1)
+  promptVersion Int    @default(1)
   inputTextHash String
 
   // ── English (canonical) ────────────────────────────────────────────────────
   professionalSummary String
-  goals        String?
-  methods      String?
-  results      String?
-  conclusions  String?
-  keyContributions String[]
-  limitations  String[]
-  keywords     String[]
+  goals               String?
+  methods             String?
+  results             String?
+  conclusions         String?
+  keyContributions    String[]
+  limitations         String[]
+  keywords            String[]
 
   // ── Native Bangla (mirror of the above; always set when AI succeeds) ───────
   // Each of these mirrors the English field but in fluent native Bangla (বাংলা),
   // never transliteration. Null when AI generation didn't produce Bangla output
   // (older rows, fallbacks, or language not detected).
   professionalSummaryBn String?
-  goalsBn       String?
-  methodsBn     String?
-  resultsBn     String?
-  conclusionsBn String?
-  keyContributionsBn String[] @default([])
-  limitationsBn  String[]   @default([])
-  keywordsBn     String[]   @default([])
+  goalsBn               String?
+  methodsBn             String?
+  resultsBn             String?
+  conclusionsBn         String?
+  keyContributionsBn    String[] @default([])
+  limitationsBn         String[] @default([])
+  keywordsBn            String[] @default([])
 
-  isVisible    Boolean @default(true)
+  isVisible        Boolean            @default(true)
   generationStatus AiGenerationStatus @default(COMPLETED)
   generationError  String?
 
@@ -103,18 +129,18 @@ model ResourceSummary {
 }
 
 model ExternalCitationTarget {
-  id         String   @id @default(uuid())
-  title      String
-  authors    String?
+  id              String  @id @default(uuid())
+  title           String
+  authors         String?
   publicationYear Int?
-  venue      String?
-  doi        String? @unique
-  url        String?
+  venue           String?
+  doi             String? @unique
+  url             String?
 
-  semanticScholarId String? @unique
-  crossrefId String?
-  openAlexId String?
-  metadataSource String?
+  semanticScholarId  String? @unique
+  crossrefId         String?
+  openAlexId         String?
+  metadataSource     String?
   metadataConfidence Float?
 
   citationTargets ResourceCitationEdge[]
@@ -129,24 +155,24 @@ model ExternalCitationTarget {
 }
 
 model ResourceCitationEdge {
-  id        String @id @default(uuid())
+  id String @id @default(uuid())
 
   sourceResourceId String
-  sourceResource Resource @relation("ResourceCitationSource", fields: [sourceResourceId], references: [id], onDelete: Cascade)
+  sourceResource   Resource @relation("ResourceCitationSource", fields: [sourceResourceId], references: [id], onDelete: Cascade)
 
   targetResourceId String?
-  targetResource Resource? @relation("ResourceCitationTarget", fields: [targetResourceId], references: [id])
+  targetResource   Resource? @relation("ResourceCitationTarget", fields: [targetResourceId], references: [id])
 
   externalTargetId String?
-  externalTarget ExternalCitationTarget? @relation(fields: [externalTargetId], references: [id])
+  externalTarget   ExternalCitationTarget? @relation(fields: [externalTargetId], references: [id])
 
-  relationType CitationRelationType @default(REFERENCES)
+  relationType    CitationRelationType @default(REFERENCES)
   confidenceScore Float?
-  rawReference String?
-  contextSnippet String?
-  referenceIndex Int?
-  resolverSource String?
-  parserVersion Int @default(1)
+  rawReference    String?
+  contextSnippet  String?
+  referenceIndex  Int?
+  resolverSource  String?
+  parserVersion   Int                  @default(1)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -159,14 +185,14 @@ model ResourceCitationEdge {
 }
 
 model ResourceProcessingJobAudit {
-  id        String @id @default(uuid())
+  id         String    @id @default(uuid())
   resourceId String
-  jobType   String
-  status    JobStatus
-  error     String?
-  startedAt DateTime?
+  jobType    String
+  status     JobStatus
+  error      String?
+  startedAt  DateTime?
   finishedAt DateTime?
-  createdAt DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   @@index([resourceId])
   @@index([jobType])
@@ -174,27 +200,27 @@ model ResourceProcessingJobAudit {
 }
 
 model AiCache {
-  id        String @id @default(uuid())
-  cacheKey  String @unique
-  taskType  String
-  modelName String
+  id            String   @id @default(uuid())
+  cacheKey      String   @unique
+  taskType      String
+  modelName     String
   promptVersion Int
-  inputHash String
-  outputJson Json
-  createdAt DateTime @default(now())
+  inputHash     String
+  outputJson    Json
+  createdAt     DateTime @default(now())
 
   @@index([taskType])
   @@index([inputHash])
 }
 
 model MetadataCache {
-  id        String @id @default(uuid())
-  cacheKey  String @unique
-  source    String
-  query     String
+  id         String    @id @default(uuid())
+  cacheKey   String    @unique
+  source     String
+  query      String
   resultJson Json
-  createdAt DateTime @default(now())
-  expiresAt DateTime?
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
 
   @@index([source])
   @@index([expiresAt])
@@ -260,6 +286,7 @@ enum ResourceProcessingStatus {
   SUMMARY_READY
   CITATION_PROCESSING
   CITATIONS_READY
+  GRAPH_PROCESSING
   GRAPH_READY
   FAILED
 }

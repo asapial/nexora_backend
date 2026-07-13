@@ -4,10 +4,12 @@ import { catchAsync } from "../../utils/catchAsync";
 import { sendResponse } from "../../utils/sendResponse";
 import {
   getCitations,
+  getExtractedTextPreview,
   getGraph,
   getProcessingStatus,
   getSummary,
   processResourceAi,
+  processResourceResearchGraph,
   processResourceSummary,
   setSummaryVisibility,
 } from "./resourceAi.service";
@@ -65,10 +67,28 @@ const reanalyzeCitations = catchAsync(async (req: Request, res: Response) => {
   sendResponse(res, { status: status.ACCEPTED, success: true, message: "Resource citations queued", data: result });
 });
 
+const regenerateGraph = catchAsync(async (req: Request, res: Response) => {
+  await assertReadableResource(req);
+  const result = await processResourceResearchGraph(resourceIdFrom(req));
+  sendResponse(res, { status: status.ACCEPTED, success: true, message: "Resource research graph queued", data: result });
+});
+
 const updateSummaryVisibility = catchAsync(async (req: Request, res: Response) => {
   await assertReadableResource(req);
   const result = await setSummaryVisibility(resourceIdFrom(req), Boolean(req.body?.isVisible));
   sendResponse(res, { status: status.OK, success: true, message: "Summary visibility updated", data: result });
+});
+
+/**
+ * Returns a short preview of the extracted PDF text (first ~1800 chars + page
+ * count) so the UI can show the user what the AI is going to summarize before
+ * triggering the actual generation. Returns `{ status: "PENDING", preview: null }`
+ * when text extraction hasn't happened yet.
+ */
+const extractedTextPreview = catchAsync(async (req: Request, res: Response) => {
+  await assertReadableResource(req);
+  const result = await getExtractedTextPreview(resourceIdFrom(req));
+  sendResponse(res, { status: status.OK, success: true, message: "Resource extracted text preview", data: result });
 });
 
 export const resourceAiController = {
@@ -79,5 +99,7 @@ export const resourceAiController = {
   processAi,
   regenerateSummary,
   reanalyzeCitations,
+  regenerateGraph,
   updateSummaryVisibility,
+  extractedTextPreview,
 };
