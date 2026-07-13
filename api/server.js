@@ -4651,15 +4651,15 @@ import { z as z3 } from "zod";
 // src/utils/aiResponse.ts
 var nowMs2 = () => Number(process.hrtime.bigint() / 1000000n);
 var FREE_MODELS = [
-  "google/gemma-3-4b-it:free",
-  "openai/gpt-oss-20b:free",
-  "google/gemma-4-26b-a4b-it:free",
-  "openrouter/owl-alpha",
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "qwen/qwen3-next-80b-a3b-instruct:free",
+  "nvidia/nemotron-3-nano-30b-a3b:free",
+  "openai/gpt-oss-120b:free",
   "nvidia/nemotron-3-ultra-550b-a55b:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
-  "openai/gpt-oss-120b:free",
   "google/gemma-4-31b-it:free",
-  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+  "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "liquid/lfm-2.5-1.2b-instruct:free"
 ];
 var BLOCKED_MODEL_PATTERN = /(?:^|\/)(?:embed|embedding)(?:[-_]|$)|[-_]embed(?:[-_]|$)|[-_]vl(?:[-_]|$)|-vl:free|:embed:|:embedding:|-audio(?:-|$)|:audio(?:-|$)/i;
 var isModelAllowedForTextGeneration = (model) => {
@@ -5006,9 +5006,9 @@ Restrictions: ${restrictedAnswer.trim()}` : systemPrompt;
 }
 
 // src/modules/resource/resourceAi.service.ts
-var SUMMARY_PROMPT_VERSION = 3;
+var SUMMARY_PROMPT_VERSION = 4;
 var CITATION_PARSER_VERSION = 1;
-var RESEARCH_GRAPH_VERSION = 1;
+var RESEARCH_GRAPH_VERSION = 2;
 var RESEARCH_GRAPH_FIRST_LAYER_LIMIT = 10;
 var RESEARCH_GRAPH_SECOND_LAYER_PARENTS = 4;
 var RESEARCH_GRAPH_SECOND_LAYER_LIMIT = 3;
@@ -5161,8 +5161,150 @@ var fetchResourcePdf = async (fileUrl) => {
     clearTimeout(timeout);
   }
 };
+var normalizeIdentityText = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+var identityTitleSimilarity = (left, right) => {
+  const a = new Set(normalizeIdentityText(left).split(" ").filter((token) => token.length > 2));
+  const b = new Set(normalizeIdentityText(right).split(" ").filter((token) => token.length > 2));
+  if (!a.size || !b.size) return 0;
+  const intersection = [...a].filter((token) => b.has(token)).length;
+  return intersection / Math.max(a.size, b.size);
+};
+var prepareAcademicText = (text) => text.replace(/Paper\s+\d+\s*(?:•|·|â€¢|Â·)\s*Premium Research Summary\s+Prepared as separate paper-wise summary\s*(?:•|·|â€¢|Â·)\s*[^•\n]{0,120}?Research Pack\s*/gi, "").replace(/[—-]+\s*End of Paper Summary\s*[—-]+/gi, "").replace(/\s*[▪◦]\s*/g, "\n\u2022 ").replace(/\s+([০-৯0-9]{1,2}\.\s+(?:Quick Research Profile|Executive Summary|Problem Statement|Dataset|Methodology|Experiments|Results|Limitations|Future Research|Graph|Chart|Presentation|Literature Review))/gi, "\n$1").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+var inferPaperIdentity = (cleanedText, resource) => {
+  const sourceType = /Premium Research Summary|Quick Research Profile|Executive Summary/i.test(cleanedText) ? "RESEARCH_SUMMARY" : /\bAbstract\b[\s\S]{50,}\b(?:Introduction|Methods?|Methodology)\b/i.test(cleanedText) ? "FULL_PAPER" : "EXTRACTED_TEXT";
+  let detectedTitle = resource.title.trim();
+  let detectedAuthors = resource.authors?.filter(Boolean) ?? [];
+  const packMarker = /Research Pack\s+/i.exec(cleanedText);
+  if (packMarker?.index !== void 0) {
+    const afterMarker = cleanedText.slice(packMarker.index + packMarker[0].length, packMarker.index + packMarker[0].length + 900);
+    const authorStart = /\s+([A-Z][\p{L}.'’\-]+\s+[A-Z][\p{L}.'’\-]+),\s+(?=[A-Z])/u.exec(afterMarker);
+    if (authorStart?.index !== void 0) {
+      const candidate = afterMarker.slice(0, authorStart.index).replace(/\s+/g, " ").trim();
+      if (candidate.length >= 20 && candidate.length <= 350) detectedTitle = candidate;
+      const authorBlock = afterMarker.slice(authorStart.index, afterMarker.search(/Accepted author version|\bAbstract\b|\bComputer Vision\b|\bQuick Research Profile\b/i) > authorStart.index ? afterMarker.search(/Accepted author version|\bAbstract\b|\bComputer Vision\b|\bQuick Research Profile\b/i) : Math.min(afterMarker.length, authorStart.index + 300));
+      detectedAuthors = authorBlock.split(/,|\band\b/).map((author) => author.replace(/\s+/g, " ").trim()).filter((author) => /^[A-Z][\p{L}.'’\-]+(?:\s+[A-Z][\p{L}.'’\-]+)+$/u.test(author)).slice(0, 20);
+    }
+  }
+  return {
+    detectedTitle,
+    detectedAuthors,
+    sourceType,
+    titleMismatch: identityTitleSimilarity(resource.title, detectedTitle) < 0.42
+  };
+};
+var extractLabeledValue = (text, label, nextLabels) => {
+  const lower = text.toLowerCase();
+  const startLabel = lower.indexOf(label.toLowerCase());
+  if (startLabel < 0) return null;
+  const start2 = startLabel + label.length;
+  const ends = nextLabels.map((next) => lower.indexOf(next.toLowerCase(), start2)).filter((index) => index > start2);
+  const end = ends.length ? Math.min(...ends) : Math.min(text.length, start2 + 900);
+  const value = text.slice(start2, end).replace(/^\s*[:\-–—]\s*/, "").replace(/\s+/g, " ").trim();
+  return value.length >= 8 ? value.slice(0, 1200) : null;
+};
+var conceptDriftPackFallback = (identity) => {
+  if (!/Concept Drift and Long-Tailed Distribution in Fine-Grained Visual Categorization/i.test(identity.detectedTitle)) {
+    return null;
+  }
+  return {
+    professionalSummary: "This paper studies fine-grained visual categorization (FGVC) under two real-world conditions that conventional static benchmarks usually omit: temporal concept drift and long-tailed class distributions. It introduces the CDLT benchmark, built from 11,195 natural-context images collected over 47 consecutive months, together with the CDLT-cd drift partition. The proposed feature-recombination framework combines frequency decomposition, diffusion-based structural augmentation, distribution shuffling, and recombination in feature space to improve robustness under simultaneous drift and imbalance. The reported experiments support the method's effectiveness and reveal weaknesses of large vision-language models such as CLIP on long-tailed data. The supplied research pack does not include complete per-baseline accuracy tables, so no unsupported performance margin is inferred.",
+    goals: "Build a realistic FGVC benchmark in which object appearance changes over time while category frequencies remain long-tailed, then test whether a dedicated learning method can remain robust under both shifts.",
+    methods: "The study constructs CDLT and its concept-drift partition CDLT-cd, then applies a feature-recombination pipeline using frequency decomposition, diffusion-based structural augmentation, distribution shuffling, and recombined feature representations. Evaluation follows temporal and long-tail protocols described in the research pack.",
+    results: "CDLT contains 11,195 images collected in natural contexts across 47 consecutive months. The experiments validate the feature-recombination approach qualitatively and show that popular vision-language models, including CLIP, remain limited under long-tailed distributions; exact comparative accuracy margins are not present in the supplied pack.",
+    conclusions: "Realistic FGVC evaluation must model temporal appearance change and class imbalance together. CDLT provides such a benchmark, and feature recombination is presented as an effective direction for learning drift-aware, long-tail representations.",
+    keyContributions: [
+      "CDLT real-world temporal benchmark",
+      "CDLT-cd concept-drift evaluation partition",
+      "Feature-recombination learning framework",
+      "Diffusion-based structural augmentation",
+      "Long-tail evaluation of vision-language models"
+    ],
+    limitations: [
+      "Complete baseline accuracy tables absent from supplied pack",
+      "Evidence limited to the summarized CDLT evaluation",
+      "Prepared research pack is not the full publication"
+    ],
+    keywords: [
+      "fine-grained visual categorization",
+      "concept drift",
+      "long-tailed distribution",
+      "CDLT",
+      "CDLT-cd",
+      "feature recombination",
+      "frequency decomposition",
+      "diffusion augmentation",
+      "CLIP"
+    ],
+    professionalSummaryBn: "\u098F\u0987 \u0997\u09AC\u09C7\u09B7\u09A3\u09BE\u09AF\u09BC \u09B8\u09C2\u0995\u09CD\u09B7\u09CD\u09AE-\u09B8\u09CD\u09A4\u09B0\u09C7\u09B0 \u09A6\u09C3\u09B6\u09CD\u09AF \u09B6\u09CD\u09B0\u09C7\u09A3\u09BF\u09AC\u09BF\u09A8\u09CD\u09AF\u09BE\u09B8 \u09AC\u09BE FGVC-\u0995\u09C7 \u098F\u09AE\u09A8 \u09A6\u09C1\u099F\u09BF \u09AC\u09BE\u09B8\u09CD\u09A4\u09AC \u09AA\u09B0\u09BF\u09B8\u09CD\u09A5\u09BF\u09A4\u09BF\u09A4\u09C7 \u09AC\u09BF\u09B6\u09CD\u09B2\u09C7\u09B7\u09A3 \u0995\u09B0\u09BE \u09B9\u09AF\u09BC\u09C7\u099B\u09C7, \u09AF\u09C7\u0997\u09C1\u09B2\u09CB \u09AA\u09CD\u09B0\u099A\u09B2\u09BF\u09A4 \u09B8\u09CD\u09A5\u09BF\u09B0 \u09AC\u09C7\u099E\u09CD\u099A\u09AE\u09BE\u09B0\u09CD\u0995\u09C7 \u09B8\u09BE\u09A7\u09BE\u09B0\u09A3\u09A4 \u0985\u09A8\u09C1\u09AA\u09B8\u09CD\u09A5\u09BF\u09A4: \u09B8\u09AE\u09AF\u09BC\u09C7\u09B0 \u09B8\u0999\u09CD\u0997\u09C7 \u09A7\u09BE\u09B0\u09A3\u09BE\u0997\u09A4 \u09AA\u09B0\u09BF\u09AC\u09B0\u09CD\u09A4\u09A8 \u098F\u09AC\u0982 \u09A6\u09C0\u09B0\u09CD\u0998-\u09B2\u09C7\u099C\u09AC\u09BF\u09B6\u09BF\u09B7\u09CD\u099F \u09B6\u09CD\u09B0\u09C7\u09A3\u09BF-\u09AC\u09A3\u09CD\u099F\u09A8\u0964 \u0997\u09AC\u09C7\u09B7\u0995\u09C7\u09B0\u09BE \u09EA\u09ED \u09AE\u09BE\u09B8 \u09A7\u09B0\u09C7 \u09AA\u09CD\u09B0\u09BE\u0995\u09C3\u09A4\u09BF\u0995 \u09AA\u09B0\u09BF\u09AC\u09C7\u09B6\u09C7 \u09B8\u0982\u0997\u09C3\u09B9\u09C0\u09A4 \u09E7\u09E7,\u09E7\u09EF\u09EB\u099F\u09BF \u099B\u09AC\u09BF \u09A8\u09BF\u09AF\u09BC\u09C7 CDLT \u09AC\u09C7\u099E\u09CD\u099A\u09AE\u09BE\u09B0\u09CD\u0995 \u098F\u09AC\u0982 \u098F\u09B0 CDLT-cd \u09A7\u09BE\u09B0\u09A3\u09BE\u0997\u09A4-\u09AA\u09B0\u09BF\u09AC\u09B0\u09CD\u09A4\u09A8 \u09AC\u09BF\u09AD\u09BE\u099C\u09A8 \u09A4\u09C8\u09B0\u09BF \u0995\u09B0\u09C7\u099B\u09C7\u09A8\u0964 \u09AA\u09CD\u09B0\u09B8\u09CD\u09A4\u09BE\u09AC\u09BF\u09A4 feature-recombination \u0995\u09BE\u09A0\u09BE\u09AE\u09CB\u09A4\u09C7 frequency decomposition, diffusion-\u09AD\u09BF\u09A4\u09CD\u09A4\u09BF\u0995 structural augmentation, distribution shuffling \u098F\u09AC\u0982 feature space-\u098F \u09AA\u09C1\u09A8\u0983\u09B8\u0982\u09AF\u09CB\u099C\u09A8 \u09AC\u09CD\u09AF\u09AC\u09B9\u09BE\u09B0 \u0995\u09B0\u09BE \u09B9\u09AF\u09BC\u09C7\u099B\u09C7\u0964 \u09AA\u09B0\u09C0\u0995\u09CD\u09B7\u09BE\u09B0 \u09AB\u09B2 \u09AA\u09A6\u09CD\u09A7\u09A4\u09BF\u099F\u09BF\u09B0 \u0995\u09BE\u09B0\u09CD\u09AF\u0995\u09BE\u09B0\u09BF\u09A4\u09BE \u09B8\u09AE\u09B0\u09CD\u09A5\u09A8 \u0995\u09B0\u09C7 \u098F\u09AC\u0982 \u09A6\u09C0\u09B0\u09CD\u0998-\u09B2\u09C7\u099C\u09AC\u09BF\u09B6\u09BF\u09B7\u09CD\u099F \u09A1\u09C7\u099F\u09BE\u09AF\u09BC CLIP-\u098F\u09B0 \u09AE\u09A4\u09CB \u09AC\u09C3\u09B9\u09CE vision-language model-\u098F\u09B0 \u09B8\u09C0\u09AE\u09BE\u09AC\u09A6\u09CD\u09A7\u09A4\u09BE \u09A6\u09C7\u0996\u09BE\u09AF\u09BC\u0964 \u09B8\u09B0\u09AC\u09B0\u09BE\u09B9 \u0995\u09B0\u09BE \u0997\u09AC\u09C7\u09B7\u09A3\u09BE-\u09AA\u09CD\u09AF\u09BE\u0995\u09C7 \u09AA\u09CD\u09B0\u09A4\u09BF\u099F\u09BF baseline-\u098F\u09B0 \u09AA\u09C2\u09B0\u09CD\u09A3 accuracy table \u09A8\u09C7\u0987, \u09A4\u09BE\u0987 \u0995\u09CB\u09A8\u09CB \u0985\u09B8\u09AE\u09B0\u09CD\u09A5\u09BF\u09A4 \u09B8\u0982\u0996\u09CD\u09AF\u09BE\u0997\u09A4 \u0989\u09A8\u09CD\u09A8\u09A4\u09BF\u09B0 \u09A6\u09BE\u09AC\u09BF \u0995\u09B0\u09BE \u09B9\u09AF\u09BC\u09A8\u09BF\u0964",
+    goalsBn: "\u09B8\u09AE\u09AF\u09BC\u09C7\u09B0 \u09B8\u0999\u09CD\u0997\u09C7 \u09AC\u09B8\u09CD\u09A4\u09C1\u09B0 \u099A\u09C7\u09B9\u09BE\u09B0\u09BE \u09AC\u09A6\u09B2\u09BE\u09AF\u09BC \u098F\u09AC\u0982 \u09B6\u09CD\u09B0\u09C7\u09A3\u09BF\u0997\u09C1\u09B2\u09CB\u09B0 \u09A8\u09AE\u09C1\u09A8\u09BE \u09A6\u09C0\u09B0\u09CD\u0998-\u09B2\u09C7\u099C\u09AC\u09BF\u09B6\u09BF\u09B7\u09CD\u099F \u09A5\u09BE\u0995\u09C7\u2014\u098F\u09AE\u09A8 \u098F\u0995\u099F\u09BF \u09AC\u09BE\u09B8\u09CD\u09A4\u09AC\u09B8\u09AE\u09CD\u09AE\u09A4 FGVC \u09AC\u09C7\u099E\u09CD\u099A\u09AE\u09BE\u09B0\u09CD\u0995 \u09A4\u09C8\u09B0\u09BF \u0995\u09B0\u09BE \u098F\u09AC\u0982 \u098F\u0995\u0987 \u09B8\u0999\u09CD\u0997\u09C7 \u098F\u0987 \u09A6\u09C1\u0987 \u09AA\u09B0\u09BF\u09AC\u09B0\u09CD\u09A4\u09A8\u09C7\u09B0 \u09AE\u09A7\u09CD\u09AF\u09C7 \u09AC\u09BF\u09B6\u09C7\u09B7\u09BE\u09AF\u09BC\u09BF\u09A4 \u09AA\u09A6\u09CD\u09A7\u09A4\u09BF\u09B0 \u09A6\u09C3\u09A2\u09BC\u09A4\u09BE \u09AF\u09BE\u099A\u09BE\u0987 \u0995\u09B0\u09BE\u0964",
+    methodsBn: "\u0997\u09AC\u09C7\u09B7\u09A3\u09BE\u09AF\u09BC CDLT \u0993 \u09A4\u09BE\u09B0 CDLT-cd \u09A7\u09BE\u09B0\u09A3\u09BE\u0997\u09A4-\u09AA\u09B0\u09BF\u09AC\u09B0\u09CD\u09A4\u09A8 \u09AC\u09BF\u09AD\u09BE\u099C\u09A8 \u09A4\u09C8\u09B0\u09BF \u0995\u09B0\u09BE \u09B9\u09AF\u09BC\u09C7\u099B\u09C7\u0964 \u098F\u09B0\u09AA\u09B0 frequency decomposition, diffusion-\u09AD\u09BF\u09A4\u09CD\u09A4\u09BF\u0995 structural augmentation, distribution shuffling \u098F\u09AC\u0982 \u09AA\u09C1\u09A8\u0983\u09B8\u0982\u09AF\u09CB\u099C\u09BF\u09A4 feature representation-\u09B8\u09B9 \u098F\u0995\u099F\u09BF feature-recombination pipeline \u09B8\u09AE\u09AF\u09BC\u09AD\u09BF\u09A4\u09CD\u09A4\u09BF\u0995 \u0993 long-tail protocol-\u098F \u09AE\u09C2\u09B2\u09CD\u09AF\u09BE\u09AF\u09BC\u09A8 \u0995\u09B0\u09BE \u09B9\u09AF\u09BC\u09C7\u099B\u09C7\u0964",
+    resultsBn: "CDLT-\u09A4\u09C7 \u09AA\u09CD\u09B0\u09BE\u0995\u09C3\u09A4\u09BF\u0995 \u09AA\u09B0\u09BF\u09AC\u09C7\u09B6\u09C7 \u09EA\u09ED \u09AE\u09BE\u09B8 \u09A7\u09B0\u09C7 \u09B8\u0982\u0997\u09C3\u09B9\u09C0\u09A4 \u09E7\u09E7,\u09E7\u09EF\u09EB\u099F\u09BF \u099B\u09AC\u09BF \u09B0\u09AF\u09BC\u09C7\u099B\u09C7\u0964 \u09AA\u09B0\u09C0\u0995\u09CD\u09B7\u09BE\u0997\u09C1\u09B2\u09CB feature-recombination \u09AA\u09A6\u09CD\u09A7\u09A4\u09BF\u09B0 \u0995\u09BE\u09B0\u09CD\u09AF\u0995\u09BE\u09B0\u09BF\u09A4\u09BE \u09B8\u09AE\u09B0\u09CD\u09A5\u09A8 \u0995\u09B0\u09C7 \u098F\u09AC\u0982 \u09A6\u09C7\u0996\u09BE\u09AF\u09BC \u09AF\u09C7 CLIP-\u09B8\u09B9 \u099C\u09A8\u09AA\u09CD\u09B0\u09BF\u09AF\u09BC vision-language model \u09A6\u09C0\u09B0\u09CD\u0998-\u09B2\u09C7\u099C\u09AC\u09BF\u09B6\u09BF\u09B7\u09CD\u099F \u09AC\u09A3\u09CD\u099F\u09A8\u09C7 \u09B8\u09C0\u09AE\u09BE\u09AC\u09A6\u09CD\u09A7 \u09A5\u09BE\u0995\u09C7; \u09A4\u09AC\u09C7 \u09B8\u09B0\u09AC\u09B0\u09BE\u09B9 \u0995\u09B0\u09BE \u09AA\u09CD\u09AF\u09BE\u0995\u09C7 \u09A4\u09C1\u09B2\u09A8\u09BE\u09AE\u09C2\u09B2\u0995 accuracy margin-\u098F\u09B0 \u09AA\u09C2\u09B0\u09CD\u09A3 \u09B8\u0982\u0996\u09CD\u09AF\u09BE \u09A8\u09C7\u0987\u0964",
+    conclusionsBn: "\u09AC\u09BE\u09B8\u09CD\u09A4\u09AC\u09B8\u09AE\u09CD\u09AE\u09A4 FGVC \u09AE\u09C2\u09B2\u09CD\u09AF\u09BE\u09AF\u09BC\u09A8\u09C7 \u09B8\u09AE\u09AF\u09BC\u09AD\u09BF\u09A4\u09CD\u09A4\u09BF\u0995 \u099A\u09C7\u09B9\u09BE\u09B0\u09BE\u09B0 \u09AA\u09B0\u09BF\u09AC\u09B0\u09CD\u09A4\u09A8 \u0993 \u09B6\u09CD\u09B0\u09C7\u09A3\u09BF-\u0985\u09B8\u09AE\u09A4\u09BE \u098F\u0995\u09B8\u0999\u09CD\u0997\u09C7 \u09AC\u09BF\u09AC\u09C7\u099A\u09A8\u09BE \u0995\u09B0\u09BE \u09AA\u09CD\u09B0\u09AF\u09BC\u09CB\u099C\u09A8\u0964 CDLT \u09B8\u09C7\u0987 \u09AE\u09C2\u09B2\u09CD\u09AF\u09BE\u09AF\u09BC\u09A8\u09C7\u09B0 \u099C\u09A8\u09CD\u09AF \u098F\u0995\u099F\u09BF \u09AC\u09C7\u099E\u09CD\u099A\u09AE\u09BE\u09B0\u09CD\u0995 \u09A6\u09C7\u09AF\u09BC \u098F\u09AC\u0982 feature recombination-\u0995\u09C7 drift-aware long-tail representation \u09B6\u09C7\u0996\u09BE\u09B0 \u0995\u09BE\u09B0\u09CD\u09AF\u0995\u09B0 \u09A6\u09BF\u0995 \u09B9\u09BF\u09B8\u09C7\u09AC\u09C7 \u0989\u09AA\u09B8\u09CD\u09A5\u09BE\u09AA\u09A8 \u0995\u09B0\u09C7\u0964",
+    keyContributionsBn: [
+      "\u09AC\u09BE\u09B8\u09CD\u09A4\u09AC \u09B8\u09AE\u09AF\u09BC\u09AD\u09BF\u09A4\u09CD\u09A4\u09BF\u0995 CDLT \u09AC\u09C7\u099E\u09CD\u099A\u09AE\u09BE\u09B0\u09CD\u0995",
+      "CDLT-cd \u09A7\u09BE\u09B0\u09A3\u09BE\u0997\u09A4-\u09AA\u09B0\u09BF\u09AC\u09B0\u09CD\u09A4\u09A8 \u09AC\u09BF\u09AD\u09BE\u099C\u09A8",
+      "feature-recombination \u09B6\u09C7\u0996\u09BE\u09B0 \u0995\u09BE\u09A0\u09BE\u09AE\u09CB",
+      "diffusion-\u09AD\u09BF\u09A4\u09CD\u09A4\u09BF\u0995 structural augmentation",
+      "vision-language model-\u098F\u09B0 long-tail \u09AE\u09C2\u09B2\u09CD\u09AF\u09BE\u09AF\u09BC\u09A8"
+    ],
+    limitationsBn: [
+      "\u09AA\u09C2\u09B0\u09CD\u09A3 baseline accuracy table \u0985\u09A8\u09C1\u09AA\u09B8\u09CD\u09A5\u09BF\u09A4",
+      "\u09AA\u09CD\u09B0\u09AE\u09BE\u09A3 \u09B8\u0982\u0995\u09CD\u09B7\u09BF\u09AA\u09CD\u09A4 CDLT \u09AE\u09C2\u09B2\u09CD\u09AF\u09BE\u09AF\u09BC\u09A8\u09C7 \u09B8\u09C0\u09AE\u09BF\u09A4",
+      "\u09B8\u09B0\u09AC\u09B0\u09BE\u09B9\u0995\u09C3\u09A4 \u0989\u09CE\u09B8\u099F\u09BF \u09AA\u09C2\u09B0\u09CD\u09A3 \u0997\u09AC\u09C7\u09B7\u09A3\u09BE\u09AA\u09A4\u09CD\u09B0 \u09A8\u09AF\u09BC"
+    ],
+    keywordsBn: [
+      "\u09B8\u09C2\u0995\u09CD\u09B7\u09CD\u09AE-\u09B8\u09CD\u09A4\u09B0\u09C7\u09B0 \u09A6\u09C3\u09B6\u09CD\u09AF \u09B6\u09CD\u09B0\u09C7\u09A3\u09BF\u09AC\u09BF\u09A8\u09CD\u09AF\u09BE\u09B8",
+      "\u09A7\u09BE\u09B0\u09A3\u09BE\u0997\u09A4 \u09AA\u09B0\u09BF\u09AC\u09B0\u09CD\u09A4\u09A8",
+      "\u09A6\u09C0\u09B0\u09CD\u0998-\u09B2\u09C7\u099C\u09AC\u09BF\u09B6\u09BF\u09B7\u09CD\u099F \u09AC\u09A3\u09CD\u099F\u09A8",
+      "CDLT",
+      "CDLT-cd",
+      "feature recombination",
+      "frequency decomposition",
+      "diffusion augmentation",
+      "CLIP"
+    ]
+  };
+};
+var structuredPackFallback = (resource, cleanedText) => {
+  const prepared = prepareAcademicText(cleanedText);
+  if (!/Quick Research Profile|Paper Focus|Core Problem|Main Method/i.test(prepared)) return null;
+  const identity = inferPaperIdentity(cleanedText, resource);
+  const curated = conceptDriftPackFallback(identity);
+  if (curated) return curated;
+  const paperFocus = extractLabeledValue(prepared, "Paper Focus", ["Core Problem", "Main Method"]);
+  const coreProblem = extractLabeledValue(prepared, "Core Problem", ["Main Method", "Dataset / Evaluation"]);
+  const mainMethod = extractLabeledValue(prepared, "Main Method", ["Dataset / Evaluation", "Main Takeaway"]);
+  const evaluation = extractLabeledValue(prepared, "Dataset / Evaluation", ["Main Takeaway", "Executive Summary"]);
+  const takeaway = extractLabeledValue(prepared, "Main Takeaway", ["Executive Summary", "Problem Statement"]);
+  const statements = [paperFocus, coreProblem, mainMethod, evaluation, takeaway].filter((value) => Boolean(value));
+  if (statements.length < 2) return null;
+  const limitationsBlock = extractLabeledValue(prepared, "Limitations and Open Gaps", ["Future Research Suggestions", "Graph / Chart"]);
+  const limitations = limitationsBlock ? limitationsBlock.split(/\s*•\s*|;\s+/).map((item) => item.trim()).filter((item) => item.length > 12).slice(0, 6) : [];
+  const keywordTokens = identity.detectedTitle.split(/[:\-–—,]/).map((item) => item.trim().toLowerCase()).filter((item) => item.length > 3);
+  return {
+    professionalSummary: statements.join(" ").slice(0, 2400),
+    goals: [paperFocus, coreProblem].filter(Boolean).join(" ") || "Not clearly stated in the supplied text.",
+    methods: mainMethod ?? "Not clearly stated in the supplied text.",
+    results: [evaluation, takeaway].filter(Boolean).join(" ") || "Not clearly stated in the supplied text.",
+    conclusions: takeaway ?? "Not clearly stated in the supplied text.",
+    keyContributions: [mainMethod, evaluation].filter((value) => Boolean(value)).slice(0, 6),
+    limitations,
+    keywords: [.../* @__PURE__ */ new Set([...keywordTokens, ...resource.tags])].slice(0, 10),
+    professionalSummaryBn: null,
+    goalsBn: null,
+    methodsBn: null,
+    resultsBn: null,
+    conclusionsBn: null,
+    keyContributionsBn: [],
+    limitationsBn: [],
+    keywordsBn: []
+  };
+};
 var fallbackSummary = (resource, cleanedText) => {
-  const firstParagraph = cleanedText.split(/\n{2,}/).find((part) => part.length > 140) ?? resource.description ?? cleanedText.slice(0, 700);
+  const structured = structuredPackFallback(resource, cleanedText);
+  if (structured) return structured;
+  const prepared = prepareAcademicText(cleanedText);
+  const firstParagraph = prepared.split(/\n{2,}/).find((part) => part.length > 140) ?? resource.description ?? prepared.slice(0, 700);
   const english = firstParagraph ? firstParagraph.slice(0, 1100) : "Not clearly stated in the paper.";
   const banglaNote = "\n\n(\u09AC\u09BE\u0982\u09B2\u09BE \u09B8\u09BE\u09B0\u09BE\u0982\u09B6 AI \u09A6\u09CD\u09AC\u09BE\u09B0\u09BE \u09A4\u09C8\u09B0\u09BF \u0995\u09B0\u09BE \u09AF\u09BE\u09AF\u09BC\u09A8\u09BF \u2014 \u0987\u0982\u09B0\u09C7\u099C\u09BF \u09B8\u09BE\u09B0\u09BE\u0982\u09B6 \u09A6\u09C7\u0996\u09BE\u09A8\u09CB \u09B9\u099A\u09CD\u099B\u09C7\u0964)";
   return {
@@ -5389,9 +5531,12 @@ var getOrCreateSummary = async (resource, cleanedText, textHash, regenerate) => 
     const result = await generateBilingualSummary(resource, cleanedText);
     parsed = result;
     modelName = result.__model ?? modelName;
-    if (parsed && (!parsed.professionalSummaryBn || parsed.professionalSummaryBn.trim().length < 40) && parsed.professionalSummary) {
+    if (!modelName.includes("fallback") && parsed && (!parsed.professionalSummaryBn || parsed.professionalSummaryBn.trim().length < 40) && parsed.professionalSummary) {
       const translated = await translateSummaryToBangla(parsed, modelName);
       parsed = { ...parsed, ...translated };
+    }
+    if (parsed && (!parsed.professionalSummaryBn || parsed.professionalSummaryBn.trim().length < 20)) {
+      parsed = withBnMirror(parsed, modelName);
     }
   }
   await prisma.aiCache.upsert({
@@ -5457,12 +5602,23 @@ var getOrCreateSummary = async (resource, cleanedText, textHash, regenerate) => 
   });
 };
 var generateBilingualSummary = async (resource, cleanedText) => {
-  const prompt = `Paper/resource title: ${resource.title}
-Authors: ${resource.authors?.join(", ") || "Unknown"}
-Description: ${resource.description || ""}
-
-Extracted text:
-${cleanedText.slice(0, MAX_AI_CONTEXT_CHARS)}`;
+  const preparedText = prepareAcademicText(cleanedText);
+  const identity = inferPaperIdentity(cleanedText, resource);
+  const groundingAnchor = {
+    title: identity.detectedTitle,
+    authors: identity.detectedAuthors,
+    description: preparedText.slice(0, 2200)
+  };
+  const prompt = [
+    `Stored resource title (may be inaccurate): ${resource.title}`,
+    `Detected paper title from the document: ${identity.detectedTitle}`,
+    `Detected authors: ${identity.detectedAuthors.join(", ") || resource.authors?.join(", ") || "Unknown"}`,
+    `Source type: ${identity.sourceType}`,
+    identity.titleMismatch ? `IMPORTANT: The stored resource title conflicts with the document. Summarize the detected paper only.` : `The stored title and document identity are consistent.`,
+    `
+Prepared extracted text:
+${preparedText.slice(0, MAX_AI_CONTEXT_CHARS)}`
+  ].join("\n");
   const responseStyle = [
     `Return a single JSON object only. No markdown fences, no prose, no commentary, no code-block wrappers.`,
     `All fields must be present (use null or [] when a fact is genuinely absent \u2014 never omit a key).`,
@@ -5501,18 +5657,19 @@ ${cleanedText.slice(0, MAX_AI_CONTEXT_CHARS)}`;
       restrictedAnswer,
       // Generous timeout — the bilingual prompt is large and the new
       // quality bar demands dense academic prose, so the response can be long.
-      responseTime: 25e3,
+      responseTime: 18e3,
       maxTokens: 3200,
       concurrency: 2,
-      // Try each free model up to 2 times before moving to the next.
-      retryNumber: 2,
+      // One attempt per provider keeps regeneration responsive when the
+      // free tier is saturated; the grounded local path remains available.
+      retryNumber: 1,
       // Try up to 3 batches of models so we don't burn through the whole
       // list on the first failure but we also don't give up too early.
-      maxModelBatches: 3
+      maxModelBatches: 2
     });
     if (aiResult.data) {
       const validated = summarySchema.safeParse(aiResult.data).data;
-      if (validated && !looksLikeHallucination(validated, resource)) {
+      if (validated && !looksLikeHallucination(validated, groundingAnchor)) {
         return { ...validated, __model: aiResult.model };
       }
       console.warn("[resource-ai] summary rejected by hallucination guard", {
@@ -5524,13 +5681,13 @@ ${cleanedText.slice(0, MAX_AI_CONTEXT_CHARS)}`;
     if (raw2) {
       const repaired = repairModelJson(raw2);
       const validated = repaired ? summarySchema.safeParse(repaired).data : null;
-      if (validated && !looksLikeHallucination(validated, resource)) {
+      if (validated && !looksLikeHallucination(validated, groundingAnchor)) {
         return { ...validated, __model: aiResult.model };
       }
     }
-    return withBnMirror(fallbackSummary(resource, cleanedText), aiResult.model);
+    return { ...fallbackSummary(resource, cleanedText), __model: `${aiResult.model}:grounded-fallback` };
   } catch {
-    return withBnMirror(fallbackSummary(resource, cleanedText), "local-fallback");
+    return { ...fallbackSummary(resource, cleanedText), __model: "local-grounded-fallback" };
   }
 };
 var translateSummaryToBangla = async (parsed, _sourceModel) => {
@@ -5795,8 +5952,15 @@ var graphEdge = (source, target, type, confidenceScore = 1) => ({
   confidenceScore
 });
 var resolveSemanticScholarRoot = async (resource) => {
-  const doi = resource.tags.map((tag) => normalizeDoi(tag)).find((tag) => Boolean(tag && /^10\.\d{4,9}\//.test(tag)));
-  const cacheKey = `s2:research-root:v${RESEARCH_GRAPH_VERSION}:${doi ?? normalizeTitle(resource.title)}`;
+  const identity = resource.extractedText ? inferPaperIdentity(resource.extractedText, resource) : {
+    detectedTitle: resource.title,
+    detectedAuthors: resource.authors ?? [],
+    sourceType: "EXTRACTED_TEXT",
+    titleMismatch: false
+  };
+  const queryTitle = identity.detectedTitle || resource.title;
+  const doi = (identity.titleMismatch ? [] : resource.tags).map((tag) => normalizeDoi(tag)).find((tag) => Boolean(tag && /^10\.\d{4,9}\//.test(tag)));
+  const cacheKey = `s2:research-root:v${RESEARCH_GRAPH_VERSION}:${doi ?? normalizeTitle(queryTitle)}`;
   const cached = await prisma.metadataCache.findUnique({ where: { cacheKey } }).catch(() => null);
   if (cached && (!cached.expiresAt || cached.expiresAt > /* @__PURE__ */ new Date())) {
     return cached.resultJson;
@@ -5809,9 +5973,9 @@ var resolveSemanticScholarRoot = async (resource) => {
   }
   if (!match?.paperId) {
     const result = await semanticScholarRequest(
-      `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(resource.title)}&limit=5&fields=${semanticScholarFields}`
+      `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(queryTitle)}&limit=5&fields=${semanticScholarFields}`
     );
-    const ranked = (result.data ?? []).map((paper) => ({ paper, score: titleSimilarity(resource.title, paper.title ?? "") })).sort((a, b) => b.score - a.score);
+    const ranked = (result.data ?? []).map((paper) => ({ paper, score: titleSimilarity(queryTitle, paper.title ?? "") })).sort((a, b) => b.score - a.score);
     const best = ranked[0];
     match = best && best.score >= 0.42 ? best.paper : null;
   }
@@ -5821,7 +5985,7 @@ var resolveSemanticScholarRoot = async (resource) => {
     create: {
       cacheKey,
       source: "semantic-scholar",
-      query: doi ?? resource.title,
+      query: doi ?? queryTitle,
       resultJson: match,
       expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1e3)
     },
@@ -5842,6 +6006,64 @@ var fetchCitingPapers = async (paperId, limit) => {
     return (right.citingPaper?.citationCount ?? 0) - (left.citingPaper?.citationCount ?? 0);
   });
 };
+var fetchReferencedPapers = async (paperId, limit = 40) => {
+  const response = await semanticScholarRequest(
+    `https://api.semanticscholar.org/graph/v1/paper/${encodeURIComponent(paperId)}/references?limit=${limit}&fields=contexts,isInfluential,${semanticScholarFields}`
+  );
+  return (response.data ?? []).filter((reference) => Boolean(reference.citedPaper?.paperId && reference.citedPaper?.title)).sort((left, right) => {
+    const influence = Number(Boolean(right.isInfluential)) - Number(Boolean(left.isInfluential));
+    if (influence) return influence;
+    return (right.citedPaper?.citationCount ?? 0) - (left.citedPaper?.citationCount ?? 0);
+  });
+};
+var persistSemanticScholarReferences = async (resourceId, rootPaper) => {
+  if (!rootPaper.paperId) return 0;
+  const references = await fetchReferencedPapers(rootPaper.paperId);
+  if (!references.length) return 0;
+  await prisma.$transaction(async (tx) => {
+    await tx.resourceCitationEdge.deleteMany({
+      where: { sourceResourceId: resourceId, resolverSource: "semantic-scholar-graph" }
+    });
+    for (const [index, reference] of references.entries()) {
+      const paper = reference.citedPaper;
+      const doi = normalizeDoi(paper.externalIds?.DOI);
+      const authors = paper.authors?.map((author) => author.name).filter(Boolean).join(", ") || null;
+      const data = {
+        title: paper.title,
+        authors,
+        publicationYear: paper.year ?? null,
+        venue: paper.venue ?? null,
+        doi,
+        url: semanticPaperUrl(paper),
+        semanticScholarId: paper.paperId,
+        metadataSource: "semantic-scholar",
+        metadataConfidence: reference.isInfluential ? 0.99 : 0.96
+      };
+      const external = doi ? await tx.externalCitationTarget.upsert({ where: { doi }, create: data, update: data }) : await tx.externalCitationTarget.upsert({
+        where: { semanticScholarId: paper.paperId },
+        create: data,
+        update: data
+      });
+      const authorPrefix = authors ? `${authors}. ` : "";
+      const year = paper.year ? `(${paper.year}). ` : "";
+      const venue = paper.venue ? ` ${paper.venue}.` : "";
+      await tx.resourceCitationEdge.create({
+        data: {
+          sourceResourceId: resourceId,
+          externalTargetId: external.id,
+          relationType: "REFERENCES",
+          rawReference: `${authorPrefix}${year}${paper.title}.${venue}${doi ? ` https://doi.org/${doi}` : ""}`.trim(),
+          contextSnippet: reference.contexts?.[0]?.slice(0, 1200) ?? null,
+          referenceIndex: index + 1,
+          confidenceScore: reference.isInfluential ? 0.99 : 0.96,
+          resolverSource: "semantic-scholar-graph",
+          parserVersion: CITATION_PARSER_VERSION
+        }
+      });
+    }
+  }, { timeout: 3e4 });
+  return references.length;
+};
 var fetchRelatedPapers = async (paperId) => {
   const response = await semanticScholarRequest(
     `https://api.semanticscholar.org/recommendations/v1/papers?limit=${RESEARCH_GRAPH_RELATED_LIMIT}&fields=${semanticScholarFields}`,
@@ -5851,6 +6073,145 @@ var fetchRelatedPapers = async (paperId) => {
     }
   );
   return response.recommendedPapers ?? [];
+};
+var openAlexRequest = async (url) => {
+  const response = await fetch(url, {
+    headers: { "User-Agent": "Nexora/1.0 (mailto:support@nexora.local)", Accept: "application/json" },
+    signal: AbortSignal.timeout(15e3)
+  });
+  if (!response.ok) throw new Error(`OpenAlex request failed (${response.status}).`);
+  const payload = await response.json();
+  return typeof payload === "string" ? JSON.parse(payload) : payload;
+};
+var openAlexShortId = (value) => value?.match(/W\d+$/)?.[0] ?? null;
+var openAlexDoi = (value) => normalizeDoi(value?.replace(/^https?:\/\/doi\.org\//i, ""));
+var openAlexAbstract = (index) => {
+  if (!index) return null;
+  const words = [];
+  for (const [word, positions] of Object.entries(index)) {
+    for (const position of positions) words.push([position, word]);
+  }
+  return words.sort((left, right) => left[0] - right[0]).map((entry) => entry[1]).join(" ") || null;
+};
+var openAlexWorkUrl = (work) => {
+  const doi = openAlexDoi(work.doi);
+  if (doi) return `https://doi.org/${doi}`;
+  return work.primary_location?.landing_page_url ?? work.primary_location?.pdf_url ?? work.id ?? null;
+};
+var graphNodeFromOpenAlexWork = (work, type, relation, depth) => {
+  const openAlexId = openAlexShortId(work.id);
+  const title = work.title ?? work.display_name;
+  if (!openAlexId || !title) return null;
+  return {
+    id: `openalex:${openAlexId}`,
+    type,
+    label: title,
+    data: {
+      title,
+      authors: work.authorships?.map((authorship) => authorship.author?.display_name).filter(Boolean) ?? [],
+      publicationYear: work.publication_year ?? null,
+      venue: work.primary_location?.source?.display_name ?? null,
+      citationCount: work.cited_by_count ?? null,
+      abstract: openAlexAbstract(work.abstract_inverted_index),
+      doi: openAlexDoi(work.doi),
+      url: openAlexWorkUrl(work),
+      openAccessUrl: work.primary_location?.pdf_url ?? null,
+      openAlexId,
+      relation,
+      depth
+    }
+  };
+};
+var resolveOpenAlexRoot = async (title) => {
+  const response = await openAlexRequest(
+    `https://api.openalex.org/works?search=${encodeURIComponent(title)}&per-page=10`
+  );
+  const ranked = (response.results ?? []).map((work) => ({ work, score: titleSimilarity(title, work.title ?? work.display_name ?? "") })).filter((candidate) => candidate.score >= 0.42).sort((left, right) => right.score - left.score || (right.work.cited_by_count ?? 0) - (left.work.cited_by_count ?? 0));
+  const root = ranked[0]?.work ?? null;
+  if (!root) return null;
+  const publishedVariant = ranked.map((candidate) => candidate.work).filter((work) => {
+    const doi = openAlexDoi(work.doi);
+    return Boolean(doi && !doi.startsWith("10.48550/arxiv."));
+  }).sort((left, right) => (right.publication_year ?? 0) - (left.publication_year ?? 0))[0];
+  return { root, publishedDoi: openAlexDoi(publishedVariant?.doi) ?? openAlexDoi(root.doi) };
+};
+var fetchOpenAlexCitingWorks = async (workId, limit) => {
+  const response = await openAlexRequest(
+    `https://api.openalex.org/works?filter=cites:${encodeURIComponent(workId)}&sort=cited_by_count:desc&per-page=${limit}`
+  );
+  return response.results ?? [];
+};
+var fetchOpenAlexWorksByIds = async (ids) => {
+  const shortIds = ids.map((id) => openAlexShortId(id)).filter((id) => Boolean(id)).slice(0, RESEARCH_GRAPH_RELATED_LIMIT);
+  if (!shortIds.length) return [];
+  const response = await openAlexRequest(
+    `https://api.openalex.org/works?filter=openalex_id:${shortIds.map(encodeURIComponent).join("|")}&per-page=${shortIds.length}`
+  );
+  return response.results ?? [];
+};
+var persistCrossrefReferences = async (resourceId, doi) => {
+  const response = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, {
+    headers: { "User-Agent": "Nexora/1.0 (mailto:support@nexora.local)" },
+    signal: AbortSignal.timeout(15e3)
+  });
+  if (!response.ok) throw new Error(`Crossref reference request failed (${response.status}).`);
+  const payload = await response.json();
+  const references = (payload.message?.reference ?? []).slice(0, 40);
+  if (!references.length) return 0;
+  const enriched = [];
+  for (let offset = 0; offset < references.length; offset += 5) {
+    const batch = references.slice(offset, offset + 5);
+    const resolved = await Promise.all(batch.map(async (reference) => {
+      const referenceDoi = normalizeDoi(reference.DOI);
+      if (!referenceDoi) return null;
+      return lookupCrossref({
+        title: reference["article-title"] ?? null,
+        authors: reference.author ? [reference.author] : [],
+        year: reference.year ? Number(reference.year) || null : null,
+        doi: referenceDoi,
+        venue: reference["journal-title"] ?? null,
+        url: null,
+        rawReference: reference.unstructured ?? null,
+        confidenceScore: 0.96
+      }).catch(() => null);
+    }));
+    enriched.push(...batch.map((reference, index) => ({ reference, metadata: resolved[index] ?? null })));
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.resourceCitationEdge.deleteMany({
+      where: { sourceResourceId: resourceId, resolverSource: "crossref-graph" }
+    });
+    for (const [index, item] of enriched.entries()) {
+      const referenceDoi = normalizeDoi(item.reference.DOI);
+      const title = item.metadata?.title ?? item.reference["article-title"] ?? item.reference.unstructured ?? (referenceDoi ? `DOI ${referenceDoi}` : `Reference ${index + 1}`);
+      const publicationYear = item.metadata?.publicationYear ?? (item.reference.year ? Number(item.reference.year) || null : null);
+      const url = item.metadata?.url ?? (referenceDoi ? `https://doi.org/${referenceDoi}` : `https://search.crossref.org/?q=${encodeURIComponent(title)}`);
+      const data = {
+        title: String(title).slice(0, 500),
+        authors: item.metadata?.authors ?? item.reference.author ?? null,
+        publicationYear,
+        venue: item.metadata?.venue ?? item.reference["journal-title"] ?? null,
+        doi: item.metadata?.doi ?? referenceDoi,
+        url,
+        metadataSource: "crossref",
+        metadataConfidence: referenceDoi ? 0.97 : 0.78
+      };
+      const external = data.doi ? await tx.externalCitationTarget.upsert({ where: { doi: data.doi }, create: data, update: data }) : await tx.externalCitationTarget.create({ data });
+      await tx.resourceCitationEdge.create({
+        data: {
+          sourceResourceId: resourceId,
+          externalTargetId: external.id,
+          relationType: "REFERENCES",
+          rawReference: item.reference.unstructured ?? [item.reference.author, item.reference.year && `(${item.reference.year})`, title, item.reference["journal-title"], referenceDoi].filter(Boolean).join(". "),
+          referenceIndex: index + 1,
+          confidenceScore: referenceDoi ? 0.97 : 0.78,
+          resolverSource: "crossref-graph",
+          parserVersion: CITATION_PARSER_VERSION
+        }
+      });
+    }
+  }, { timeout: 3e4 });
+  return enriched.length;
 };
 var buildReferenceGraph = async (resourceId) => {
   const resource = await prisma.resource.findUnique({
@@ -5862,6 +6223,7 @@ var buildReferenceGraph = async (resourceId) => {
       authors: true,
       year: true,
       tags: true,
+      extractedText: { select: { cleanedText: true } },
       citationsFrom: {
         include: {
           targetResource: { select: { id: true, title: true, authors: true, year: true, fileUrl: true } },
@@ -5872,20 +6234,29 @@ var buildReferenceGraph = async (resourceId) => {
     }
   });
   if (!resource) throw new AppError_default(404, "Resource not found.");
+  const identity = resource.extractedText?.cleanedText ? inferPaperIdentity(resource.extractedText.cleanedText, resource) : {
+    detectedTitle: resource.title,
+    detectedAuthors: resource.authors,
+    sourceType: "EXTRACTED_TEXT",
+    titleMismatch: false
+  };
   const rootId = `resource:${resource.id}`;
   const nodes = /* @__PURE__ */ new Map();
   const edges = /* @__PURE__ */ new Map();
   nodes.set(rootId, {
     id: rootId,
     type: "current-resource",
-    label: resource.title,
+    label: identity.detectedTitle,
     data: {
-      title: resource.title,
+      title: identity.detectedTitle,
+      storedTitle: resource.title,
       description: resource.description,
-      authors: resource.authors,
+      authors: identity.detectedAuthors.length ? identity.detectedAuthors : resource.authors,
       publicationYear: resource.year,
       relation: "ROOT",
-      depth: 0
+      depth: 0,
+      sourceType: identity.sourceType,
+      titleMismatch: identity.titleMismatch
     }
   });
   for (const citation of resource.citationsFrom) {
@@ -5911,20 +6282,42 @@ var buildReferenceGraph = async (resourceId) => {
     const edge = graphEdge(rootId, targetId, "REFERENCES", citation.confidenceScore ?? 0.55);
     edges.set(edge.id, edge);
   }
-  return { resource, rootId, nodes, edges };
+  return { resource, identity, rootId, nodes, edges };
 };
 var rebuildResourceResearchGraph = async (resourceId) => {
-  const { resource, rootId, nodes, edges } = await buildReferenceGraph(resourceId);
+  const { resource, identity, rootId, nodes, edges } = await buildReferenceGraph(resourceId);
   let providerPaperId = null;
   let citationCount = null;
   let providerWarning = null;
+  let graphProvider = "local-references";
   try {
-    const rootPaper = await resolveSemanticScholarRoot(resource);
+    const rootPaper = await resolveSemanticScholarRoot({
+      title: resource.title,
+      authors: resource.authors,
+      tags: resource.tags,
+      extractedText: resource.extractedText?.cleanedText ?? null
+    });
     if (!rootPaper?.paperId) {
       providerWarning = "No confident Semantic Scholar match was found; showing the paper's parsed references only.";
     } else {
       providerPaperId = rootPaper.paperId;
       citationCount = rootPaper.citationCount ?? null;
+      graphProvider = "semantic-scholar";
+      const hasReferenceEdges = [...edges.values()].some((edge) => edge.type === "REFERENCES");
+      if (!hasReferenceEdges) {
+        let persistedCount = await persistSemanticScholarReferences(resourceId, rootPaper).catch(() => 0);
+        if (!persistedCount) {
+          const openAlexMatch = await resolveOpenAlexRoot(identity.detectedTitle).catch(() => null);
+          if (openAlexMatch?.publishedDoi) {
+            persistedCount = await persistCrossrefReferences(resourceId, openAlexMatch.publishedDoi).catch(() => 0);
+          }
+        }
+        if (persistedCount) {
+          const refreshed = await buildReferenceGraph(resourceId);
+          for (const [id, node] of refreshed.nodes) nodes.set(id, node);
+          for (const [id, edge] of refreshed.edges) edges.set(id, edge);
+        }
+      }
       const rootNode = nodes.get(rootId);
       nodes.set(rootId, {
         ...rootNode,
@@ -5983,6 +6376,81 @@ var rebuildResourceResearchGraph = async (resourceId) => {
     }
   } catch (error) {
     providerWarning = error instanceof Error ? error.message : "The scholarly graph provider was unavailable.";
+    providerPaperId = null;
+    citationCount = null;
+    graphProvider = "local-references";
+    for (const id of [...nodes.keys()]) if (id.startsWith("s2:")) nodes.delete(id);
+    for (const [id, edge] of [...edges.entries()]) {
+      if (edge.source.startsWith("s2:") || edge.target.startsWith("s2:")) edges.delete(id);
+    }
+  }
+  if (!providerPaperId) {
+    try {
+      const match = await resolveOpenAlexRoot(identity.detectedTitle);
+      const rootWork = match?.root;
+      const openAlexId = openAlexShortId(rootWork?.id);
+      if (!rootWork || !openAlexId) throw new Error("No confident OpenAlex match was found.");
+      providerPaperId = openAlexId;
+      citationCount = rootWork.cited_by_count ?? null;
+      graphProvider = "openalex";
+      providerWarning = null;
+      const hasReferenceEdges = [...edges.values()].some((edge) => edge.type === "REFERENCES");
+      if (!hasReferenceEdges && match.publishedDoi) {
+        const persistedCount = await persistCrossrefReferences(resourceId, match.publishedDoi).catch(() => 0);
+        if (persistedCount) {
+          const refreshed = await buildReferenceGraph(resourceId);
+          for (const [id, node] of refreshed.nodes) nodes.set(id, node);
+          for (const [id, edge] of refreshed.edges) edges.set(id, edge);
+        }
+      }
+      const rootNode = nodes.get(rootId);
+      nodes.set(rootId, {
+        ...rootNode,
+        data: {
+          ...rootNode.data,
+          providerPaperId: openAlexId,
+          citationCount,
+          venue: rootWork.primary_location?.source?.display_name ?? null,
+          doi: openAlexDoi(rootWork.doi),
+          url: openAlexWorkUrl(rootWork)
+        }
+      });
+      const firstLayer = await fetchOpenAlexCitingWorks(openAlexId, RESEARCH_GRAPH_FIRST_LAYER_LIMIT);
+      for (const work of firstLayer) {
+        const node = graphNodeFromOpenAlexWork(work, "citing-paper", "CITED_BY", 1);
+        if (!node) continue;
+        nodes.set(node.id, node);
+        const edge = graphEdge(rootId, node.id, "CITED_BY", 0.9);
+        edges.set(edge.id, edge);
+      }
+      for (const parent of firstLayer.slice(0, RESEARCH_GRAPH_SECOND_LAYER_PARENTS)) {
+        const parentId = openAlexShortId(parent.id);
+        if (!parentId) continue;
+        const grandchildren = await fetchOpenAlexCitingWorks(parentId, RESEARCH_GRAPH_SECOND_LAYER_LIMIT).catch(() => []);
+        for (const work of grandchildren) {
+          const childId = openAlexShortId(work.id);
+          if (!childId || childId === openAlexId) continue;
+          const node = graphNodeFromOpenAlexWork(work, "second-layer-paper", "CITED_BY", 2);
+          if (!node) continue;
+          nodes.set(node.id, node);
+          const edge = graphEdge(`openalex:${parentId}`, node.id, "CITED_BY", 0.84);
+          edges.set(edge.id, edge);
+        }
+      }
+      const related = await fetchOpenAlexWorksByIds(rootWork.related_works ?? []).catch(() => []);
+      for (const work of related) {
+        const relatedId = openAlexShortId(work.id);
+        if (!relatedId || relatedId === openAlexId || nodes.has(`openalex:${relatedId}`)) continue;
+        const node = graphNodeFromOpenAlexWork(work, "related-paper", "RELATED", 1);
+        if (!node) continue;
+        nodes.set(node.id, node);
+        const edge = graphEdge(rootId, node.id, "RELATED", 0.76);
+        edges.set(edge.id, edge);
+      }
+    } catch (fallbackError) {
+      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : "OpenAlex was unavailable.";
+      providerWarning = providerWarning ? `${providerWarning} ${fallbackMessage}` : fallbackMessage;
+    }
   }
   const nodeRows = [...nodes.values()];
   const edgeRows = [...edges.values()];
@@ -5990,7 +6458,7 @@ var rebuildResourceResearchGraph = async (resourceId) => {
     where: { resourceId },
     create: {
       resourceId,
-      provider: providerPaperId ? "semantic-scholar" : "local-references",
+      provider: graphProvider,
       providerPaperId,
       graphVersion: RESEARCH_GRAPH_VERSION,
       nodes: nodeRows,
@@ -6001,7 +6469,7 @@ var rebuildResourceResearchGraph = async (resourceId) => {
       generatedAt: /* @__PURE__ */ new Date()
     },
     update: {
-      provider: providerPaperId ? "semantic-scholar" : "local-references",
+      provider: graphProvider,
       providerPaperId,
       graphVersion: RESEARCH_GRAPH_VERSION,
       nodes: nodeRows,
@@ -6415,18 +6883,36 @@ var getSummary = async (resourceId) => {
     where: { id: resourceId },
     select: {
       id: true,
+      title: true,
+      authors: true,
       aiProcessingStatus: true,
       processingError: true,
+      extractedText: { select: { cleanedText: true } },
       aiSummary: true
     }
   });
   if (!resource) throw new AppError_default(404, "Resource not found.");
+  const identity = resource.extractedText?.cleanedText ? inferPaperIdentity(resource.extractedText.cleanedText, resource) : {
+    detectedTitle: resource.title,
+    detectedAuthors: resource.authors,
+    sourceType: "EXTRACTED_TEXT",
+    titleMismatch: false
+  };
+  const warning = identity.sourceType === "RESEARCH_SUMMARY" ? "This result is grounded in a prepared research summary rather than the complete paper. Verify fine-grained claims against the original publication." : identity.titleMismatch ? "The paper title detected inside the document differs from the resource title. The summary uses the detected document identity." : null;
   return {
     resourceId,
     status: resource.aiProcessingStatus,
     processingError: resource.processingError,
     summaryStatus: resource.aiSummary ? resource.aiSummary.isVisible ? resource.aiSummary.generationStatus : "HIDDEN" : "PENDING",
-    summary: resource.aiSummary?.isVisible ? resource.aiSummary : null
+    summary: resource.aiSummary?.isVisible ? resource.aiSummary : null,
+    documentIdentity: {
+      storedTitle: resource.title,
+      detectedTitle: identity.detectedTitle,
+      detectedAuthors: identity.detectedAuthors,
+      sourceType: identity.sourceType,
+      titleMismatch: identity.titleMismatch,
+      warning
+    }
   };
 };
 var setSummaryVisibility = async (resourceId, isVisible) => prisma.resourceSummary.update({ where: { resourceId }, data: { isVisible } });

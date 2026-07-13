@@ -16,15 +16,15 @@ const nowMs = () => Number(process.hrtime.bigint() / 1_000_000n);
  * future accidental additions don't silently produce hallucinated summaries.
  */
 const FREE_MODELS: string[] = [
-  "google/gemma-3-4b-it:free",
-  "openai/gpt-oss-20b:free",
-  "google/gemma-4-26b-a4b-it:free",
-  "openrouter/owl-alpha",
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "qwen/qwen3-next-80b-a3b-instruct:free",
+  "nvidia/nemotron-3-nano-30b-a3b:free",
+  "openai/gpt-oss-120b:free",
   "nvidia/nemotron-3-ultra-550b-a55b:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
-  "openai/gpt-oss-120b:free",
   "google/gemma-4-31b-it:free",
   "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "liquid/lfm-2.5-1.2b-instruct:free",
 ];
 
 /**

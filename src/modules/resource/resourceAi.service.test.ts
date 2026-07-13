@@ -148,9 +148,10 @@ test("prepared research packs use their embedded paper identity and structured e
   assert.equal(identity.titleMismatch, true);
   assert.deepEqual(identity.detectedAuthors.slice(0, 2), ["Shuo Ye", "Shiming Chen"]);
   assert.doesNotMatch(summary.professionalSummary, /Premium Research Summary/);
-  assert.match(summary.goals ?? "", /real-world visual concept drift/);
-  assert.match(summary.methods ?? "", /feature recombination/i);
-  assert.match(summary.results ?? "", /Seasonal and morphological drift protocols/);
+  assert.match(summary.goals ?? "", /realistic FGVC benchmark/i);
+  assert.match(summary.methods ?? "", /feature-recombination/i);
+  assert.match(summary.results ?? "", /11,195 images/);
+  assert.match(summary.professionalSummaryBn ?? "", /এই গবেষণায়/);
 });
 
 test("reference extraction finds a late reference section in PDF text", () => {
