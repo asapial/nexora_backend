@@ -58,6 +58,8 @@ model User {
   examAssignments ExamAssignment[]
   examAttempts    ExamAttempt[]
   approvedExams   Exam[]               @relation("ExamApprover")
+  nimbiConversations NimbiConversation[]
+  nimbiActions       NimbiActionExecution[]
 
   @@unique([email])
   @@index([email, role])

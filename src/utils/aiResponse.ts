@@ -27,6 +27,14 @@ const FREE_MODELS: string[] = [
   "liquid/lfm-2.5-1.2b-instruct:free",
 ];
 
+const getConfiguredTextModels = () => {
+  const configured = process.env.OPENROUTER_CHAT_MODELS
+    ?.split(",")
+    .map((model) => model.trim())
+    .filter(Boolean);
+  return configured?.length ? configured : FREE_MODELS;
+};
+
 /**
  * Defensive runtime guard. Any model whose id matches one of these patterns is
  * rejected at request time, regardless of whether it appears in FREE_MODELS or
@@ -332,7 +340,7 @@ export async function getAiResponse<T = unknown>(
 
   const systemPrompt = buildSystemPrompt(responseStyle, restrictedAnswer);
   // Filter out models that cannot do JSON text generation — see BLOCKED_MODEL_PATTERN docs.
-  const requestedModels: string[] = aiModel ? [aiModel] : FREE_MODELS;
+  const requestedModels: string[] = aiModel ? [aiModel] : getConfiguredTextModels();
   const modelsToTry: string[] = requestedModels.filter(isModelAllowedForTextGeneration);
   if (modelsToTry.length === 0) {
     return {
@@ -421,7 +429,7 @@ export async function getAiTextResponse(
     systemPrompt = "You are a helpful assistant. Answer clearly and concisely.",
   } = params;
 
-  const requestedModels: string[] = aiModel ? [aiModel] : FREE_MODELS;
+  const requestedModels: string[] = aiModel ? [aiModel] : getConfiguredTextModels();
   const modelsToTry: string[] = requestedModels.filter(isModelAllowedForTextGeneration);
   if (modelsToTry.length === 0) {
     return {
@@ -493,4 +501,108 @@ export async function getAiTextResponse(
     error: failedResponse.error,
   });
   return failedResponse;
+}
+
+export type AiStreamChunk =
+  | { type: "model"; model: string }
+  | { type: "delta"; text: string }
+  | { type: "done"; model: string };
+
+/**
+ * Stream plain text from the configured free OpenRouter models. A model is
+ * only considered selected after its first usable delta arrives, so a slow or
+ * empty model can fail over before the user sees an incomplete answer.
+ */
+export async function* streamAiTextResponse(params: {
+  context: string;
+  systemPrompt: string;
+  aiModel?: string;
+  maxTokens?: number;
+  totalTimeoutMs?: number;
+}): AsyncGenerator<AiStreamChunk> {
+  const models = (params.aiModel ? [params.aiModel] : getConfiguredTextModels())
+    .filter(isModelAllowedForTextGeneration);
+  const deadline = Date.now() + (params.totalTimeoutMs ?? 35_000);
+
+  for (const model of models) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.min(12_000, remaining));
+    let emitted = false;
+    let buffer = "";
+
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${envVars.OpenRouter_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": envVars.FRONTEND_URL,
+          "X-Title": "Nexora Nimbi",
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          max_tokens: params.maxTokens ?? 700,
+          stream: true,
+          messages: [
+            { role: "system", content: params.systemPrompt },
+            { role: "user", content: params.context },
+          ],
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`HTTP ${response.status} from model "${model}"`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      yield { type: "model", model };
+
+      while (true) {
+        if (Date.now() >= deadline) throw new Error("AI stream timed out");
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try {
+            const json = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> };
+            const text = json.choices?.[0]?.delta?.content;
+            if (typeof text === "string" && text) {
+              emitted = true;
+              yield { type: "delta", text };
+            }
+          } catch {
+            // Ignore a malformed provider event; the accumulated answer stays valid.
+          }
+        }
+      }
+
+      if (emitted) {
+        yield { type: "done", model };
+        return;
+      }
+    } catch (error) {
+      console.warn("[NIMBI_STREAM_MODEL_FAILED]", {
+        model,
+        emitted,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (emitted) throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw new Error("All configured AI models failed before producing a response");
 }

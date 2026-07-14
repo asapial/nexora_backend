@@ -38,6 +38,7 @@ export const sendResponse = <T>(res: Response, responseData: IResponseData<T>) =
     };
 
     if (isDevelopment()) {
+        const isAiPath = String(res.req?.originalUrl ?? "").startsWith("/api/ai/");
         console.log("[BACKEND_RESPONSE]", {
             requestId: res.locals?.requestId ?? null,
             environment: process.env.NODE_ENV,
@@ -49,7 +50,7 @@ export const sendResponse = <T>(res: Response, responseData: IResponseData<T>) =
             durationMs: typeof res.locals?.requestStartedAtMs === "number"
                 ? nowMs() - res.locals.requestStartedAtMs
                 : null,
-            body: previewForLog(responseBody),
+            body: isAiPath ? "[redacted AI response]" : previewForLog(responseBody),
         });
     }
 

@@ -126,6 +126,27 @@ export const teacherApplicationRejectSchema = z.object({ note });
 
 const chatHistoryItem = z.object({ role: z.enum(["user", "assistant", "system"]), content: z.string().max(10_000) });
 export const aiChatSchema = z.object({ message: z.string().trim().min(1).max(10_000), history: z.array(chatHistoryItem).max(50).optional().default([]) });
+const nimbiPageContextSchema = z.object({
+  pathname: z.string().trim().min(1).max(500),
+  featureId: z.string().trim().max(100).optional(),
+  entityType: z.enum(["course", "cluster", "resource", "task", "goal", "exam", "notice"]).optional(),
+  entityId: z.string().trim().max(200).optional(),
+}).optional();
+export const nimbiStreamSchema = z.object({
+  message: z.string().trim().min(1).max(10_000),
+  conversationId: z.string().uuid().optional(),
+  clientMessageId: z.string().trim().min(1).max(100),
+  pageContext: nimbiPageContextSchema,
+  history: z.array(chatHistoryItem).max(6).optional().default([]),
+});
+export const nimbiConversationQuerySchema = z.object({
+  cursor: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional().default(20),
+});
+export const nimbiActionExecuteSchema = z.object({
+  executionToken: z.string().min(20).max(5000),
+  idempotencyKey: z.string().trim().min(8).max(120),
+});
 export const aiDescriptionSchema = z.object({ clusterName: z.string().trim().min(3).max(200) });
 
 export const deleteAccountSchema = z.object({ confirmText: z.literal("DELETE") });
