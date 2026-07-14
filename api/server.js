@@ -5006,18 +5006,23 @@ Restrictions: ${restrictedAnswer.trim()}` : systemPrompt;
 }
 
 // src/modules/resource/resourceAi.service.ts
-var SUMMARY_PROMPT_VERSION = 4;
-var CITATION_PARSER_VERSION = 1;
-var RESEARCH_GRAPH_VERSION = 2;
+var SUMMARY_PROMPT_VERSION = 6;
+var CITATION_PARSER_VERSION = 3;
+var RESEARCH_GRAPH_VERSION = 4;
 var RESEARCH_GRAPH_FIRST_LAYER_LIMIT = 10;
 var RESEARCH_GRAPH_SECOND_LAYER_PARENTS = 4;
 var RESEARCH_GRAPH_SECOND_LAYER_LIMIT = 3;
 var RESEARCH_GRAPH_RELATED_LIMIT = 8;
-var MAX_TEXT_CHARS = 6e4;
-var MAX_AI_CONTEXT_CHARS = 22e3;
+var EXTRACTION_VERSION = 2;
+var MAX_TEXT_CHARS = 24e4;
+var PRESERVED_HEAD_CHARS = 8e4;
+var MAX_AI_CONTEXT_CHARS = 18e3;
+var REFERENCE_RESOLVE_CONCURRENCY = 5;
+var MIN_PROVIDER_TITLE_SIMILARITY = 0.68;
+var MIN_REFERENCE_TITLE_SIMILARITY = 0.72;
 var MIN_EXTRACTED_TEXT_CHARS = 80;
 var OCR_REQUIRED_MESSAGE = "This PDF does not contain enough selectable text for AI reading. Upload an OCR-enabled PDF or a text-based PDF.";
-var PDF_EXTRACTION_METHOD = "unpdf-pdfjs";
+var PDF_EXTRACTION_METHOD = "unpdf-pdfjs-v2";
 var summarySchema = z3.object({
   // English (canonical) — required
   professionalSummary: z3.string().min(1),
@@ -5029,6 +5034,16 @@ var summarySchema = z3.object({
   limitations: z3.array(z3.string()).default([]),
   keywords: z3.array(z3.string()).default([]),
   // Native Bangla mirror — optional but always requested from the LLM
+  professionalSummaryBn: z3.string().optional().nullable(),
+  goalsBn: z3.string().optional().nullable(),
+  methodsBn: z3.string().optional().nullable(),
+  resultsBn: z3.string().optional().nullable(),
+  conclusionsBn: z3.string().optional().nullable(),
+  keyContributionsBn: z3.array(z3.string()).default([]),
+  limitationsBn: z3.array(z3.string()).default([]),
+  keywordsBn: z3.array(z3.string()).default([])
+});
+var banglaTranslationSchema = z3.object({
   professionalSummaryBn: z3.string().optional().nullable(),
   goalsBn: z3.string().optional().nullable(),
   methodsBn: z3.string().optional().nullable(),
@@ -5055,16 +5070,39 @@ var aiReferenceListSchema = z3.preprocess((value) => {
   return value;
 }, z3.array(aiReferenceSchema));
 var hash = (value) => crypto.createHash("sha256").update(value).digest("hex");
+var mapWithConcurrency = async (items, concurrency, mapper) => {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }));
+  return results;
+};
 var normalizeText = (value) => value.normalize("NFKC").replace(/-\s*\n\s*/g, "").replace(/\r/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").replace(/^\s*\d+\s*$/gm, "").replace(/[ \t]*\n[ \t]*/g, "\n").trim();
 var extractPdfText = async (buffer) => {
   const pdf = await getDocumentProxy(new Uint8Array(buffer));
   const extracted = await extractText(pdf, { mergePages: true });
-  const fullText = normalizeText(extracted.text).slice(0, MAX_TEXT_CHARS);
+  const normalized = normalizeText(extracted.text);
+  const fullText = normalized.length <= MAX_TEXT_CHARS ? normalized : `${normalized.slice(0, PRESERVED_HEAD_CHARS)}
+
+[... middle of document omitted for storage ...]
+
+${normalized.slice(-(MAX_TEXT_CHARS - PRESERVED_HEAD_CHARS))}`;
   const meaningfulTextLength = fullText.replace(/\s/g, "").length;
   if (meaningfulTextLength < MIN_EXTRACTED_TEXT_CHARS) {
     throw new Error(OCR_REQUIRED_MESSAGE);
   }
-  return { fullText, cleanedText: fullText, pageCount: extracted.totalPages };
+  return {
+    fullText,
+    cleanedText: fullText,
+    pageCount: extracted.totalPages,
+    extractionVersion: EXTRACTION_VERSION
+  };
 };
 var cloudinarySignCache = /* @__PURE__ */ new Map();
 var resolveSignedCloudinaryUrl = async (fileUrl) => {
@@ -5170,10 +5208,75 @@ var identityTitleSimilarity = (left, right) => {
   return intersection / Math.max(a.size, b.size);
 };
 var prepareAcademicText = (text) => text.replace(/Paper\s+\d+\s*(?:•|·|â€¢|Â·)\s*Premium Research Summary\s+Prepared as separate paper-wise summary\s*(?:•|·|â€¢|Â·)\s*[^•\n]{0,120}?Research Pack\s*/gi, "").replace(/[—-]+\s*End of Paper Summary\s*[—-]+/gi, "").replace(/\s*[▪◦]\s*/g, "\n\u2022 ").replace(/\s+([০-৯0-9]{1,2}\.\s+(?:Quick Research Profile|Executive Summary|Problem Statement|Dataset|Methodology|Experiments|Results|Limitations|Future Research|Graph|Chart|Presentation|Literature Review))/gi, "\n$1").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+var academicSectionHeadingPattern = /(?:^|\n)\s*(?:\d+(?:\.\d+)*[\s.)-]*)?(abstract|introduction|background|related work|literature review|materials(?: and methods)?|methods?|methodology|dataset|data|experiments?|experimental setup|evaluation|results?|findings|discussion|limitations?|conclusions?|future work)\s*:?\s*(?=\n|$)/gim;
+var buildSummaryEvidenceContext = (cleanedText) => {
+  const prepared = prepareAcademicText(cleanedText);
+  const referenceSection = detectReferenceSection(prepared);
+  const referenceStart = referenceSection ? prepared.lastIndexOf(referenceSection) : -1;
+  const body = (referenceStart > 0 ? prepared.slice(0, referenceStart) : prepared).trim();
+  if (body.length <= MAX_AI_CONTEXT_CHARS) return body;
+  const matches = Array.from(body.matchAll(new RegExp(academicSectionHeadingPattern.source, "gim")));
+  const chunks = [
+    { label: "Document opening", text: body.slice(0, 3200) }
+  ];
+  const wantedSections = [
+    /abstract/i,
+    /methods?|methodology|materials|dataset|data|experimental setup/i,
+    /results?|findings|evaluation|experiments?/i,
+    /discussion/i,
+    /conclusions?|limitations?|future work/i
+  ];
+  for (const wanted of wantedSections) {
+    const matchIndex = matches.findIndex((match2) => wanted.test(match2[1] ?? ""));
+    if (matchIndex < 0) continue;
+    const match = matches[matchIndex];
+    const start2 = match.index ?? 0;
+    const end = matches[matchIndex + 1]?.index ?? body.length;
+    chunks.push({
+      label: (match[1] ?? "Paper section").replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      text: body.slice(start2, Math.min(end, start2 + 3200))
+    });
+  }
+  chunks.push({ label: "Document ending", text: body.slice(-3e3) });
+  const seen = /* @__PURE__ */ new Set();
+  const selected = [];
+  let usedChars = 0;
+  for (const chunk of chunks) {
+    const normalized = chunk.text.replace(/\s+/g, " ").trim();
+    const signature = normalized.slice(0, 180).toLowerCase();
+    if (!normalized || seen.has(signature)) continue;
+    seen.add(signature);
+    const rendered = `
+[${chunk.label}]
+${normalized}`;
+    const available = MAX_AI_CONTEXT_CHARS - usedChars;
+    if (available <= 0) break;
+    selected.push(rendered.slice(0, available));
+    usedChars += Math.min(rendered.length, available);
+  }
+  return selected.join("\n").slice(0, MAX_AI_CONTEXT_CHARS);
+};
 var inferPaperIdentity = (cleanedText, resource) => {
   const sourceType = /Premium Research Summary|Quick Research Profile|Executive Summary/i.test(cleanedText) ? "RESEARCH_SUMMARY" : /\bAbstract\b[\s\S]{50,}\b(?:Introduction|Methods?|Methodology)\b/i.test(cleanedText) ? "FULL_PAPER" : "EXTRACTED_TEXT";
   let detectedTitle = resource.title.trim();
   let detectedAuthors = resource.authors?.filter(Boolean) ?? [];
+  const abstractIndex = cleanedText.search(/\bAbstract\b/i);
+  const frontMatter = cleanedText.slice(0, abstractIndex > 0 ? Math.min(abstractIndex, 5e3) : 3500).replace(/\s+/g, " ");
+  const emailAuthorPattern = /((?:[A-Z]\.\s+)?[A-Z][A-Za-z'’\-]{1,40}(?:\s+[A-Z]\.)?\s+[A-Z][A-Za-z'’\-]{1,40})\s+[\w.+-]+@[\w.-]+/g;
+  const emailAuthors = [...frontMatter.matchAll(emailAuthorPattern)];
+  const firstEmailAuthor = emailAuthors[0];
+  if (firstEmailAuthor?.index !== void 0) {
+    const beforeAuthor = frontMatter.slice(0, firstEmailAuthor.index).trim();
+    const publishedMarkers = [...beforeAuthor.matchAll(/\bpublished\s+\d{1,2}[/-]\d{2,4}\s*/gi)];
+    const submittedMarkers = [...beforeAuthor.matchAll(/\bsubmitted\s+\d{1,2}[/-]\d{2,4}\s*;?\s*/gi)];
+    const marker = publishedMarkers[publishedMarkers.length - 1] ?? submittedMarkers[submittedMarkers.length - 1];
+    const markerEnd = marker?.index !== void 0 ? marker.index + marker[0].length : 0;
+    const candidate = beforeAuthor.slice(markerEnd).replace(/^\s*[-–—:|]+\s*/, "").trim();
+    if (candidate.length >= 15 && candidate.length <= 350 && candidate.split(/\s+/).length >= 3 && !/^(?:journal|proceedings|transactions|conference)\b/i.test(candidate)) {
+      detectedTitle = candidate;
+      detectedAuthors = emailAuthors.map((match) => match[1]?.replace(/\s+/g, " ").trim()).filter((author) => Boolean(author)).slice(0, 20);
+    }
+  }
   const packMarker = /Research Pack\s+/i.exec(cleanedText);
   if (packMarker?.index !== void 0) {
     const afterMarker = cleanedText.slice(packMarker.index + packMarker[0].length, packMarker.index + packMarker[0].length + 900);
@@ -5303,22 +5406,34 @@ var structuredPackFallback = (resource, cleanedText) => {
 var fallbackSummary = (resource, cleanedText) => {
   const structured = structuredPackFallback(resource, cleanedText);
   if (structured) return structured;
-  const prepared = prepareAcademicText(cleanedText);
-  const firstParagraph = prepared.split(/\n{2,}/).find((part) => part.length > 140) ?? resource.description ?? prepared.slice(0, 700);
-  const english = firstParagraph ? firstParagraph.slice(0, 1100) : "Not clearly stated in the paper.";
+  const identity = inferPaperIdentity(cleanedText, resource);
+  const referenceSection = detectReferenceSection(cleanedText);
+  const referenceStart = referenceSection ? cleanedText.lastIndexOf(referenceSection) : -1;
+  const body = referenceStart > 0 ? cleanedText.slice(0, referenceStart) : cleanedText;
+  const prepared = prepareAcademicText(body);
+  const abstract = extractLabeledValue(prepared, "Abstract", ["1. Introduction", "Introduction", "Keywords", "Index Terms"]);
+  const conclusionLabel = ["Conclusions", "Conclusion", "7. Summary", "Summary"].map((label) => ({ label, index: prepared.toLowerCase().lastIndexOf(label.toLowerCase()) })).filter((entry) => entry.index >= prepared.length * 0.45).sort((left, right) => right.index - left.index)[0]?.label;
+  const conclusionIndex = conclusionLabel ? prepared.toLowerCase().lastIndexOf(conclusionLabel.toLowerCase()) : -1;
+  const conclusion = conclusionLabel && conclusionIndex >= 0 ? extractLabeledValue(prepared.slice(conclusionIndex), conclusionLabel, ["Acknowledgments", "Acknowledgements", "Appendix", "References"]) : null;
+  const paragraphs = prepared.split(/\n{2,}/).map((part) => part.trim()).filter((part) => part.length > 140);
+  const opening = abstract ?? paragraphs[0] ?? resource.description ?? prepared.slice(0, 700);
+  const ending = conclusion ?? (paragraphs.length > 1 ? paragraphs[paragraphs.length - 1] : null);
+  const english = [opening, ending && ending !== opening ? ending : null].filter((part) => Boolean(part)).join(" ").slice(0, 2e3) || "Not clearly stated in the paper.";
+  const keywordTokens = identity.detectedTitle.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 3 && !["with", "from", "this", "that", "using", "technique"].includes(token));
+  const keywords = [.../* @__PURE__ */ new Set([...keywordTokens, ...identity.titleMismatch ? [] : resource.tags])].slice(0, 10);
   const banglaNote = "\n\n(\u09AC\u09BE\u0982\u09B2\u09BE \u09B8\u09BE\u09B0\u09BE\u0982\u09B6 AI \u09A6\u09CD\u09AC\u09BE\u09B0\u09BE \u09A4\u09C8\u09B0\u09BF \u0995\u09B0\u09BE \u09AF\u09BE\u09AF\u09BC\u09A8\u09BF \u2014 \u0987\u0982\u09B0\u09C7\u099C\u09BF \u09B8\u09BE\u09B0\u09BE\u0982\u09B6 \u09A6\u09C7\u0996\u09BE\u09A8\u09CB \u09B9\u099A\u09CD\u099B\u09C7\u0964)";
   return {
     professionalSummary: english,
-    goals: resource.description || "Not clearly stated in the paper.",
+    goals: abstract ?? resource.description ?? "Not clearly stated in the paper.",
     methods: "Not clearly stated in the paper.",
     results: "Not clearly stated in the paper.",
-    conclusions: "Not clearly stated in the paper.",
+    conclusions: conclusion ?? "Not clearly stated in the paper.",
     keyContributions: [],
     limitations: [],
-    keywords: resource.tags.slice(0, 10),
+    keywords,
     // Bangla mirrors English so we never render a blank panel.
     professionalSummaryBn: english + banglaNote,
-    goalsBn: resource.description ? resource.description + banglaNote : null,
+    goalsBn: abstract ?? resource.description ? `${abstract ?? resource.description}${banglaNote}` : null,
     methodsBn: null,
     resultsBn: null,
     conclusionsBn: null,
@@ -5342,15 +5457,25 @@ var findSharedAiSource = async (resourceId, lookup) => {
     orderBy: [{ lastProcessedAt: "desc" }, { updatedAt: "desc" }],
     take: 10
   });
-  return candidates.find(
-    (resource) => resource.extractedText || resource.aiSummary || resource.citationsFrom.length > 0
-  ) ?? null;
+  return candidates.find((resource) => {
+    const freshText = Boolean(resource.extractedText && resource.extractedText.extractionVersion >= EXTRACTION_VERSION);
+    const freshSummary = Boolean(
+      resource.aiSummary && resource.aiSummary.promptVersion >= SUMMARY_PROMPT_VERSION && resource.aiSummary.generationStatus === "COMPLETED" && (!resource.extractedText || resource.aiSummary.inputTextHash === resource.extractedText.textHash)
+    );
+    const freshCitations = resource.citationsFrom.length > 0 && resource.citationsFrom.every((edge) => edge.parserVersion >= CITATION_PARSER_VERSION);
+    return freshText || freshSummary || freshCitations;
+  }) ?? null;
 };
 var copySharedAiArtifacts = async (targetResourceId, source, options = {}) => {
   let copiedText = false;
   let copiedSummary = false;
   let copiedCitations = 0;
-  if (source.extractedText) {
+  const freshText = Boolean(source.extractedText && source.extractedText.extractionVersion >= EXTRACTION_VERSION);
+  const freshSummary = Boolean(
+    source.aiSummary && source.aiSummary.promptVersion >= SUMMARY_PROMPT_VERSION && source.aiSummary.generationStatus === "COMPLETED" && (!source.extractedText || source.aiSummary.inputTextHash === source.extractedText.textHash)
+  );
+  const freshCitations = source.citationsFrom.length > 0 && source.citationsFrom.every((edge) => edge.parserVersion >= CITATION_PARSER_VERSION);
+  if (freshText && source.extractedText) {
     const {
       fullText,
       cleanedText,
@@ -5384,7 +5509,7 @@ var copySharedAiArtifacts = async (targetResourceId, source, options = {}) => {
     });
     copiedText = true;
   }
-  if (source.aiSummary && !options.skipSummary) {
+  if (freshSummary && source.aiSummary && !options.skipSummary) {
     const {
       modelName,
       promptVersion,
@@ -5462,7 +5587,7 @@ var copySharedAiArtifacts = async (targetResourceId, source, options = {}) => {
     });
     copiedSummary = true;
   }
-  if (source.citationsFrom.length && !options.skipCitations) {
+  if (freshCitations && !options.skipCitations) {
     await prisma.resourceCitationEdge.deleteMany({ where: { sourceResourceId: targetResourceId } });
     await prisma.resourceCitationEdge.createMany({
       data: source.citationsFrom.map((edge) => ({
@@ -5602,12 +5727,12 @@ var getOrCreateSummary = async (resource, cleanedText, textHash, regenerate) => 
   });
 };
 var generateBilingualSummary = async (resource, cleanedText) => {
-  const preparedText = prepareAcademicText(cleanedText);
+  const evidenceContext = buildSummaryEvidenceContext(cleanedText);
   const identity = inferPaperIdentity(cleanedText, resource);
   const groundingAnchor = {
     title: identity.detectedTitle,
     authors: identity.detectedAuthors,
-    description: preparedText.slice(0, 2200)
+    description: evidenceContext
   };
   const prompt = [
     `Stored resource title (may be inaccurate): ${resource.title}`,
@@ -5616,8 +5741,8 @@ var generateBilingualSummary = async (resource, cleanedText) => {
     `Source type: ${identity.sourceType}`,
     identity.titleMismatch ? `IMPORTANT: The stored resource title conflicts with the document. Summarize the detected paper only.` : `The stored title and document identity are consistent.`,
     `
-Prepared extracted text:
-${preparedText.slice(0, MAX_AI_CONTEXT_CHARS)}`
+Grounding evidence selected across the full document (opening, methods, results, and conclusion where present):
+${evidenceContext}`
   ].join("\n");
   const responseStyle = [
     `Return a single JSON object only. No markdown fences, no prose, no commentary, no code-block wrappers.`,
@@ -5657,8 +5782,8 @@ ${preparedText.slice(0, MAX_AI_CONTEXT_CHARS)}`
       restrictedAnswer,
       // Generous timeout — the bilingual prompt is large and the new
       // quality bar demands dense academic prose, so the response can be long.
-      responseTime: 18e3,
-      maxTokens: 3200,
+      responseTime: 15e3,
+      maxTokens: 2800,
       concurrency: 2,
       // One attempt per provider keeps regeneration responsive when the
       // free tier is saturated; the grounded local path remains available.
@@ -5691,63 +5816,40 @@ ${preparedText.slice(0, MAX_AI_CONTEXT_CHARS)}`
   }
 };
 var translateSummaryToBangla = async (parsed, _sourceModel) => {
-  const translations = {};
-  const stringFields = [
-    ["professionalSummary", parsed.professionalSummary],
-    ["goals", parsed.goals],
-    ["methods", parsed.methods],
-    ["results", parsed.results],
-    ["conclusions", parsed.conclusions]
-  ];
-  for (const [enKey, value] of stringFields) {
-    if (!value) continue;
-    const bnKey = `${String(enKey)}Bn`;
-    try {
-      const aiResult = await getAiResponse({
-        context: `Translate the following English text into fluent native Bangla (\u09AC\u09BE\u0982\u09B2\u09BE). Use natural Bengali script \u2014 never transliteration, never Latin letters for Bangla. Preserve technical terms only if they have an established Bangla convention. Return JSON only.
+  const englishPayload = {
+    professionalSummary: parsed.professionalSummary,
+    goals: parsed.goals ?? null,
+    methods: parsed.methods ?? null,
+    results: parsed.results ?? null,
+    conclusions: parsed.conclusions ?? null,
+    keyContributions: parsed.keyContributions,
+    limitations: parsed.limitations,
+    keywords: parsed.keywords
+  };
+  try {
+    const aiResult = await getAiResponse({
+      context: `Translate every value in this English academic-summary JSON into fluent native Bangla. Preserve every key, array order, array length, fact, number, model name, and dataset name. Return the translated JSON only.
 
-Text:
-"""${value}"""`,
-        responseStyle: `Return JSON with one key: "bn" containing the Bangla translation, or null if the input is empty.`,
-        restrictedAnswer: `Never transliterate. Never return empty string \u2014 return null for empty input only.`,
-        responseTime: 12e3,
-        maxTokens: 600,
-        concurrency: 2,
-        retryNumber: 1,
-        maxModelBatches: 2
-      });
-      translations[bnKey] = aiResult.data?.bn ?? null;
-    } catch {
-    }
+${JSON.stringify(englishPayload)}`,
+      responseStyle: `Return one JSON object with professionalSummaryBn, goalsBn, methodsBn, resultsBn, conclusionsBn, keyContributionsBn, limitationsBn, and keywordsBn.`,
+      restrictedAnswer: `Use Bengali script for Bangla prose; never transliterate. Keep established technical names in Latin script. Array translations must have exactly the same number of items as their English source arrays.`,
+      responseTime: 15e3,
+      maxTokens: 1800,
+      concurrency: 2,
+      retryNumber: 1,
+      maxModelBatches: 1
+    });
+    const translated = banglaTranslationSchema.safeParse(aiResult.data).data;
+    if (!translated) return {};
+    return {
+      ...translated,
+      keyContributionsBn: translated.keyContributionsBn.length === parsed.keyContributions.length ? translated.keyContributionsBn : [],
+      limitationsBn: translated.limitationsBn.length === parsed.limitations.length ? translated.limitationsBn : [],
+      keywordsBn: translated.keywordsBn.length === parsed.keywords.length ? translated.keywordsBn : []
+    };
+  } catch {
+    return {};
   }
-  const arrayFields = [
-    ["keyContributionsBn", parsed.keyContributions],
-    ["limitationsBn", parsed.limitations],
-    ["keywordsBn", parsed.keywords]
-  ];
-  for (const [bnKey, sourceList] of arrayFields) {
-    if (!sourceList?.length) continue;
-    try {
-      const aiResult = await getAiResponse({
-        context: `Translate each English phrase into a concise fluent native Bangla (\u09AC\u09BE\u0982\u09B2\u09BE) equivalent. Preserve the input order and length exactly. Use Bengali script (\u0985-\u0994, \u0995-\u09B9) for every word. Do NOT transliterate English letter-by-letter. Technical terms without a Bangla convention may stay in Latin script inside the Bangla phrase.
-
-Phrases (one per line, preserve numbering):
-${sourceList.map((p, i) => `${i + 1}. ${p}`).join("\n")}`,
-        responseStyle: `Return JSON with one key: "bn" which is an array of Bangla translations in the SAME order, with the SAME length as the input.`,
-        restrictedAnswer: `Never transliterate. Never return an empty array when the input is non-empty. Same length as input.`,
-        responseTime: 12e3,
-        maxTokens: 600,
-        concurrency: 2,
-        retryNumber: 1,
-        maxModelBatches: 2
-      });
-      const arr = aiResult.data?.bn;
-      translations[bnKey] = Array.isArray(arr) && arr.length === sourceList.length ? arr : [];
-    } catch {
-      translations[bnKey] = [];
-    }
-  }
-  return translations;
 };
 var withBnMirror = (parsed, modelName) => {
   return {
@@ -5796,25 +5898,40 @@ var looksLikeHallucination = (parsed, anchor) => {
   }
   return false;
 };
-var referenceHeadingPattern = /(?:^|\n)\s*(references|bibliography|works cited|literature cited)\s*:?\s*(?=\n|$)/gi;
+var referenceHeadingPattern = /(?:^|\n)\s*(?:\d+(?:\.\d+)*[\s.)-]*)?(references|bibliography|works cited|literature cited)\s*:?\s*(?=\n|\[\d+\]|\d+[).]\s|$)/gi;
+var inlineReferenceHeadingPattern = /^\s*(?:(?:[A-Z][A-Za-z0-9'’&-]+)\s+){0,4}(references|bibliography|works cited|literature cited)\s*:?\s*/i;
 var numberedReferencePattern = /^(?:\[\d+\]|\d+[\).])\s+/;
-var authorYearReferencePattern = /^[A-Z][A-Za-z'`-]+,\s+(?:[A-Z]\.|[A-Z][A-Za-z'`-]+).*?\b(?:19|20)\d{2}\b/;
+var authorYearReferencePattern = /^(?:(?:[A-Z][A-Za-z'`-]+|van|de|von|der)),\s+(?:[A-Z]\.|[A-Z][A-Za-z'`-]+).*?\b(?:19|20)\d{2}\b/i;
 var parentheticalYearPattern = /\(\s*(?:19|20)\d{2}[a-z]?\s*\)/i;
-var hasReferenceSignal = (line) => /\b(?:19|20)\d{2}\b/.test(line) || /doi\s*:?\s*10\./i.test(line) || /https?:\/\//i.test(line);
+var hasReferenceSignal = (line) => /\b(?:19|20)\d{2}\b/.test(line) || /doi\s*:?\s*10\./i.test(line) || /https?:\/\//i.test(line) || /\b(?:journal|proceedings|conference|transactions|arxiv|vol\.|pp\.)\b/i.test(line);
 var isReferenceStart = (line) => numberedReferencePattern.test(line) || authorYearReferencePattern.test(line) || parentheticalYearPattern.test(line);
 var detectReferenceSection = (text) => {
   referenceHeadingPattern.lastIndex = 0;
   const headings = Array.from(text.matchAll(referenceHeadingPattern));
   const heading = headings[headings.length - 1];
   if (heading?.index !== void 0) return text.slice(heading.index);
+  const inlineCandidates = [...text.matchAll(/\b(?:references|bibliography|works cited|literature cited)\b/gi)].filter((match) => (match.index ?? 0) >= text.length * 0.5).map((match) => {
+    const index = match.index ?? 0;
+    const window = text.slice(index, index + 6e3);
+    const years = window.match(/\b(?:19|20)\d{2}\b/g)?.length ?? 0;
+    const dois = window.match(/10\.\d{4,9}\/[-._;()/:A-Z0-9]+/gi)?.length ?? 0;
+    return { index, score: years + dois * 2 };
+  }).sort((left, right) => right.score - left.score || right.index - left.index);
+  if (inlineCandidates[0] && inlineCandidates[0].score >= 3) {
+    return text.slice(inlineCandidates[0].index);
+  }
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
   const searchFrom = Math.floor(lines.length * 0.55);
-  const fallbackIndex = lines.findIndex((line, index) => index >= searchFrom && isReferenceStart(line) && hasReferenceSignal(line));
+  const fallbackIndex = lines.findIndex((line, index) => {
+    if (index < searchFrom || !isReferenceStart(line) || !hasReferenceSignal(line)) return false;
+    const window = lines.slice(index, index + 8);
+    return window.filter(isReferenceStart).length >= 2 && window.filter(hasReferenceSignal).length >= 3;
+  });
   return fallbackIndex >= 0 ? ["References", ...lines.slice(fallbackIndex)].join("\n") : "";
 };
 var splitReferences = (referenceSection) => {
   referenceHeadingPattern.lastIndex = 0;
-  const normalized = referenceSection.replace(referenceHeadingPattern, "\n").replace(/\s+(?=(?:\[\d+\]|\d+[\).])\s+)/g, "\n");
+  const normalized = referenceSection.replace(referenceHeadingPattern, "\n").replace(inlineReferenceHeadingPattern, "\n").replace(/\s+(?=(?:\[\d+\]|\d{1,3}[\).])\s+)/g, "\n").replace(/(?<=\.)\s+(?=(?:(?:[A-Z][A-Za-z'’-]{1,30}|van|de|von|der)),[\s\S]{0,180}?\((?:19|20)\d{2}[a-z]?\)\.)/gi, "\n").replace(/(?:^|\n)\s*(?:appendix|supplementary materials?|author contributions?|acknowledg(?:e)?ments?)\s*:?[\s\S]*$/i, "");
   const entries = [];
   let current = [];
   for (const line of normalized.split("\n").map((item) => item.replace(/\s+/g, " ").trim()).filter(Boolean)) {
@@ -5826,14 +5943,21 @@ var splitReferences = (referenceSection) => {
     }
   }
   if (current.length) entries.push(current.join(" "));
-  return entries.map((item) => item.replace(/\s+/g, " ").trim()).filter((item) => item.length > 25 && hasReferenceSignal(item)).slice(0, 80);
+  return entries.map((item) => item.replace(/\s+/g, " ").trim()).filter((item) => !/^(?:\d+(?:\.\d+)*[\s.)-]*)?(?:references|bibliography|works cited|literature cited)$/i.test(item)).filter((item) => item.length > 25 && (numberedReferencePattern.test(item) || hasReferenceSignal(item))).filter((item, index, rows) => rows.findIndex((candidate) => normalizeTitle(candidate) === normalizeTitle(item)) === index).slice(0, 80);
 };
 var normalizeDoi = (value) => value?.match(/10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i)?.[0].replace(/[.,;]+$/, "").toLowerCase() ?? null;
+var extractReferenceUrl = (raw2) => raw2.match(/https?:\/\/[^\s<>"']+/i)?.[0]?.replace(/[\])}>,.;]+$/, "") ?? null;
 var titleFromReference = (raw2) => {
-  const quoted = raw2.match(/["']([^"']{12,220})["']/);
-  if (quoted?.[1]) return quoted[1].trim();
+  const quoted = raw2.match(/["“”']([^"“”']{12,220})["“”']/);
+  if (quoted?.[1]) return quoted[1].trim().replace(/[.,;:]+$/, "");
   const afterYear = raw2.match(/\b(?:19|20)\d{2}\b[)., ]+(.{12,220}?)(?:\.|, [A-Z][a-z]+,|\sdoi:|$)/i);
-  return afterYear?.[1]?.trim() ?? raw2.slice(0, 180);
+  if (afterYear?.[1]) return afterYear[1].trim();
+  const withoutIdentifiers = raw2.replace(numberedReferencePattern, "").replace(/https?:\/\/\S+/gi, "").replace(/\bdoi\s*:?\s*10\.\d{4,9}\/\S+/gi, "").replace(/\s+/g, " ").trim();
+  const segments = withoutIdentifiers.split(/(?<=[a-z0-9)])\.\s+(?=[A-Z"“])/).map((segment) => segment.replace(/^['"“]|['"”]$/g, "").trim()).filter((segment) => segment.length >= 12 && segment.length <= 240);
+  const likelyTitle = segments.find(
+    (segment, index) => index > 0 && !/^\(?\d{4}\)?$/.test(segment) && !/^(?:vol\.|no\.|pp\.|journal of|proceedings of|transactions on)/i.test(segment)
+  );
+  return likelyTitle ?? segments[0] ?? withoutIdentifiers.slice(0, 180);
 };
 var fallbackReferences = (references) => references.map((raw2) => ({
   title: titleFromReference(raw2),
@@ -5841,9 +5965,9 @@ var fallbackReferences = (references) => references.map((raw2) => ({
   year: Number(raw2.match(/\b(19|20)\d{2}\b/)?.[0]) || null,
   doi: normalizeDoi(raw2),
   venue: null,
-  url: raw2.match(/https?:\/\/\S+/)?.[0]?.replace(/[).,]+$/, "") ?? null,
+  url: extractReferenceUrl(raw2),
   rawReference: raw2,
-  confidenceScore: normalizeDoi(raw2) ? 0.82 : 0.58
+  confidenceScore: normalizeDoi(raw2) ? 0.96 : extractReferenceUrl(raw2) ? 0.86 : 0.68
 }));
 var parseReferences = async (references, textHash) => {
   if (!references.length) return [];
@@ -5852,21 +5976,11 @@ var parseReferences = async (references, textHash) => {
   const cached = await prisma.aiCache.findUnique({ where: { cacheKey } }).catch(() => null);
   const cachedParsed = cached?.outputJson ? aiReferenceListSchema.safeParse(cached.outputJson).data : null;
   if (cachedParsed) return cachedParsed;
-  const aiResult = await getAiResponse({
-    context: references.slice(0, 40).map((ref, index) => `${index + 1}. ${ref}`).join("\n"),
-    responseStyle: `Return a JSON object with one key: references. references is an array and each item has title, authors, year, doi, venue, url, rawReference, confidenceScore.`,
-    restrictedAnswer: "Do not invent DOI or URL. Use null when unavailable.",
-    responseTime: 12e3,
-    maxTokens: 2200,
-    concurrency: 1,
-    retryNumber: 1,
-    maxModelBatches: 1
-  });
-  const parsed = aiReferenceListSchema.safeParse(aiResult.data).data ?? fallbackReferences(references);
+  const parsed = fallbackReferences(references);
   await prisma.aiCache.upsert({
     where: { cacheKey },
-    create: { cacheKey, taskType: "citation", modelName: aiResult.model, promptVersion: CITATION_PARSER_VERSION, inputHash: referencesHash, outputJson: parsed },
-    update: { modelName: aiResult.model, outputJson: parsed }
+    create: { cacheKey, taskType: "citation", modelName: "deterministic-reference-parser", promptVersion: CITATION_PARSER_VERSION, inputHash: referencesHash, outputJson: parsed },
+    update: { modelName: "deterministic-reference-parser", outputJson: parsed }
   });
   return parsed;
 };
@@ -5915,6 +6029,32 @@ var titleSimilarity = (left, right) => {
   const overlap = intersection / union;
   return Math.min(1, overlap + (a.includes(b) || b.includes(a) ? 0.2 : 0));
 };
+var referenceCandidateTitleScore = (reference, candidateTitle) => {
+  const parsedScore = titleSimilarity(reference.title ?? "", candidateTitle);
+  const rawTokens = new Set(normalizeTitle(reference.rawReference ?? "").split(" ").filter((token) => token.length > 2));
+  const candidateTokens = normalizeTitle(candidateTitle).split(" ").filter((token) => token.length > 2);
+  const rawCoverage = candidateTokens.length ? candidateTokens.filter((token) => rawTokens.has(token)).length / candidateTokens.length : 0;
+  return Math.max(parsedScore, rawCoverage);
+};
+var referenceCandidateScore = (reference, candidate) => {
+  const titleScore = referenceCandidateTitleScore(reference, candidate.title ?? "");
+  const yearScore = reference.year && candidate.year ? reference.year === candidate.year ? 0.05 : Math.abs(reference.year - candidate.year) <= 1 ? 0.02 : -0.08 : 0;
+  return Math.max(0, Math.min(1, titleScore + yearScore));
+};
+var providerPaperScore = (title, authors, year, paper) => {
+  const titleScore = titleSimilarity(title, paper.title ?? "");
+  const requestedAuthors = new Set(authors.flatMap((author) => normalizeTitle(author).split(" ")).filter((token) => token.length > 2));
+  const paperAuthors = new Set((paper.authors ?? []).flatMap((author) => normalizeTitle(author.name ?? "").split(" ")).filter((token) => token.length > 2));
+  const authorOverlap = requestedAuthors.size ? [...requestedAuthors].filter((token) => paperAuthors.has(token)).length / requestedAuthors.size : 0;
+  const yearBonus = year && paper.year ? year === paper.year ? 0.04 : Math.abs(year - paper.year) <= 1 ? 0.015 : -0.05 : 0;
+  return { titleScore, score: Math.max(0, Math.min(1, titleScore * 0.9 + authorOverlap * 0.1 + yearBonus)) };
+};
+var extractDocumentDoi = (text) => {
+  if (!text) return null;
+  const frontMatter = text.slice(0, 3500);
+  const labeled = frontMatter.match(/(?:https?:\/\/doi\.org\/|\bdoi\s*:?\s*)(10\.\d{4,9}\/[-._;()/:A-Z0-9]+)/i);
+  return normalizeDoi(labeled?.[1] ?? null);
+};
 var semanticPaperUrl = (paper) => {
   const doi = normalizeDoi(paper.externalIds?.DOI);
   if (doi) return `https://doi.org/${doi}`;
@@ -5959,25 +6099,31 @@ var resolveSemanticScholarRoot = async (resource) => {
     titleMismatch: false
   };
   const queryTitle = identity.detectedTitle || resource.title;
-  const doi = (identity.titleMismatch ? [] : resource.tags).map((tag) => normalizeDoi(tag)).find((tag) => Boolean(tag && /^10\.\d{4,9}\//.test(tag)));
+  const taggedDoi = (identity.titleMismatch ? [] : resource.tags).map((tag) => normalizeDoi(tag)).find((tag) => Boolean(tag && /^10\.\d{4,9}\//.test(tag)));
+  const doi = extractDocumentDoi(resource.extractedText) ?? taggedDoi;
   const cacheKey = `s2:research-root:v${RESEARCH_GRAPH_VERSION}:${doi ?? normalizeTitle(queryTitle)}`;
   const cached = await prisma.metadataCache.findUnique({ where: { cacheKey } }).catch(() => null);
   if (cached && (!cached.expiresAt || cached.expiresAt > /* @__PURE__ */ new Date())) {
-    return cached.resultJson;
+    const cachedPaper = cached.resultJson;
+    const cachedScore = providerPaperScore(queryTitle, identity.detectedAuthors, resource.year, cachedPaper);
+    if (cachedScore.titleScore >= MIN_PROVIDER_TITLE_SIMILARITY) return cachedPaper;
   }
   let match = null;
   if (doi) {
     match = await semanticScholarRequest(
       `https://api.semanticscholar.org/graph/v1/paper/DOI:${encodeURIComponent(doi)}?fields=${semanticScholarFields}`
     ).catch(() => null);
+    if (match && providerPaperScore(queryTitle, identity.detectedAuthors, resource.year, match).titleScore < MIN_PROVIDER_TITLE_SIMILARITY) {
+      match = null;
+    }
   }
   if (!match?.paperId) {
     const result = await semanticScholarRequest(
       `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(queryTitle)}&limit=5&fields=${semanticScholarFields}`
     );
-    const ranked = (result.data ?? []).map((paper) => ({ paper, score: titleSimilarity(queryTitle, paper.title ?? "") })).sort((a, b) => b.score - a.score);
+    const ranked = (result.data ?? []).map((paper) => ({ paper, ...providerPaperScore(queryTitle, identity.detectedAuthors, resource.year, paper) })).filter((candidate) => candidate.titleScore >= MIN_PROVIDER_TITLE_SIMILARITY).sort((a, b) => b.score - a.score);
     const best = ranked[0];
-    match = best && best.score >= 0.42 ? best.paper : null;
+    match = best?.paper ?? null;
   }
   if (!match?.paperId) return null;
   await prisma.metadataCache.upsert({
@@ -6126,7 +6272,7 @@ var resolveOpenAlexRoot = async (title) => {
   const response = await openAlexRequest(
     `https://api.openalex.org/works?search=${encodeURIComponent(title)}&per-page=10`
   );
-  const ranked = (response.results ?? []).map((work) => ({ work, score: titleSimilarity(title, work.title ?? work.display_name ?? "") })).filter((candidate) => candidate.score >= 0.42).sort((left, right) => right.score - left.score || (right.work.cited_by_count ?? 0) - (left.work.cited_by_count ?? 0));
+  const ranked = (response.results ?? []).map((work) => ({ work, score: titleSimilarity(title, work.title ?? work.display_name ?? "") })).filter((candidate) => candidate.score >= MIN_PROVIDER_TITLE_SIMILARITY).sort((left, right) => right.score - left.score || (right.work.cited_by_count ?? 0) - (left.work.cited_by_count ?? 0));
   const root = ranked[0]?.work ?? null;
   if (!root) return null;
   const publishedVariant = ranked.map((candidate) => candidate.work).filter((work) => {
@@ -6158,25 +6304,21 @@ var persistCrossrefReferences = async (resourceId, doi) => {
   const payload = await response.json();
   const references = (payload.message?.reference ?? []).slice(0, 40);
   if (!references.length) return 0;
-  const enriched = [];
-  for (let offset = 0; offset < references.length; offset += 5) {
-    const batch = references.slice(offset, offset + 5);
-    const resolved = await Promise.all(batch.map(async (reference) => {
-      const referenceDoi = normalizeDoi(reference.DOI);
-      if (!referenceDoi) return null;
-      return lookupCrossref({
-        title: reference["article-title"] ?? null,
-        authors: reference.author ? [reference.author] : [],
-        year: reference.year ? Number(reference.year) || null : null,
-        doi: referenceDoi,
-        venue: reference["journal-title"] ?? null,
-        url: null,
-        rawReference: reference.unstructured ?? null,
-        confidenceScore: 0.96
-      }).catch(() => null);
-    }));
-    enriched.push(...batch.map((reference, index) => ({ reference, metadata: resolved[index] ?? null })));
-  }
+  const enriched = await mapWithConcurrency(references, REFERENCE_RESOLVE_CONCURRENCY, async (reference) => {
+    const referenceDoi = normalizeDoi(reference.DOI);
+    if (!referenceDoi) return { reference, metadata: null };
+    const metadata = await lookupCrossref({
+      title: reference["article-title"] ?? null,
+      authors: reference.author ? [reference.author] : [],
+      year: reference.year ? Number(reference.year) || null : null,
+      doi: referenceDoi,
+      venue: reference["journal-title"] ?? null,
+      url: null,
+      rawReference: reference.unstructured ?? null,
+      confidenceScore: 0.96
+    }).catch(() => null);
+    return { reference, metadata };
+  });
   await prisma.$transaction(async (tx) => {
     await tx.resourceCitationEdge.deleteMany({
       where: { sourceResourceId: resourceId, resolverSource: "crossref-graph" }
@@ -6185,7 +6327,7 @@ var persistCrossrefReferences = async (resourceId, doi) => {
       const referenceDoi = normalizeDoi(item.reference.DOI);
       const title = item.metadata?.title ?? item.reference["article-title"] ?? item.reference.unstructured ?? (referenceDoi ? `DOI ${referenceDoi}` : `Reference ${index + 1}`);
       const publicationYear = item.metadata?.publicationYear ?? (item.reference.year ? Number(item.reference.year) || null : null);
-      const url = item.metadata?.url ?? (referenceDoi ? `https://doi.org/${referenceDoi}` : `https://search.crossref.org/?q=${encodeURIComponent(title)}`);
+      const url = item.metadata?.url ?? (referenceDoi ? `https://doi.org/${referenceDoi}` : null);
       const data = {
         title: String(title).slice(0, 500),
         authors: item.metadata?.authors ?? item.reference.author ?? null,
@@ -6263,6 +6405,7 @@ var buildReferenceGraph = async (resourceId) => {
     const target = citation.targetResource ?? citation.externalTarget;
     const targetId = citation.targetResource ? `resource:${citation.targetResource.id}` : citation.externalTarget ? `external:${citation.externalTarget.id}` : `reference:${citation.id}`;
     const targetTitle = target?.title ?? citation.rawReference ?? "Unresolved reference";
+    const targetUrl = citation.externalTarget ? verifiedCitationUrl(citation.externalTarget) : citation.targetResource?.fileUrl ?? null;
     nodes.set(targetId, {
       id: targetId,
       type: "reference-paper",
@@ -6273,7 +6416,7 @@ var buildReferenceGraph = async (resourceId) => {
         publicationYear: "year" in (target ?? {}) ? target.year ?? null : target?.publicationYear ?? null,
         venue: "venue" in (target ?? {}) ? target.venue ?? null : null,
         doi: "doi" in (target ?? {}) ? target.doi ?? null : null,
-        url: "url" in (target ?? {}) ? target.url ?? null : "fileUrl" in (target ?? {}) ? target.fileUrl ?? null : null,
+        url: targetUrl,
         relation: "REFERENCES",
         depth: -1,
         referenceIndex: citation.referenceIndex
@@ -6290,10 +6433,12 @@ var rebuildResourceResearchGraph = async (resourceId) => {
   let citationCount = null;
   let providerWarning = null;
   let graphProvider = "local-references";
+  const openAlexRootPromise = resolveOpenAlexRoot(identity.detectedTitle).then((match) => ({ match, error: null })).catch((error) => ({ match: null, error }));
   try {
     const rootPaper = await resolveSemanticScholarRoot({
       title: resource.title,
       authors: resource.authors,
+      year: resource.year,
       tags: resource.tags,
       extractedText: resource.extractedText?.cleanedText ?? null
     });
@@ -6304,19 +6449,27 @@ var rebuildResourceResearchGraph = async (resourceId) => {
       citationCount = rootPaper.citationCount ?? null;
       graphProvider = "semantic-scholar";
       const hasReferenceEdges = [...edges.values()].some((edge) => edge.type === "REFERENCES");
-      if (!hasReferenceEdges) {
-        let persistedCount = await persistSemanticScholarReferences(resourceId, rootPaper).catch(() => 0);
-        if (!persistedCount) {
-          const openAlexMatch = await resolveOpenAlexRoot(identity.detectedTitle).catch(() => null);
+      const persistedReferencesPromise = hasReferenceEdges ? Promise.resolve(0) : (async () => {
+        let persistedCount2 = await persistSemanticScholarReferences(resourceId, rootPaper).catch(() => 0);
+        if (!persistedCount2) {
+          const openAlexMatch = (await openAlexRootPromise).match;
           if (openAlexMatch?.publishedDoi) {
-            persistedCount = await persistCrossrefReferences(resourceId, openAlexMatch.publishedDoi).catch(() => 0);
+            persistedCount2 = await persistCrossrefReferences(resourceId, openAlexMatch.publishedDoi).catch(() => 0);
           }
         }
-        if (persistedCount) {
-          const refreshed = await buildReferenceGraph(resourceId);
-          for (const [id, node] of refreshed.nodes) nodes.set(id, node);
-          for (const [id, edge] of refreshed.edges) edges.set(id, edge);
-        }
+        return persistedCount2;
+      })();
+      const firstLayerPromise = fetchCitingPapers(rootPaper.paperId, RESEARCH_GRAPH_FIRST_LAYER_LIMIT);
+      const relatedPromise = fetchRelatedPapers(rootPaper.paperId).catch(() => []);
+      const [persistedCount, firstLayer, related] = await Promise.all([
+        persistedReferencesPromise,
+        firstLayerPromise,
+        relatedPromise
+      ]);
+      if (persistedCount) {
+        const refreshed = await buildReferenceGraph(resourceId);
+        for (const [id, node] of refreshed.nodes) nodes.set(id, node);
+        for (const [id, edge] of refreshed.edges) edges.set(id, edge);
       }
       const rootNode = nodes.get(rootId);
       nodes.set(rootId, {
@@ -6330,7 +6483,6 @@ var rebuildResourceResearchGraph = async (resourceId) => {
           url: semanticPaperUrl(rootPaper)
         }
       });
-      const firstLayer = await fetchCitingPapers(rootPaper.paperId, RESEARCH_GRAPH_FIRST_LAYER_LIMIT);
       for (const citation of firstLayer) {
         const node = graphNodeFromSemanticPaper(
           citation.citingPaper,
@@ -6345,10 +6497,14 @@ var rebuildResourceResearchGraph = async (resourceId) => {
         edges.set(edge.id, edge);
       }
       const secondLayerParents = firstLayer.slice(0, RESEARCH_GRAPH_SECOND_LAYER_PARENTS);
-      for (const parentCitation of secondLayerParents) {
+      const secondLayerRows = await mapWithConcurrency(secondLayerParents, 2, async (parentCitation) => {
         const parent = parentCitation.citingPaper;
+        if (!parent?.paperId) return [];
+        return fetchCitingPapers(parent.paperId, RESEARCH_GRAPH_SECOND_LAYER_LIMIT).catch(() => []);
+      });
+      for (const [parentIndex, grandchildren] of secondLayerRows.entries()) {
+        const parent = secondLayerParents[parentIndex]?.citingPaper;
         if (!parent?.paperId) continue;
-        const grandchildren = await fetchCitingPapers(parent.paperId, RESEARCH_GRAPH_SECOND_LAYER_LIMIT).catch(() => []);
         for (const citation of grandchildren) {
           if (citation.citingPaper?.paperId === rootPaper.paperId) continue;
           const node = graphNodeFromSemanticPaper(
@@ -6364,7 +6520,6 @@ var rebuildResourceResearchGraph = async (resourceId) => {
           edges.set(edge.id, edge);
         }
       }
-      const related = await fetchRelatedPapers(rootPaper.paperId).catch(() => []);
       for (const paper of related) {
         if (!paper.paperId || paper.paperId === rootPaper.paperId || nodes.has(`s2:${paper.paperId}`)) continue;
         const node = graphNodeFromSemanticPaper(paper, "related-paper", "RELATED", 1);
@@ -6386,7 +6541,9 @@ var rebuildResourceResearchGraph = async (resourceId) => {
   }
   if (!providerPaperId) {
     try {
-      const match = await resolveOpenAlexRoot(identity.detectedTitle);
+      const openAlexResult = await openAlexRootPromise;
+      if (openAlexResult.error) throw openAlexResult.error;
+      const match = openAlexResult.match;
       const rootWork = match?.root;
       const openAlexId = openAlexShortId(rootWork?.id);
       if (!rootWork || !openAlexId) throw new Error("No confident OpenAlex match was found.");
@@ -6395,13 +6552,18 @@ var rebuildResourceResearchGraph = async (resourceId) => {
       graphProvider = "openalex";
       providerWarning = null;
       const hasReferenceEdges = [...edges.values()].some((edge) => edge.type === "REFERENCES");
-      if (!hasReferenceEdges && match.publishedDoi) {
-        const persistedCount = await persistCrossrefReferences(resourceId, match.publishedDoi).catch(() => 0);
-        if (persistedCount) {
-          const refreshed = await buildReferenceGraph(resourceId);
-          for (const [id, node] of refreshed.nodes) nodes.set(id, node);
-          for (const [id, edge] of refreshed.edges) edges.set(id, edge);
-        }
+      const persistedReferencesPromise = !hasReferenceEdges && match.publishedDoi ? persistCrossrefReferences(resourceId, match.publishedDoi).catch(() => 0) : Promise.resolve(0);
+      const firstLayerPromise = fetchOpenAlexCitingWorks(openAlexId, RESEARCH_GRAPH_FIRST_LAYER_LIMIT);
+      const relatedPromise = fetchOpenAlexWorksByIds(rootWork.related_works ?? []).catch(() => []);
+      const [persistedCount, firstLayer, related] = await Promise.all([
+        persistedReferencesPromise,
+        firstLayerPromise,
+        relatedPromise
+      ]);
+      if (persistedCount) {
+        const refreshed = await buildReferenceGraph(resourceId);
+        for (const [id, node] of refreshed.nodes) nodes.set(id, node);
+        for (const [id, edge] of refreshed.edges) edges.set(id, edge);
       }
       const rootNode = nodes.get(rootId);
       nodes.set(rootId, {
@@ -6415,7 +6577,6 @@ var rebuildResourceResearchGraph = async (resourceId) => {
           url: openAlexWorkUrl(rootWork)
         }
       });
-      const firstLayer = await fetchOpenAlexCitingWorks(openAlexId, RESEARCH_GRAPH_FIRST_LAYER_LIMIT);
       for (const work of firstLayer) {
         const node = graphNodeFromOpenAlexWork(work, "citing-paper", "CITED_BY", 1);
         if (!node) continue;
@@ -6423,10 +6584,14 @@ var rebuildResourceResearchGraph = async (resourceId) => {
         const edge = graphEdge(rootId, node.id, "CITED_BY", 0.9);
         edges.set(edge.id, edge);
       }
-      for (const parent of firstLayer.slice(0, RESEARCH_GRAPH_SECOND_LAYER_PARENTS)) {
+      const secondLayerRows = await mapWithConcurrency(firstLayer.slice(0, RESEARCH_GRAPH_SECOND_LAYER_PARENTS), 2, async (parent) => {
         const parentId = openAlexShortId(parent.id);
-        if (!parentId) continue;
+        if (!parentId) return { parentId: null, grandchildren: [] };
         const grandchildren = await fetchOpenAlexCitingWorks(parentId, RESEARCH_GRAPH_SECOND_LAYER_LIMIT).catch(() => []);
+        return { parentId, grandchildren };
+      });
+      for (const { parentId, grandchildren } of secondLayerRows) {
+        if (!parentId) continue;
         for (const work of grandchildren) {
           const childId = openAlexShortId(work.id);
           if (!childId || childId === openAlexId) continue;
@@ -6437,7 +6602,6 @@ var rebuildResourceResearchGraph = async (resourceId) => {
           edges.set(edge.id, edge);
         }
       }
-      const related = await fetchOpenAlexWorksByIds(rootWork.related_works ?? []).catch(() => []);
       for (const work of related) {
         const relatedId = openAlexShortId(work.id);
         if (!relatedId || relatedId === openAlexId || nodes.has(`openalex:${relatedId}`)) continue;
@@ -6484,32 +6648,44 @@ var rebuildResourceResearchGraph = async (resourceId) => {
 };
 var lookupCrossref = async (reference) => {
   const doi = normalizeDoi(reference.doi);
-  const cacheKey = doi ? `crossref:doi:${doi}` : `crossref:title:${normalizeTitle(reference.title ?? "")}:${reference.year ?? ""}`;
+  const cacheKey = doi ? `crossref:v${CITATION_PARSER_VERSION}:doi:${doi}` : `crossref:v${CITATION_PARSER_VERSION}:bibliographic:${hash(reference.rawReference ?? reference.title ?? "")}`;
   const cached = await prisma.metadataCache.findUnique({ where: { cacheKey } }).catch(() => null);
   if (cached && (!cached.expiresAt || cached.expiresAt > /* @__PURE__ */ new Date())) return cached.resultJson;
   let url = "";
   if (doi) {
     url = `https://api.crossref.org/works/${encodeURIComponent(doi)}`;
-  } else if (reference.title) {
-    url = `https://api.crossref.org/works?query.title=${encodeURIComponent(reference.title)}&rows=1`;
+  } else if (reference.rawReference || reference.title) {
+    url = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(reference.rawReference ?? reference.title ?? "")}&rows=5`;
   } else {
     return null;
   }
   try {
-    const response = await fetch(url, { headers: { "User-Agent": "Nexora/1.0 (mailto:support@nexora.local)" } });
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Nexora/1.0 (mailto:support@nexora.local)" },
+      signal: AbortSignal.timeout(8e3)
+    });
     if (!response.ok) return null;
     const json = await response.json();
-    const item = doi ? json.message : json.message?.items?.[0];
+    const candidates = doi ? [json.message] : json.message?.items ?? [];
+    const ranked = candidates.filter(Boolean).map((item2) => {
+      const candidateTitle = item2.title?.[0] ?? "";
+      const candidateYear = item2.published?.["date-parts"]?.[0]?.[0] ?? item2.created?.["date-parts"]?.[0]?.[0] ?? null;
+      return { item: item2, score: doi ? 1 : referenceCandidateScore(reference, { title: candidateTitle, year: candidateYear }) };
+    }).sort((left, right) => right.score - left.score);
+    const best = ranked[0];
+    const item = best && (doi || best.score >= MIN_REFERENCE_TITLE_SIMILARITY) ? best.item : null;
     if (!item) return null;
+    const resolvedDoi = normalizeDoi(item.DOI);
     const result = {
       title: item.title?.[0],
       authors: Array.isArray(item.author) ? item.author.map((author) => [author.given, author.family].filter(Boolean).join(" ")).filter(Boolean).join(", ") : void 0,
       publicationYear: item.published?.["date-parts"]?.[0]?.[0] ?? item.created?.["date-parts"]?.[0]?.[0],
       venue: item["container-title"]?.[0],
-      doi: item.DOI?.toLowerCase(),
-      url: item.URL,
+      doi: resolvedDoi,
+      url: resolvedDoi ? `https://doi.org/${resolvedDoi}` : item.URL,
       metadataSource: "crossref",
-      metadataConfidence: doi ? 0.96 : 0.78
+      metadataConfidence: doi ? 0.99 : Math.min(0.95, 0.7 + best.score * 0.25),
+      matchScore: best.score
     };
     await prisma.metadataCache.upsert({
       where: { cacheKey },
@@ -6523,7 +6699,7 @@ var lookupCrossref = async (reference) => {
 };
 var lookupSemanticScholar = async (reference) => {
   const doi = normalizeDoi(reference.doi);
-  const cacheKey = doi ? `s2:doi:${doi}` : `s2:title:${normalizeTitle(reference.title ?? "")}:${reference.year ?? ""}`;
+  const cacheKey = doi ? `s2:v${CITATION_PARSER_VERSION}:doi:${doi}` : `s2:v${CITATION_PARSER_VERSION}:title:${hash(reference.rawReference ?? reference.title ?? "")}`;
   const cached = await prisma.metadataCache.findUnique({ where: { cacheKey } }).catch(() => null);
   if (cached && (!cached.expiresAt || cached.expiresAt > /* @__PURE__ */ new Date())) return cached.resultJson;
   try {
@@ -6532,7 +6708,7 @@ var lookupSemanticScholar = async (reference) => {
     if (doi) {
       apiUrl = `https://api.semanticscholar.org/graph/v1/paper/DOI:${encodeURIComponent(doi)}?fields=${fields}`;
     } else if (reference.title) {
-      apiUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(reference.title)}&limit=1&fields=${fields}`;
+      apiUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(reference.rawReference ?? reference.title)}&limit=5&fields=${fields}`;
     } else {
       return null;
     }
@@ -6542,10 +6718,13 @@ var lookupSemanticScholar = async (reference) => {
     });
     if (!response.ok) return null;
     const json = await response.json();
-    const item = doi ? json : json.data?.[0];
+    const candidates = doi ? [json] : json.data ?? [];
+    const ranked = candidates.filter((candidate) => candidate?.paperId).map((candidate) => ({ candidate, score: doi ? 1 : referenceCandidateScore(reference, { title: candidate.title, year: candidate.year }) })).sort((left, right) => right.score - left.score);
+    const best = ranked[0];
+    const item = best && (doi || best.score >= MIN_REFERENCE_TITLE_SIMILARITY) ? best.candidate : null;
     if (!item || !item.paperId) return null;
     const openUrl = item.openAccessPdf?.url ?? item.url ?? null;
-    const resolvedDoi = item.externalIds?.DOI?.toLowerCase() ?? doi;
+    const resolvedDoi = normalizeDoi(item.externalIds?.DOI) ?? doi;
     const result = {
       title: item.title ?? reference.title,
       authors: Array.isArray(item.authors) ? item.authors.map((a) => a.name).filter(Boolean).join(", ") : null,
@@ -6556,7 +6735,8 @@ var lookupSemanticScholar = async (reference) => {
       url: resolvedDoi ? `https://doi.org/${resolvedDoi}` : openUrl,
       semanticScholarId: item.paperId,
       metadataSource: "semantic-scholar",
-      metadataConfidence: doi ? 0.94 : 0.75
+      metadataConfidence: doi ? 0.98 : Math.min(0.94, 0.68 + (best?.score ?? 0) * 0.25),
+      matchScore: best?.score ?? 0
     };
     await prisma.metadataCache.upsert({
       where: { cacheKey },
@@ -6571,8 +6751,6 @@ var lookupSemanticScholar = async (reference) => {
 var resolveCitationTarget = async (reference) => {
   const doi = normalizeDoi(reference.doi);
   const title = reference.title?.trim() || reference.rawReference?.slice(0, 180) || "Unresolved reference";
-  const hosted = doi ? await prisma.resource.findFirst({ where: { tags: { has: doi } }, select: { id: true } }) : null;
-  if (hosted) return { targetResourceId: hosted.id, externalTargetId: null, resolverSource: "hosted-resource-tag" };
   let metadata = await lookupCrossref(reference);
   if (!metadata?.url && !metadata?.doi) {
     const s2 = await lookupSemanticScholar(reference);
@@ -6600,7 +6778,12 @@ var resolveCitationTarget = async (reference) => {
     create: data,
     update: data
   }) : await prisma.externalCitationTarget.create({ data });
-  return { targetResourceId: null, externalTargetId: external.id, resolverSource: data.metadataSource };
+  return {
+    targetResourceId: null,
+    externalTargetId: external.id,
+    resolverSource: data.metadataSource,
+    confidenceScore: data.metadataConfidence
+  };
 };
 var audit = async (resourceId, jobType, status71, error) => {
   const data = { resourceId, jobType, status: status71 };
@@ -6665,20 +6848,65 @@ var queueResourceAiJob = async (resource, mode, run) => {
     alreadyRunning: !started
   };
 };
+var resolveAndPersistCitations = async (resourceId, references) => {
+  const resolved = await mapWithConcurrency(
+    references,
+    REFERENCE_RESOLVE_CONCURRENCY,
+    async (reference) => {
+      try {
+        return { reference, target: await resolveCitationTarget(reference) };
+      } catch (error) {
+        console.warn("[resource-ai] citation enrichment failed", {
+          resourceId,
+          reference: reference.rawReference?.slice(0, 180),
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return { reference, target: null };
+      }
+    }
+  );
+  await prisma.$transaction(async (tx) => {
+    await tx.resourceCitationEdge.deleteMany({ where: { sourceResourceId: resourceId } });
+    if (!resolved.length) return;
+    await tx.resourceCitationEdge.createMany({
+      data: resolved.map(({ reference, target }, index) => ({
+        sourceResourceId: resourceId,
+        targetResourceId: target?.targetResourceId ?? null,
+        externalTargetId: target?.externalTargetId ?? null,
+        rawReference: reference.rawReference ?? null,
+        referenceIndex: index + 1,
+        confidenceScore: target?.confidenceScore ?? reference.confidenceScore ?? 0.55,
+        resolverSource: target?.resolverSource ?? "unresolved",
+        parserVersion: CITATION_PARSER_VERSION
+      }))
+    });
+  }, { timeout: 3e4 });
+  return resolved.length;
+};
+var shouldGenerateSummary = (options, copiedSummary) => Boolean(options.regenerateSummary) || !options.reanalyzeCitations && !copiedSummary;
 var runResourceAi = async (resource, options = {}) => {
   const resourceId = resource.id;
   try {
     await audit(resourceId, "resource-ai", "PROCESSING");
-    const { extracted, textHash, fileHash } = await extractAndStoreResourceText(resource);
+    const existingText = options.reanalyzeCitations || resource.fileHash ? await prisma.resourceText.findUnique({ where: { resourceId } }) : null;
+    const reusableText = existingText?.cleanedText && existingText.extractionVersion >= EXTRACTION_VERSION ? existingText : null;
+    const extractedResult = reusableText ? {
+      extracted: {
+        fullText: reusableText.fullText,
+        cleanedText: reusableText.cleanedText,
+        pageCount: reusableText.pageCount,
+        extractionVersion: reusableText.extractionVersion
+      },
+      textHash: reusableText.textHash,
+      fileHash: resource.fileHash
+    } : await extractAndStoreResourceText(resource);
+    const { extracted, textHash, fileHash } = extractedResult;
     const shared = await hydrateResourceAiFromExisting(resourceId, {
       fileHash,
       textHash,
-      skipSummary: Boolean(options.regenerateSummary),
+      skipSummary: Boolean(options.regenerateSummary || options.reanalyzeCitations),
       skipCitations: Boolean(options.reanalyzeCitations)
     });
-    if (!shared.copiedSummary) {
-      await generateResourceSummary(resource, extracted.cleanedText, textHash, Boolean(options.regenerateSummary));
-    }
     if (shared.copiedCitations > 0 && !options.reanalyzeCitations) {
       await prisma.resource.update({ where: { id: resourceId }, data: { aiProcessingStatus: "GRAPH_PROCESSING" } });
       await rebuildResourceResearchGraph(resourceId);
@@ -6690,28 +6918,20 @@ var runResourceAi = async (resource, options = {}) => {
       await audit(resourceId, "resource-ai", "COMPLETED");
       return updated2;
     }
-    await prisma.resource.update({ where: { id: resourceId }, data: { aiProcessingStatus: "CITATION_PROCESSING" } });
     const referenceSection = detectReferenceSection(extracted.cleanedText);
     const referenceLines = splitReferences(referenceSection);
     const parsedReferences = await parseReferences(referenceLines, textHash);
-    if (options.reanalyzeCitations || parsedReferences.length) {
-      await prisma.resourceCitationEdge.deleteMany({ where: { sourceResourceId: resourceId } });
-    }
-    for (const [index, reference] of parsedReferences.entries()) {
-      const resolved = await resolveCitationTarget(reference);
-      await prisma.resourceCitationEdge.create({
-        data: {
-          sourceResourceId: resourceId,
-          targetResourceId: resolved.targetResourceId,
-          externalTargetId: resolved.externalTargetId,
-          rawReference: reference.rawReference ?? referenceLines[index] ?? null,
-          referenceIndex: index + 1,
-          confidenceScore: reference.confidenceScore ?? 0.7,
-          resolverSource: resolved.resolverSource,
-          parserVersion: CITATION_PARSER_VERSION
-        }
-      });
-    }
+    const summaryRequested = shouldGenerateSummary(options, shared.copiedSummary);
+    await prisma.resource.update({
+      where: { id: resourceId },
+      data: {
+        aiProcessingStatus: summaryRequested ? "SUMMARY_PROCESSING" : "CITATION_PROCESSING",
+        processingError: null
+      }
+    });
+    const summaryPromise = !summaryRequested ? Promise.resolve(null) : getOrCreateSummary(resource, extracted.cleanedText, textHash, Boolean(options.regenerateSummary));
+    const citationsPromise = shared.copiedCitations > 0 && !options.reanalyzeCitations ? Promise.resolve(shared.copiedCitations) : resolveAndPersistCitations(resourceId, parsedReferences);
+    await Promise.all([summaryPromise, citationsPromise]);
     await prisma.resource.update({ where: { id: resourceId }, data: { aiProcessingStatus: "GRAPH_PROCESSING" } });
     await rebuildResourceResearchGraph(resourceId);
     const updated = await prisma.resource.update({
@@ -6762,20 +6982,12 @@ var runResourceSummary = async (resource, regenerate = false) => {
   const resourceId = resource.id;
   try {
     await audit(resourceId, "resource-summary", "PROCESSING");
-    const [existingText, existingSummary] = await Promise.all([
-      prisma.resourceText.findUnique({ where: { resourceId } }),
-      prisma.resourceSummary.findUnique({ where: { resourceId } })
-    ]);
-    const reuseText = !regenerate && existingText !== null && existingText.cleanedText.length > 0 && existingSummary?.generationStatus === "COMPLETED";
-    if (reuseText && existingText && existingSummary) {
-      await prisma.resource.update({
-        where: { id: resourceId },
-        data: { aiProcessingStatus: "SUMMARY_READY", lastProcessedAt: /* @__PURE__ */ new Date(), processingError: null }
-      });
-      await audit(resourceId, "resource-summary", "COMPLETED");
-      return existingSummary;
-    }
-    const extracted = await extractAndStoreResourceText(resource);
+    const existingText = await prisma.resourceText.findUnique({ where: { resourceId } });
+    const reusableText = existingText?.cleanedText && existingText.extractionVersion >= EXTRACTION_VERSION ? existingText : null;
+    const extracted = reusableText ? {
+      extracted: { cleanedText: reusableText.cleanedText },
+      textHash: reusableText.textHash
+    } : await extractAndStoreResourceText(resource);
     const cleanedText = extracted.extracted.cleanedText;
     const textHash = extracted.textHash;
     const summary2 = await generateResourceSummary(resource, cleanedText, textHash, regenerate);
@@ -6898,7 +7110,11 @@ var getSummary = async (resourceId) => {
     sourceType: "EXTRACTED_TEXT",
     titleMismatch: false
   };
-  const warning = identity.sourceType === "RESEARCH_SUMMARY" ? "This result is grounded in a prepared research summary rather than the complete paper. Verify fine-grained claims against the original publication." : identity.titleMismatch ? "The paper title detected inside the document differs from the resource title. The summary uses the detected document identity." : null;
+  const staleSummary = Boolean(resource.aiSummary && resource.aiSummary.promptVersion < SUMMARY_PROMPT_VERSION);
+  if (staleSummary) {
+    void processResourceAi(resourceId).catch(() => void 0);
+  }
+  const warning = staleSummary ? "This summary is being refreshed with full-document evidence." : identity.sourceType === "RESEARCH_SUMMARY" ? "This result is grounded in a prepared research summary rather than the complete paper. Verify fine-grained claims against the original publication." : identity.titleMismatch ? "The paper title detected inside the document differs from the resource title. The summary uses the detected document identity." : null;
   return {
     resourceId,
     status: resource.aiProcessingStatus,
@@ -6916,6 +7132,19 @@ var getSummary = async (resourceId) => {
   };
 };
 var setSummaryVisibility = async (resourceId, isVisible) => prisma.resourceSummary.update({ where: { resourceId }, data: { isVisible } });
+var verifiedCitationUrl = (target) => {
+  const doi = normalizeDoi(target.doi);
+  if (doi) return `https://doi.org/${doi}`;
+  if (!target.url) return null;
+  try {
+    const parsed = new URL(target.url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    if (/search\.crossref\.org|scholar\.google\./i.test(parsed.hostname)) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+};
 var getCitations = async (resourceId) => {
   const edges = await prisma.resourceCitationEdge.findMany({
     where: { sourceResourceId: resourceId },
@@ -6925,6 +7154,9 @@ var getCitations = async (resourceId) => {
     },
     orderBy: [{ referenceIndex: "asc" }, { createdAt: "asc" }]
   });
+  if (edges.some((edge) => edge.parserVersion < CITATION_PARSER_VERSION)) {
+    void processResourceAi(resourceId).catch(() => void 0);
+  }
   return edges.map((edge) => ({
     id: edge.id,
     relationType: edge.relationType,
@@ -6932,7 +7164,12 @@ var getCitations = async (resourceId) => {
     rawReference: edge.rawReference,
     referenceIndex: edge.referenceIndex,
     resolverSource: edge.resolverSource,
-    target: edge.targetResource ? { type: "internal", ...edge.targetResource } : edge.externalTarget ? { type: "external", ...edge.externalTarget } : { type: "unresolved", title: edge.rawReference ?? "Unresolved reference" }
+    target: edge.targetResource ? { type: "internal", ...edge.targetResource, verifiedUrl: null, linkVerified: false } : edge.externalTarget ? {
+      type: "external",
+      ...edge.externalTarget,
+      verifiedUrl: verifiedCitationUrl(edge.externalTarget),
+      linkVerified: Boolean(verifiedCitationUrl(edge.externalTarget))
+    } : { type: "unresolved", title: edge.rawReference ?? "Unresolved reference", verifiedUrl: null, linkVerified: false }
   }));
 };
 var getGraph = async (resourceId, query) => {
@@ -6940,6 +7177,22 @@ var getGraph = async (resourceId, query) => {
   const minConfidence = Math.max(0, Math.min(1, Number(query.minConfidence ?? 0) || 0));
   const limit = Math.max(1, Math.min(200, Number(query.limit ?? 50) || 50));
   const snapshot = await prisma.resourceResearchGraph.findUnique({ where: { resourceId } });
+  if (snapshot && snapshot.graphVersion < RESEARCH_GRAPH_VERSION) {
+    void processResourceAi(resourceId).catch(() => void 0);
+    const rootNode = (Array.isArray(snapshot.nodes) ? snapshot.nodes : []).find((node) => node.type === "current-resource");
+    return {
+      resourceId,
+      nodes: rootNode ? [rootNode] : [],
+      edges: [],
+      generatedAt: snapshot.generatedAt,
+      provider: snapshot.provider,
+      providerPaperId: snapshot.providerPaperId,
+      citationCount: snapshot.citationCount,
+      graphVersion: RESEARCH_GRAPH_VERSION,
+      warning: "This research graph is being refreshed with verified paper matches.",
+      stats: { references: 0, citedBy: 0, secondLayer: 0, related: 0 }
+    };
+  }
   if (snapshot) {
     const snapshotNodes = Array.isArray(snapshot.nodes) ? snapshot.nodes : [];
     const snapshotEdges = Array.isArray(snapshot.edges) ? snapshot.edges : [];

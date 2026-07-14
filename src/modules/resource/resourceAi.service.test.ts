@@ -108,6 +108,14 @@ test("resource AI job registry prevents duplicate active work for a resource", a
   assert.equal(registry.start("resource-1", async () => undefined), true);
 });
 
+test("full re-process regenerates summary while reanalyzing citations", () => {
+  const shouldGenerate = service.__resourceAiInternals.shouldGenerateSummary;
+
+  assert.equal(shouldGenerate({ regenerateSummary: true, reanalyzeCitations: true }, false), true);
+  assert.equal(shouldGenerate({ reanalyzeCitations: true }, false), false);
+  assert.equal(shouldGenerate({}, true), false);
+});
+
 test("fallbackSummary returns deterministic content when model output is unusable", () => {
   const summary = service.__resourceAiInternals.fallbackSummary(
     { title: "Academic Resource", description: null, tags: ["ai-reading", "pdf"] },
@@ -116,7 +124,7 @@ test("fallbackSummary returns deterministic content when model output is unusabl
 
   assert.match(summary.professionalSummary, /reliable AI reading workflows/);
   assert.equal(summary.methods, "Not clearly stated in the paper.");
-  assert.deepEqual(summary.keywords, ["ai-reading", "pdf"]);
+  assert.deepEqual(summary.keywords, ["academic", "resource", "ai-reading", "pdf"]);
 });
 
 test("prepared research packs use their embedded paper identity and structured evidence", () => {
@@ -171,6 +179,103 @@ test("reference extraction finds a late reference section in PDF text", () => {
   assert.equal(references.length, 2);
   assert.match(references[0] ?? "", /Reliable PDF extraction/);
   assert.match(references[1] ?? "", /Classroom annotation workflows/);
+});
+
+test("reference extraction preserves the paper's raw entry and only exposes source URLs", () => {
+  const raw = '[1] A. Rahman and J. Smith, "Reliable PDF extraction for learning systems," Journal of AI Reading, 2024. doi:10.1234/pdf.ai';
+  const parsed = service.__resourceAiInternals.fallbackReferences([raw]);
+
+  assert.equal(parsed[0]?.rawReference, raw);
+  assert.equal(parsed[0]?.doi, "10.1234/pdf.ai");
+  assert.equal(parsed[0]?.url, null);
+  assert.equal(parsed[0]?.title, "Reliable PDF extraction for learning systems");
+});
+
+test("reference parser handles numbered headings and inline bibliography entries", () => {
+  const section = service.__resourceAiInternals.detectReferenceSection([
+    "Introduction",
+    "The body of the paper is long enough to keep the bibliography near the end.",
+    "7. REFERENCES",
+    '[1] A. Author, "First paper title," Journal of Testing, 2022.',
+    '[2] B. Author, Second paper title, Proceedings of Systems, 2021. https://publisher.example/second',
+  ].join("\n"));
+  const references = service.__resourceAiInternals.splitReferences(section);
+
+  assert.equal(references.length, 2);
+  assert.match(references[0] ?? "", /First paper title/);
+  assert.match(references[1] ?? "", /publisher\.example\/second/);
+});
+
+test("reference parser recovers an author-year bibliography collapsed into one PDF line", () => {
+  const text = [
+    "Abstract This paper studies imbalanced learning. Introduction " + "Body evidence. ".repeat(120),
+    "354 SMOTE References Blake, C., & Merz, C. (1998). UCI Repository of Machine Learning Databases.",
+    "Bradley, A. P. (1997). The Use of the Area Under the ROC Curve. Pattern Recognition, 30(6), 1145-1159.",
+    "Chawla, N., Bowyer, K., Hall, L., & Kegelmeyer, P. (2000). SMOTE: Synthetic Minority Over-sampling Technique.",
+  ].join(" ");
+
+  const section = service.__resourceAiInternals.detectReferenceSection(text);
+  const references = service.__resourceAiInternals.splitReferences(section);
+
+  assert.equal(references.length, 3);
+  assert.match(references[0] ?? "", /^Blake, C\., & Merz, C\./);
+  assert.match(references[1] ?? "", /^Bradley, A\. P\./);
+  assert.match(references[2] ?? "", /^Chawla, N\., Bowyer, K\./);
+});
+
+test("full-paper identity and local fallback use document title, abstract, and conclusion", () => {
+  const text = [
+    "Journal of Artificial Intelligence Research 16 (2002) 321-357 Submitted 09/01; published 06/02",
+    "SMOTE: Synthetic Minority Over-sampling Technique",
+    "Nitesh V. Chawla chawla@example.edu Department of Computer Science",
+    "Kevin W. Bowyer bowyer@example.edu Department of Computer Science",
+    "Abstract An approach to constructing classifiers from imbalanced datasets is described, using synthetic minority over-sampling.",
+    "1. Introduction " + "Background evidence. ".repeat(50),
+    "7. Summary The results show that SMOTE improves minority-class classifier accuracy across diverse datasets.",
+    "References Blake, C., & Merz, C. (1998). UCI Repository of Machine Learning Databases.",
+  ].join(" ");
+  const resource = { title: "An unrelated upload title", description: null, tags: ["unrelated"] };
+
+  const identity = service.__resourceAiInternals.inferPaperIdentity(text, resource);
+  const summary = service.__resourceAiInternals.fallbackSummary(resource, text);
+
+  assert.equal(identity.detectedTitle, "SMOTE: Synthetic Minority Over-sampling Technique");
+  assert.deepEqual(identity.detectedAuthors, ["Nitesh V. Chawla", "Kevin W. Bowyer"]);
+  assert.equal(identity.titleMismatch, true);
+  assert.match(summary.professionalSummary, /constructing classifiers from imbalanced datasets/i);
+  assert.match(summary.professionalSummary, /SMOTE improves minority-class classifier accuracy/i);
+  assert.doesNotMatch(summary.professionalSummary, /Department of Computer Science/);
+});
+
+test("summary evidence includes late paper sections while excluding the bibliography", () => {
+  const text = [
+    "Abstract\nThis paper studies dependable research extraction.",
+    "Introduction\n" + "Background context. ".repeat(500),
+    "Methods\nThe method uses a calibrated retrieval pipeline.",
+    "Results\nThe late results report a 27 percent improvement.",
+    "Conclusion\nThe conclusion recommends evidence-first summaries.",
+    "References\n[1] A. Author. Bibliography-only text. 2020.",
+  ].join("\n\n");
+  const evidence = service.__resourceAiInternals.buildSummaryEvidenceContext(text);
+
+  assert.match(evidence, /late results report a 27 percent improvement/);
+  assert.match(evidence, /recommends evidence-first summaries/);
+  assert.doesNotMatch(evidence, /Bibliography-only text/);
+});
+
+test("reference candidate matching rejects an unrelated provider result", () => {
+  const reference = {
+    title: "Reliable PDF extraction for learning systems",
+    authors: [],
+    year: 2024,
+    confidenceScore: 0.9,
+    rawReference: '[1] A. Author, "Reliable PDF extraction for learning systems," Journal, 2024.',
+  };
+  const match = service.__resourceAiInternals.referenceCandidateScore(reference, { title: "Reliable PDF extraction for learning systems", year: 2024 });
+  const unrelated = service.__resourceAiInternals.referenceCandidateScore(reference, { title: "Marine biodiversity trends in coastal ecosystems", year: 2024 });
+
+  assert.ok(match >= 0.9);
+  assert.ok(unrelated < 0.72);
 });
 
 test("research graph title matching rejects unrelated provider results", () => {
