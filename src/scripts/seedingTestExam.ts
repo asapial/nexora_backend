@@ -1,13 +1,12 @@
 /**
  * Seeds an active approved MCQ exam owned by an existing teacher.
  *
- * The seed is idempotent: rerunning it replaces only this test exam's
- * questions and assignments.
+ * Every run creates a new exam and leaves previously seeded exams unchanged.
  *
  * Run with:
  *   npm run seed:test-exam
  *   npm run seed:test-exam -- teacher@example.com
- *   npm run seed:test-exam -- --email teacher@example.com --cluster cluster-slug
+ *   npm run seed:test-exam -- --email teacher@example.com --cluster cluster-slug --mode pro
  */
 
 import "dotenv/config";
@@ -16,8 +15,7 @@ import { Role } from "../generated/prisma/enums.js";
 import { prisma } from "../lib/prisma.js";
 
 const DEFAULT_TEACHER_EMAIL = "heptex.project1@gmail.com";
-const EXAM_ID = "test-exam-heptex-project1-web-fundamentals";
-const EXAM_DURATION_MINUTES = 60;
+const EXAM_DURATION_MINUTES = 60000;
 
 type TeacherCluster = {
   id: string;
@@ -29,17 +27,21 @@ type TeacherCluster = {
 type CliOptions = {
   email: string;
   clusterSelector?: string;
+  modeSelector?: string;
 };
+
+type SeedExamMode = "REGULAR" | "PRO";
 
 const usage = `Seed an immediately available MCQ exam for a teacher.
 
 Usage:
   npm run seed:test-exam
   npm run seed:test-exam -- teacher@example.com
-  npm run seed:test-exam -- --email teacher@example.com --cluster <number|id|slug|name>
+  npm run seed:test-exam -- --email teacher@example.com --cluster <number|id|slug|name> --mode <regular|pro>
 
 If --cluster is omitted, the command automatically fetches the teacher's active
-clusters and opens an interactive numbered selection when more than one exists.`;
+clusters and opens an interactive numbered selection when more than one exists.
+If --mode is omitted, the command asks whether to seed a Regular or Pro exam.`;
 
 const readOptionValue = (args: string[], index: number, option: string) => {
   const value = args[index + 1]?.trim();
@@ -50,6 +52,7 @@ const readOptionValue = (args: string[], index: number, option: string) => {
 const parseCliOptions = (args: string[]): CliOptions => {
   let email = DEFAULT_TEACHER_EMAIL;
   let clusterSelector: string | undefined;
+  let modeSelector: string | undefined;
   let positionalEmailSeen = false;
 
   for (let index = 0; index < args.length; index += 1) {
@@ -69,6 +72,11 @@ const parseCliOptions = (args: string[]): CliOptions => {
       index += 1;
       continue;
     }
+    if (argument === "--mode" || argument === "-m") {
+      modeSelector = readOptionValue(args, index, argument);
+      index += 1;
+      continue;
+    }
     if (argument.startsWith("-")) throw new Error(`Unknown option: ${argument}`);
     if (positionalEmailSeen) throw new Error(`Unexpected argument: ${argument}`);
 
@@ -77,9 +85,11 @@ const parseCliOptions = (args: string[]): CliOptions => {
   }
 
   const normalizedEmail = email.trim().toLowerCase();
-  return clusterSelector
-    ? { email: normalizedEmail, clusterSelector: clusterSelector.trim() }
-    : { email: normalizedEmail };
+  return {
+    email: normalizedEmail,
+    ...(clusterSelector ? { clusterSelector: clusterSelector.trim() } : {}),
+    ...(modeSelector ? { modeSelector: modeSelector.trim() } : {}),
+  };
 };
 
 const clusterLabel = (cluster: TeacherCluster, index: number) =>
@@ -135,6 +145,41 @@ const selectCluster = async (
       const selectedCluster = findCluster(clusters, answer);
       if (selectedCluster) return selectedCluster;
       console.log(`Enter a number from 1 to ${clusters.length}, or a listed cluster ID, slug, or name.`);
+    }
+  } finally {
+    cli.close();
+  }
+};
+
+const findExamMode = (selector: string): SeedExamMode | undefined => {
+  const normalizedSelector = selector.trim().toUpperCase();
+  if (normalizedSelector === "1" || normalizedSelector === "REGULAR") return "REGULAR";
+  if (normalizedSelector === "2" || normalizedSelector === "PRO") return "PRO";
+  return undefined;
+};
+
+const selectExamMode = async (selector?: string): Promise<SeedExamMode> => {
+  console.log("Exam modes:");
+  console.log("  1. Regular - standard exam without camera proctoring");
+  console.log("  2. Pro - camera proctoring with standard integrity settings");
+
+  if (selector) {
+    const selectedMode = findExamMode(selector);
+    if (!selectedMode) throw new Error(`Invalid exam mode "${selector}". Choose REGULAR or PRO.`);
+    return selectedMode;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error("Exam mode is required in a non-interactive terminal. Re-run with --mode <regular|pro>.");
+  }
+
+  const cli = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    while (true) {
+      const answer = await cli.question("Select an exam mode [1-2]: ");
+      const selectedMode = findExamMode(answer);
+      if (selectedMode) return selectedMode;
+      console.log("Enter 1 or REGULAR for Regular Mode, or 2 or PRO for Pro Mode.");
     }
   } finally {
     cli.close();
@@ -205,7 +250,7 @@ const questions = [
 ] as const;
 
 async function main() {
-  const { email, clusterSelector } = parseCliOptions(process.argv.slice(2));
+  const { email, clusterSelector, modeSelector } = parseCliOptions(process.argv.slice(2));
   const teacher = await prisma.user.findUnique({
     where: { email },
     include: {
@@ -230,6 +275,7 @@ async function main() {
     email,
     clusterSelector,
   );
+  const examMode = await selectExamMode(modeSelector);
   const startTime = new Date();
   const endTime = new Date(startTime.getTime() + EXAM_DURATION_MINUTES * 60 * 1000);
   const questionRows = questions.map((question, questionIndex) => ({
@@ -247,60 +293,55 @@ async function main() {
     },
   }));
 
-  await prisma.$transaction(async (tx) => {
-    await tx.exam.upsert({
-      where: { id: EXAM_ID },
-      update: {
+  const seededExam = await prisma.$transaction(async (tx) => {
+    const exam = await tx.exam.create({
+      data: {
         teacherId: teacher.teacherProfile!.id,
         clusterId: cluster.id,
         title: "Test Exam: Web Development Fundamentals",
         description: "An active test exam containing 10 MCQs with four options each.",
         type: "MCQ",
+        examMode,
         status: "APPROVED",
         startTime,
         endTime,
         durationMinutes: EXAM_DURATION_MINUTES,
         questionsDueAt: new Date(startTime.getTime() - 24 * 60 * 60 * 1000),
         approvedAt: new Date(),
-        rejectionReason: null,
-        questions: { deleteMany: {} },
-        assignments: { deleteMany: {} },
+        questions: { create: questionRows },
+        ...(examMode === "PRO" ? {
+          proctorPolicy: {
+            create: {
+              cameraRequired: true,
+              snapshotEnabled: true,
+              sensitivity: "STANDARD",
+              studentWarnings: true,
+              roughPaperAllowed: true,
+              evidenceRetentionDays: 30,
+            },
+          },
+        } : {}),
       },
-      create: {
-        id: EXAM_ID,
-        teacherId: teacher.teacherProfile!.id,
-        clusterId: cluster.id,
-        title: "Test Exam: Web Development Fundamentals",
-        description: "An active test exam containing 10 MCQs with four options each.",
-        type: "MCQ",
-        status: "APPROVED",
-        startTime,
-        endTime,
-        durationMinutes: EXAM_DURATION_MINUTES,
-        questionsDueAt: new Date(startTime.getTime() - 24 * 60 * 60 * 1000),
-        approvedAt: new Date(),
-      },
-    });
-
-    await tx.exam.update({
-      where: { id: EXAM_ID },
-      data: { questions: { create: questionRows } },
+      select: { id: true },
     });
 
     if (cluster.members.length) {
       await tx.examAssignment.createMany({
         data: cluster.members.map(({ userId }) => ({
-          examId: EXAM_ID,
+          examId: exam.id,
           userId,
           accessGranted: true,
           grantedAt: new Date(),
         })),
       });
     }
+
+    return exam;
   }, { timeout: 30_000 });
 
-  console.log(`Seeded active exam "${EXAM_ID}" for teacher ${email}.`);
+  console.log(`Created active exam "${seededExam.id}" for teacher ${email}.`);
   console.log(`Cluster: ${cluster.name} (${cluster.slug})`);
+  console.log(`Mode: ${examMode}`);
   console.log(`Assigned students: ${cluster.members.length}`);
   console.log(`Window: ${startTime.toISOString()} to ${endTime.toISOString()}`);
   console.log("Questions: 10 MCQs, 4 options each, 10 total marks.");

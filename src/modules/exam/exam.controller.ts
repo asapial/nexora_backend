@@ -12,6 +12,10 @@ export const examController = {
   listTeacher: catchAsync(async (req: Request, res: Response) => ok(res, "Teacher exams", await examService.listTeacher(req.user.userId))),
   teacherDetail: catchAsync(async (req: Request, res: Response) => ok(res, "Exam detail", await examService.getTeacherDetail(req.user.userId, req.params.id as string))),
   proctorSocketTicket: catchAsync(async (req: Request, res: Response) => ok(res, "Proctor socket ticket issued", await examService.createProctorSocketTicket(req.user.userId, req.params.id as string))),
+  proctorEvents: catchAsync(async (req: Request, res: Response) => {
+    const query = (req as Request & { validatedQuery: { cursor?: string; limit: number; }; }).validatedQuery;
+    return ok(res, "Recent proctor events", await examService.listTeacherProctorEvents(req.user.userId, req.params.id as string, query));
+  }),
   update: catchAsync(async (req: Request, res: Response) => ok(res, "Exam updated", await examService.update(req.user.userId, req.params.id as string, req.body))),
   setQuestions: catchAsync(async (req: Request, res: Response) => ok(res, "Questions submitted for approval", await examService.setQuestions(req.user.userId, req.params.id as string, req.body.questions))),
   gradeAttempt: catchAsync(async (req: Request, res: Response) => ok(res, "Attempt graded", await examService.gradeAttempt(req.user.userId, req.params.id as string, req.params.attemptId as string, req.body.grades))),

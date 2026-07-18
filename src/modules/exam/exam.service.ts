@@ -6,6 +6,7 @@ import { envVars } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { sendEmail } from "../../utils/emailSender";
 import { examRealtime } from "./exam.realtime";
+import { buildProctorNotificationContent, decodeProctorEventCursor, encodeProctorEventCursor, proctorEventsAfterCursorWhere, proctorNotificationEventLinkFragment } from "./exam.proctor";
 import { canViewAnswerSheet, scoreAnswers, seededShuffle } from "./exam.utils";
 
 type QuestionInput = {
@@ -144,6 +145,61 @@ const createProctorSocketTicket = async (userId: string, examId: string) => {
   const ticket = examRealtime.issueTicket(examId);
   const socketBaseUrl = envVars.BETTER_AUTH_URL.replace(/^http/, "ws").replace(/\/$/, "");
   return { socketUrl: `${socketBaseUrl}/ws/exams/proctoring?ticket=${ticket}`, expiresInSeconds: 60 };
+};
+
+const listTeacherProctorEvents = async (
+  userId: string,
+  examId: string,
+  query: { cursor?: string; limit: number; },
+) => {
+  await ownedExam(userId, examId);
+  const decodedCursor = query.cursor ? decodeProctorEventCursor(query.cursor) : null;
+  if (query.cursor && !decodedCursor) throw new AppError(status.BAD_REQUEST, "Invalid proctor event cursor");
+
+  const rows = await prisma.examProctorEvent.findMany({
+    where: {
+      attempt: { examId },
+      ...(decodedCursor ? proctorEventsAfterCursorWhere(decodedCursor) : {}),
+    },
+    include: {
+      attempt: {
+        select: {
+          id: true,
+          user: { select: { name: true, email: true } },
+        },
+      },
+    },
+    orderBy: decodedCursor
+      ? [{ occurredAt: "asc" as const }, { id: "asc" as const }]
+      : [{ occurredAt: "desc" as const }, { id: "desc" as const }],
+    take: decodedCursor ? query.limit + 1 : query.limit,
+  });
+  const hasMore = Boolean(decodedCursor && rows.length > query.limit);
+  const selectedRows = decodedCursor ? rows.slice(0, query.limit) : [...rows].reverse();
+  const events = selectedRows.map((event) => ({
+    action: "CREATED" as const,
+    id: event.id,
+    attemptId: event.attemptId,
+    student: event.attempt.user.name,
+    studentEmail: event.attempt.user.email,
+    type: event.type,
+    occurredAt: event.occurredAt,
+    durationMs: event.durationMs,
+    confidence: event.confidence,
+    evidenceUrl: event.evidenceUrl,
+    metadata: event.metadata,
+    reviewDecision: event.reviewDecision,
+    reviewNote: event.reviewNote,
+  }));
+  const lastEvent = selectedRows.at(-1);
+
+  return {
+    events,
+    cursor: lastEvent
+      ? encodeProctorEventCursor({ occurredAt: lastEvent.occurredAt, id: lastEvent.id })
+      : query.cursor ?? null,
+    hasMore,
+  };
 };
 
 const listPending = () => prisma.exam.findMany({
@@ -301,13 +357,21 @@ const violation = async (userId: string, examId: string, payload: any) => {
     if (["CAMERA_INTERRUPTED", "CAMERA_PERMISSION_REVOKED"].includes(payload.type)) {
       await tx.examAttempt.update({ where: { id: attempt.id }, data: { cameraInterruptedAt: new Date() } });
     }
+    const notification = buildProctorNotificationContent({
+      studentName: attempt.user.name,
+      examTitle: attempt.exam.title,
+      examId,
+      attemptId: attempt.id,
+      eventId: created.id,
+      type: created.type,
+      metadata: created.metadata,
+      confidence: created.confidence,
+    });
     await tx.notification.create({
       data: {
         userId: attempt.exam.teacher.userId,
         type: "EXAM_VIOLATION",
-        title: `${attempt.user.name}: ${payload.type.replaceAll("_", " ")}`,
-        body: `Proctor warning during ${attempt.exam.title}. Confirm it in the proctoring console before treating it as a violation.`,
-        link: "/dashboard/teacher/exams/proctoring",
+        ...notification,
       },
     });
     return created;
@@ -371,6 +435,14 @@ const reviewProctorEvent = async (userId: string, examId: string, eventId: strin
     where: { id: event.attemptId },
     data: { suspicious: activeSignals > 0, suspiciousCount: activeSignals },
     include: { user: { select: { name: true, email: true } } },
+  });
+  await prisma.notification.updateMany({
+    where: {
+      userId,
+      type: "EXAM_VIOLATION",
+      link: { contains: proctorNotificationEventLinkFragment(eventId) },
+    },
+    data: { isRead: true },
   });
   examRealtime.publish(examId, {
     action: "REVIEWED",
@@ -696,4 +768,4 @@ const cleanupExpiredProctorEvidence = async () => {
   return { deleted };
 };
 
-export const examService = { create, listTeacher, update, setQuestions, getTeacherDetail, assertTeacherExamAccess, createProctorSocketTicket, listPending, approve, reject, listStudent, studentAccess, proctorPreflight, start, submit, violation, reviewProctorEvent, clearProctorFeed, gradeAttempt, updateResultPublication, emailPublishedResults, emailPublishedResultToStudent, studentResult, adminAnalytics, remindOverdueTeachers, cleanupExpiredProctorEvidence };
+export const examService = { create, listTeacher, update, setQuestions, getTeacherDetail, assertTeacherExamAccess, createProctorSocketTicket, listTeacherProctorEvents, listPending, approve, reject, listStudent, studentAccess, proctorPreflight, start, submit, violation, reviewProctorEvent, clearProctorFeed, gradeAttempt, updateResultPublication, emailPublishedResults, emailPublishedResultToStudent, studentResult, adminAnalytics, remindOverdueTeachers, cleanupExpiredProctorEvidence };

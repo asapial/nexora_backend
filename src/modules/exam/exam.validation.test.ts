@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clearProctorFeedSchema, createExamSchema, individualResultEmailSchema, proctorEventSchema, proctorPreflightSchema, proctorReviewSchema, startExamSchema } from "./exam.validation";
+import { clearProctorFeedSchema, createExamSchema, individualResultEmailSchema, proctorEventListQuerySchema, proctorEventSchema, proctorPreflightSchema, proctorReviewSchema, startExamSchema } from "./exam.validation";
+import { encodeProctorEventCursor } from "./exam.proctor";
 
 test("individual result email requires one valid attempt id", () => {
   assert.deepEqual(individualResultEmailSchema.parse({ attemptId: " attempt-1 " }), { attemptId: "attempt-1" });
@@ -41,7 +42,7 @@ test("Pro Mode preflight and start token inputs reject untrusted fields", () => 
     consent: true,
     cameraReady: true,
     faceCount: 1,
-    calibration: { cameraWidth: 640, cameraHeight: 480, detectorSupported: true },
+    calibration: { cameraWidth: 640, cameraHeight: 480, detectorSupported: true, eyeTrackingAvailable: false },
   }).success, true);
   assert.equal(proctorPreflightSchema.safeParse({
     consent: true,
@@ -96,4 +97,14 @@ test("teacher can only clear a specific student proctor feed", () => {
   assert.equal(clearProctorFeedSchema.safeParse({ attemptId: "attempt-1" }).success, true);
   assert.equal(clearProctorFeedSchema.safeParse({ attemptId: "" }).success, false);
   assert.equal(clearProctorFeedSchema.safeParse({ attemptId: "attempt-1", deleteHistory: true }).success, false);
+});
+
+test("teacher recent-event query accepts only bounded limits and valid opaque cursors", () => {
+  const cursor = encodeProctorEventCursor({ occurredAt: new Date("2026-07-18T10:00:00.000Z"), id: "event-1" });
+  assert.deepEqual(proctorEventListQuerySchema.parse({ cursor, limit: "25" }), { cursor, limit: 25 });
+  assert.deepEqual(proctorEventListQuerySchema.parse({}), { limit: 50 });
+  assert.equal(proctorEventListQuerySchema.safeParse({ cursor: "invalid" }).success, false);
+  assert.equal(proctorEventListQuerySchema.safeParse({ limit: 0 }).success, false);
+  assert.equal(proctorEventListQuerySchema.safeParse({ limit: 101 }).success, false);
+  assert.equal(proctorEventListQuerySchema.safeParse({ userId: "forged" }).success, false);
 });

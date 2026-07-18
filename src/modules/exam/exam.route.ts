@@ -3,13 +3,14 @@ import { Role } from "../../generated/prisma/enums";
 import { checkAuth } from "../../middleware/checkAuth";
 import { validateRequest } from "../../middleware/validateRequest";
 import { examController } from "./exam.controller";
-import { clearProctorFeedSchema, createExamSchema, gradeAttemptSchema, individualResultEmailSchema, proctorEventSchema, proctorPreflightSchema, proctorReviewSchema, questionsSchema, rejectExamSchema, resultPublicationSchema, startExamSchema, submitExamSchema, updateExamSchema } from "./exam.validation";
+import { clearProctorFeedSchema, createExamSchema, gradeAttemptSchema, individualResultEmailSchema, proctorEventListQuerySchema, proctorEventSchema, proctorPreflightSchema, proctorReviewSchema, questionsSchema, rejectExamSchema, resultPublicationSchema, startExamSchema, submitExamSchema, updateExamSchema } from "./exam.validation";
 
 const router = Router();
 
 router.get("/teacher", checkAuth(Role.TEACHER), examController.listTeacher);
 router.post("/teacher", checkAuth(Role.TEACHER), validateRequest(createExamSchema), examController.create);
 router.post("/teacher/:id/proctor-socket-ticket", checkAuth(Role.TEACHER), examController.proctorSocketTicket);
+router.get("/teacher/:id/proctor-events", checkAuth(Role.TEACHER), validateRequest(proctorEventListQuerySchema, "query"), examController.proctorEvents);
 router.get("/teacher/:id", checkAuth(Role.TEACHER), examController.teacherDetail);
 router.patch("/teacher/:id", checkAuth(Role.TEACHER), validateRequest(updateExamSchema), examController.update);
 router.put("/teacher/:id/questions", checkAuth(Role.TEACHER), validateRequest(questionsSchema), examController.setQuestions);

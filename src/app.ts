@@ -39,6 +39,7 @@ import { dashboardRouter } from "./modules/dashboard/dashboard.route";
 import { testimonialRouter } from "./modules/testimonial/testimonial.route";
 import { teacherApplicationRouter } from "./modules/teacherApplication/teacherApplication.route";
 import { examRouter } from "./modules/exam/exam.route";
+import { notificationRouter } from "./modules/notification/notification.route";
 
 
 
@@ -167,6 +168,7 @@ app.use("/api/dashboard", dashboardRouter);
 app.use("/api/testimonials", testimonialRouter);
 app.use("/api/teacher-applications", teacherApplicationRouter);
 app.use("/api/exams", examRouter);
+app.use("/api/notifications", notificationRouter);
 
 
 // ── Teacher Dashboard APIs ───────────────────────────────────────────────────

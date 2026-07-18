@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { decodeProctorEventCursor } from "./exam.proctor";
 
 const option = z.object({ text: z.string().trim().min(1), isCorrect: z.boolean().default(false) });
 const proctorPolicy = z.object({
@@ -91,6 +92,7 @@ export const proctorPreflightSchema = z.object({
     cameraWidth: z.number().int().min(160).max(4096),
     cameraHeight: z.number().int().min(120).max(2160),
     detectorSupported: z.boolean(),
+    eyeTrackingAvailable: z.boolean().optional(),
   }).strict(),
 }).strict();
 
@@ -132,4 +134,11 @@ export const proctorReviewSchema = z.object({
 
 export const clearProctorFeedSchema = z.object({
   attemptId: z.string().trim().min(1, "Student attempt is required"),
+}).strict();
+
+export const proctorEventListQuerySchema = z.object({
+  cursor: z.string().trim().min(1).max(1024)
+    .refine((value) => decodeProctorEventCursor(value) !== null, "Invalid proctor event cursor")
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
 }).strict();
