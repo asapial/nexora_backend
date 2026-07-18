@@ -16,7 +16,7 @@ type QuestionInput = {
 const cameraEventTypes = new Set([
   "FACE_NOT_VISIBLE", "MULTIPLE_FACES", "CAMERA_INTERRUPTED",
   "CAMERA_PERMISSION_REVOKED", "CAMERA_DEVICE_CHANGED", "PREFLIGHT_FAILED",
-  "HEAD_TURN_HORIZONTAL", "EYE_MOVEMENT_HORIZONTAL", "PHONE_DETECTED",
+  "HEAD_TURN_HORIZONTAL", "EYE_MOVEMENT_HORIZONTAL", "PHONE_DETECTED", "DEVICE_DETECTED",
 ]);
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 

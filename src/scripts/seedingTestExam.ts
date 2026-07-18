@@ -7,14 +7,139 @@
  * Run with:
  *   npm run seed:test-exam
  *   npm run seed:test-exam -- teacher@example.com
+ *   npm run seed:test-exam -- --email teacher@example.com --cluster cluster-slug
  */
 
 import "dotenv/config";
+import { createInterface } from "node:readline/promises";
 import { Role } from "../generated/prisma/enums.js";
 import { prisma } from "../lib/prisma.js";
 
 const DEFAULT_TEACHER_EMAIL = "heptex.project1@gmail.com";
 const EXAM_ID = "test-exam-heptex-project1-web-fundamentals";
+const EXAM_DURATION_MINUTES = 60;
+
+type TeacherCluster = {
+  id: string;
+  name: string;
+  slug: string;
+  members: { userId: string }[];
+};
+
+type CliOptions = {
+  email: string;
+  clusterSelector?: string;
+};
+
+const usage = `Seed an immediately available MCQ exam for a teacher.
+
+Usage:
+  npm run seed:test-exam
+  npm run seed:test-exam -- teacher@example.com
+  npm run seed:test-exam -- --email teacher@example.com --cluster <number|id|slug|name>
+
+If --cluster is omitted, the command automatically fetches the teacher's active
+clusters and opens an interactive numbered selection when more than one exists.`;
+
+const readOptionValue = (args: string[], index: number, option: string) => {
+  const value = args[index + 1]?.trim();
+  if (!value || value.startsWith("--")) throw new Error(`${option} requires a value.`);
+  return value;
+};
+
+const parseCliOptions = (args: string[]): CliOptions => {
+  let email = DEFAULT_TEACHER_EMAIL;
+  let clusterSelector: string | undefined;
+  let positionalEmailSeen = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!;
+
+    if (argument === "--help" || argument === "-h") {
+      console.log(usage);
+      process.exit(0);
+    }
+    if (argument === "--email") {
+      email = readOptionValue(args, index, argument);
+      index += 1;
+      continue;
+    }
+    if (argument === "--cluster" || argument === "-c") {
+      clusterSelector = readOptionValue(args, index, argument);
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith("-")) throw new Error(`Unknown option: ${argument}`);
+    if (positionalEmailSeen) throw new Error(`Unexpected argument: ${argument}`);
+
+    email = argument;
+    positionalEmailSeen = true;
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  return clusterSelector
+    ? { email: normalizedEmail, clusterSelector: clusterSelector.trim() }
+    : { email: normalizedEmail };
+};
+
+const clusterLabel = (cluster: TeacherCluster, index: number) =>
+  `${index + 1}. ${cluster.name} (${cluster.slug}) - ${cluster.members.length} student(s)`;
+
+const findCluster = (clusters: TeacherCluster[], selector: string) => {
+  const normalizedSelector = selector.trim().toLowerCase();
+  const selectionNumber = Number(normalizedSelector);
+  if (Number.isInteger(selectionNumber) && selectionNumber >= 1 && selectionNumber <= clusters.length) {
+    return clusters[selectionNumber - 1];
+  }
+
+  return clusters.find((cluster) =>
+    cluster.id.toLowerCase() === normalizedSelector
+    || cluster.slug.toLowerCase() === normalizedSelector
+    || cluster.name.toLowerCase() === normalizedSelector
+  );
+};
+
+const selectCluster = async (
+  clusters: TeacherCluster[],
+  teacherEmail: string,
+  selector?: string,
+) => {
+  if (clusters.length === 0) {
+    throw new Error(`${teacherEmail} does not own any active clusters.`);
+  }
+
+  console.log(`Active clusters fetched for ${teacherEmail}:`);
+  clusters.forEach((cluster, index) => console.log(`  ${clusterLabel(cluster, index)}`));
+
+  if (selector) {
+    const selectedCluster = findCluster(clusters, selector);
+    if (!selectedCluster) {
+      throw new Error(`Cluster "${selector}" is not an active cluster owned by ${teacherEmail}.`);
+    }
+    return selectedCluster;
+  }
+
+  if (clusters.length === 1) {
+    console.log(`Automatically selected the only active cluster: ${clusters[0]!.name}`);
+    return clusters[0]!;
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error("Multiple active clusters found. Re-run with --cluster <number|id|slug|name>.");
+  }
+
+  const cli = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    while (true) {
+      const answer = await cli.question(`Select a cluster [1-${clusters.length}]: `);
+      const selectedCluster = findCluster(clusters, answer);
+      if (selectedCluster) return selectedCluster;
+      console.log(`Enter a number from 1 to ${clusters.length}, or a listed cluster ID, slug, or name.`);
+    }
+  } finally {
+    cli.close();
+  }
+};
 
 const questions = [
   {
@@ -80,7 +205,7 @@ const questions = [
 ] as const;
 
 async function main() {
-  const email = (process.argv[2] ?? DEFAULT_TEACHER_EMAIL).trim().toLowerCase();
+  const { email, clusterSelector } = parseCliOptions(process.argv.slice(2));
   const teacher = await prisma.user.findUnique({
     where: { email },
     include: {
@@ -89,8 +214,7 @@ async function main() {
           teacherClusters: {
             where: { isActive: true },
             include: { members: { select: { userId: true } } },
-            orderBy: { createdAt: "asc" },
-            take: 1,
+            orderBy: [{ name: "asc" }, { createdAt: "asc" }],
           },
         },
       },
@@ -101,9 +225,13 @@ async function main() {
   if (teacher.role !== Role.TEACHER) throw new Error(`${email} is not a TEACHER account.`);
   if (!teacher.teacherProfile) throw new Error(`${email} does not have a teacher profile.`);
 
-  const cluster = teacher.teacherProfile.teacherClusters[0] ?? null;
-  const startTime = new Date(Date.now() - 5 * 60 * 1000);
-  const endTime = new Date(Date.now() + 55 * 60 * 1000);
+  const cluster = await selectCluster(
+    teacher.teacherProfile.teacherClusters,
+    email,
+    clusterSelector,
+  );
+  const startTime = new Date();
+  const endTime = new Date(startTime.getTime() + EXAM_DURATION_MINUTES * 60 * 1000);
   const questionRows = questions.map((question, questionIndex) => ({
     prompt: question.prompt,
     explanation: question.explanation,
@@ -124,14 +252,14 @@ async function main() {
       where: { id: EXAM_ID },
       update: {
         teacherId: teacher.teacherProfile!.id,
-        clusterId: cluster?.id ?? null,
+        clusterId: cluster.id,
         title: "Test Exam: Web Development Fundamentals",
         description: "An active test exam containing 10 MCQs with four options each.",
         type: "MCQ",
         status: "APPROVED",
         startTime,
         endTime,
-        durationMinutes: 60,
+        durationMinutes: EXAM_DURATION_MINUTES,
         questionsDueAt: new Date(startTime.getTime() - 24 * 60 * 60 * 1000),
         approvedAt: new Date(),
         rejectionReason: null,
@@ -141,14 +269,14 @@ async function main() {
       create: {
         id: EXAM_ID,
         teacherId: teacher.teacherProfile!.id,
-        clusterId: cluster?.id ?? null,
+        clusterId: cluster.id,
         title: "Test Exam: Web Development Fundamentals",
         description: "An active test exam containing 10 MCQs with four options each.",
         type: "MCQ",
         status: "APPROVED",
         startTime,
         endTime,
-        durationMinutes: 60,
+        durationMinutes: EXAM_DURATION_MINUTES,
         questionsDueAt: new Date(startTime.getTime() - 24 * 60 * 60 * 1000),
         approvedAt: new Date(),
       },
@@ -159,7 +287,7 @@ async function main() {
       data: { questions: { create: questionRows } },
     });
 
-    if (cluster?.members.length) {
+    if (cluster.members.length) {
       await tx.examAssignment.createMany({
         data: cluster.members.map(({ userId }) => ({
           examId: EXAM_ID,
@@ -172,8 +300,8 @@ async function main() {
   }, { timeout: 30_000 });
 
   console.log(`Seeded active exam "${EXAM_ID}" for teacher ${email}.`);
-  console.log(`Cluster: ${cluster?.name ?? "No active cluster; created as a standalone teacher exam"}`);
-  console.log(`Assigned students: ${cluster?.members.length ?? 0}`);
+  console.log(`Cluster: ${cluster.name} (${cluster.slug})`);
+  console.log(`Assigned students: ${cluster.members.length}`);
   console.log(`Window: ${startTime.toISOString()} to ${endTime.toISOString()}`);
   console.log("Questions: 10 MCQs, 4 options each, 10 total marks.");
 }

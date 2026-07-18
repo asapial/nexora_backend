@@ -72,13 +72,17 @@ test("camera event validation accepts bounded idempotent Pro Mode events", () =>
     type: "PHONE_DETECTED",
     snapshotDataUrl: "data:image/png;base64,ZmFrZQ==",
   }).success, false);
-  for (const type of ["HEAD_TURN_HORIZONTAL", "EYE_MOVEMENT_HORIZONTAL", "PHONE_DETECTED"]) {
+  for (const type of ["HEAD_TURN_HORIZONTAL", "EYE_MOVEMENT_HORIZONTAL", "PHONE_DETECTED", "DEVICE_DETECTED"]) {
     assert.equal(proctorEventSchema.safeParse({
       clientEventId: "1c31baaf-bde5-46a8-872f-41ddf0f3705d",
       type,
       durationMs: 1500,
       confidence: 0.72,
-      metadata: type === "PHONE_DETECTED" ? { category: "cell phone" } : { direction: "left" },
+      metadata: type === "PHONE_DETECTED"
+        ? { category: "cell phone" }
+        : type === "DEVICE_DETECTED"
+          ? { category: "laptop", model: "EfficientDet-Lite0" }
+          : { direction: "left" },
     }).success, true);
   }
 });
